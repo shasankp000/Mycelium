@@ -3,6 +3,8 @@
 
 # <u>Project Synopsis</u>
 
+## Date: 18-08-2025
+
 The motivation for this project stems from the growing complexity of
 modern AI systems, where monolithic neural networks often face significant
 scalability, maintainability, and adaptability challenges. As AI models
