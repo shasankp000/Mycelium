@@ -1,6 +1,10 @@
 # Mycelium
 “Mycelium” – A Hierarchical Framework for Distributed Neural Network Coordination
 
+> **Note:** This project was conceived and designed independently by **Shasank Prasad** (shasankp.14@gmail.com).  
+> It draws on concepts from modular/adaptive deep learning research (e.g., Alippi & Cambria, 2022) (https://link.springer.com/article/10.1007/s10618-022-00890-9) but introduces new mechanisms such as tag-based routing, patch networks, and cold storage for long-term retention.
+
+
 # <u>Project Synopsis</u>
 
 ## Date: 18-08-2025
