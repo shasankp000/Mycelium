@@ -215,5 +215,26 @@ process to maintain user trust.
 
 <img width="903" height="3840" alt="Project Mycelium Cold Storage Pipeline _ Mermaid Chart-2025-08-13-160603" src="https://github.com/user-attachments/assets/62a7b040-49fd-4832-b9b9-5d69989d3ac8" />
 
+---
 
+# Related Work
+
+This project connects to a growing body of research on modular and adaptive deep learning.  
+In particular, it relates to work such as:
+
+- **Adaptive Modular Deep Learning for Data Streams**  
+  (M. Alippi, E. Cambria, et al., Data Mining and Knowledge Discovery, 2022)  
+  [DOI: 10.1007/s10618-022-00890-9]
+
+  https://link.springer.com/article/10.1007/s10618-022-00890-9
+
+That research explores modularization and dynamic expert routing for adapting to evolving data distributions.  
+Mycelium builds upon the same broad direction but introduces several **unique contributions**:
+
+- **Semantic tag-based meta-controller**: Uses tags to dynamically route inputs, track temporal locality, and preserve context.  
+- **Patch networks**: Rather than retraining experts directly, new “patches” are spawned to capture novel knowledge while freezing prior subnetworks.  
+- **Cold storage abstraction**: A scalable memory mechanism that allows long-term retention, quantization/dequantization, and retrieval of dormant subnetworks.
+
+The core idea and system design for Mycelium originated independently by **Shasank Prasad**, prior to reviewing related literature.  
+Citations are included here for completeness and academic grounding.
 
