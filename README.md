@@ -208,3 +208,10 @@ without resource explosion.
 preserving historical performance.
   - User Transparency: "Remembering" phase communicates recovery
 process to maintain user trust.
+
+
+
+<img width="903" height="3840" alt="Project Mycelium Cold Storage Pipeline _ Mermaid Chart-2025-08-13-160603" src="https://github.com/user-attachments/assets/62a7b040-49fd-4832-b9b9-5d69989d3ac8" />
+
+
+
