@@ -1,0 +1,202 @@
+{
+    "evaluation_timestamp": "2025-09-21T23:36:43.660097",
+    "sentences_evaluated": 10,
+    "flag_summary": {
+        "create_hybrid_expert": 4,
+        "use_existing_expert": 3,
+        "create_new_expert": 3
+    },
+    "detailed_results": [
+        {
+            "sentence": "AI-driven systems can analyze data, improve healthcare, and optimize logistics",
+            "tags": [
+                "AI",
+                "healthcare",
+                "logistics"
+            ],
+            "timestamp": "2025-09-21T23:36:41.817631",
+            "expert_scores": {
+                "AI": {
+                    "precision": 0.76,
+                    "recall": 0.88,
+                    "f1": 0.82,
+                    "mse": 0.09,
+                    "mae": 0.02
+                },
+                "healthcare": {
+                    "precision": 0.92,
+                    "recall": 0.89,
+                    "f1": 0.9,
+                    "mse": 0.09,
+                    "mae": 0.04
+                }
+            },
+            "expert_flag": "create_hybrid_expert"
+        },
+        {
+            "sentence": "Quantum computers are revolutionizing physics and mathematics research",
+            "tags": [
+                "AI",
+                "physics",
+                "maths"
+            ],
+            "timestamp": "2025-09-21T23:36:42.061426",
+            "expert_scores": {
+                "AI": {
+                    "precision": 0.91,
+                    "recall": 0.84,
+                    "f1": 0.87,
+                    "mse": 0.06,
+                    "mae": 0.08
+                },
+                "physics": {
+                    "precision": 0.92,
+                    "recall": 0.83,
+                    "f1": 0.87,
+                    "mse": 0.05,
+                    "mae": 0.06
+                }
+            },
+            "expert_flag": "create_hybrid_expert"
+        },
+        {
+            "sentence": "Financial markets are influenced by global politics and economic trends",
+            "tags": [
+                "finance",
+                "politics"
+            ],
+            "timestamp": "2025-09-21T23:36:42.230646",
+            "expert_scores": {
+                "finance": {
+                    "precision": 0.89,
+                    "recall": 0.84,
+                    "f1": 0.86,
+                    "mse": 0.05,
+                    "mae": 0.04
+                }
+            },
+            "expert_flag": "use_existing_expert"
+        },
+        {
+            "sentence": "Music and art therapy are used in modern healthcare for mental wellness",
+            "tags": [
+                "healthcare",
+                "art",
+                "music"
+            ],
+            "timestamp": "2025-09-21T23:36:42.456050",
+            "expert_scores": {
+                "healthcare": {
+                    "precision": 0.93,
+                    "recall": 0.83,
+                    "f1": 0.88,
+                    "mse": 0.03,
+                    "mae": 0.02
+                },
+                "music": {
+                    "precision": 0.75,
+                    "recall": 0.72,
+                    "f1": 0.73,
+                    "mse": 0.1,
+                    "mae": 0.02
+                }
+            },
+            "expert_flag": "create_hybrid_expert"
+        },
+        {
+            "sentence": "Education technology platforms leverage AI to personalize learning",
+            "tags": [
+                "AI",
+                "education",
+                "technology"
+            ],
+            "timestamp": "2025-09-21T23:36:42.660542",
+            "expert_scores": {
+                "AI": {
+                    "precision": 0.73,
+                    "recall": 0.72,
+                    "f1": 0.72,
+                    "mse": 0.03,
+                    "mae": 0.06
+                }
+            },
+            "expert_flag": "use_existing_expert"
+        },
+        {
+            "sentence": "Sports analytics use big data to optimize team performance",
+            "tags": [
+                "sports",
+                "technology"
+            ],
+            "timestamp": "2025-09-21T23:36:42.830993",
+            "expert_scores": {},
+            "expert_flag": "create_new_expert"
+        },
+        {
+            "sentence": "Biology and chemistry are foundational for pharmaceutical innovations",
+            "tags": [
+                "biology",
+                "chemistry"
+            ],
+            "timestamp": "2025-09-21T23:36:43.000499",
+            "expert_scores": {},
+            "expert_flag": "create_new_expert"
+        },
+        {
+            "sentence": "History and literature provide context for understanding political movements",
+            "tags": [
+                "history",
+                "literature",
+                "politics"
+            ],
+            "timestamp": "2025-09-21T23:36:43.236273",
+            "expert_scores": {},
+            "expert_flag": "create_new_expert"
+        },
+        {
+            "sentence": "Mathematics is essential for advancements in physics and finance",
+            "tags": [
+                "maths",
+                "physics",
+                "finance"
+            ],
+            "timestamp": "2025-09-21T23:36:43.457198",
+            "expert_scores": {
+                "physics": {
+                    "precision": 0.8,
+                    "recall": 0.74,
+                    "f1": 0.77,
+                    "mse": 0.04,
+                    "mae": 0.06
+                },
+                "finance": {
+                    "precision": 0.73,
+                    "recall": 0.93,
+                    "f1": 0.82,
+                    "mse": 0.09,
+                    "mae": 0.09
+                }
+            },
+            "expert_flag": "create_hybrid_expert"
+        },
+        {
+            "sentence": "Logistics companies use AI and IoT to streamline supply chains",
+            "tags": [
+                "AI",
+                "logistics",
+                "technology"
+            ],
+            "timestamp": "2025-09-21T23:36:43.659098",
+            "expert_scores": {
+                "AI": {
+                    "precision": 0.79,
+                    "recall": 0.74,
+                    "f1": 0.76,
+                    "mse": 0.05,
+                    "mae": 0.02
+                }
+            },
+            "expert_flag": "use_existing_expert"
+        }
+    ]
+}
