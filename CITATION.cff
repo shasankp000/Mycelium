@@ -1,0 +1,8 @@
+cff-version: 1.2.0
+title: "Project Mycelium"
+authors:
+  - family-names: "Prasad"
+    given-names: "Shasank"
+date-released: "2025-08-16"
+version: "0.1.0"
+message: "If you use this software, please cite it as: Shasank Prasad (2025). Project Mycelium."
