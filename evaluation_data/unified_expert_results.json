@@ -1,0 +1,496 @@
+{
+  "summary": {
+    "accuracy": 0.375,
+    "ood_accuracy": 1.0,
+    "decision_distribution": {
+      "create_new_patch": 5,
+      "use_existing_expert": 1,
+      "create_new_expert": 2
+    },
+    "average_scores": {
+      "similarity": 0.18587712850421667,
+      "confidence": 0.786574132532097,
+      "composite": 0.42404576493427815,
+      "ood_penalty": 0.30000000000000004
+    }
+  },
+  "timestamp": "2025-09-29T20:56:54.368006",
+  "test_results": [
+    {
+      "test_case": {
+        "name": "Clear Medical Text",
+        "text": "The patient showed symptoms of acute myocardial infarction with elevated troponin levels and ECG changes.",
+        "expected_domain": "medical",
+        "expected_decision": "use_existing_expert",
+        "description": "Should score high on similarity, confidence, and low on OOD"
+      },
+      "decision": {
+        "selected_domain": "medical",
+        "decision_flag": "create_new_patch",
+        "confidence_in_decision": 0.2589132744137407,
+        "composite_score": 0.4623451328816798,
+        "quality_score": 0.7,
+        "reasoning": [
+          "Medium composite score (0.462) suitable for patch creation"
+        ],
+        "ood_analysis": {
+          "is_ood": "True",
+          "ood_confidence": 0.3333333333333333
+        },
+        "similarity_analysis": {
+          "similarity_score": 0.23375818133354187,
+          "adjusted_similarity": 0.20259042382240297
+        },
+        "confidence_analysis": {
+          "calibrated_confidence": 0.7999169205206313,
+          "adjusted_confidence": 0.5866057417151297
+        }
+      },
+      "expert_analyses": {
+        "medical": {
+          "k_medoids_similarity": 0.23375818133354187,
+          "calibrated_confidence": 0.7999169205206313,
+          "ood_detected": "True",
+          "ood_confidence": 0.3333333333333333,
+          "composite_score": 0.4623451328816798,
+          "ood_penalty": 0.26666666666666666
+        },
+        "music": {
+          "k_medoids_similarity": 0.06907946616411209,
+          "calibrated_confidence": 0.7430915371329879,
+          "ood_detected": "True",
+          "ood_confidence": 0.6666666666666666,
+          "composite_score": 0.25230706367296396,
+          "ood_penalty": 0.5333333333333333
+        },
+        "physics": {
+          "k_medoids_similarity": 0.09279723465442657,
+          "calibrated_confidence": 0.75,
+          "ood_detected": "True",
+          "ood_confidence": 0.6666666666666666,
+          "composite_score": 0.2605538554986318,
+          "ood_penalty": 0.5333333333333333
+        }
+      },
+      "correct": false
+    },
+    {
+      "test_case": {
+        "name": "Clear Physics Text",
+        "text": "The wave function collapse occurs when quantum measurement is performed on the system, causing decoherence.",
+        "expected_domain": "physics",
+        "expected_decision": "use_existing_expert",
+        "description": "Should score high on similarity, confidence, and low on OOD"
+      },
+      "decision": {
+        "selected_domain": "physics",
+        "decision_flag": "use_existing_expert",
+        "confidence_in_decision": 0.43972507596015936,
+        "composite_score": 0.6281786799430849,
+        "quality_score": 0.7,
+        "reasoning": [
+          "High composite score (0.628) with low OOD risk"
+        ],
+        "ood_analysis": {
+          "is_ood": "False",
+          "ood_confidence": 0.0
+        },
+        "similarity_analysis": {
+          "similarity_score": 0.3204466998577118,
+          "adjusted_similarity": 0.3204466998577118
+        },
+        "confidence_analysis": {
+          "calibrated_confidence": 0.75,
+          "adjusted_confidence": 0.75
+        }
+      },
+      "expert_analyses": {
+        "medical": {
+          "k_medoids_similarity": 0.03882881626486778,
+          "calibrated_confidence": 0.7999169205206313,
+          "ood_detected": "True",
+          "ood_confidence": 1.0,
+          "composite_score": 0.11331226954521877,
+          "ood_penalty": 0.8
+        },
+        "music": {
+          "k_medoids_similarity": 0.020650696009397507,
+          "calibrated_confidence": 0.7430915371329879,
+          "ood_detected": "True",
+          "ood_confidence": 0.3333333333333333,
+          "composite_score": 0.371799092175601,
+          "ood_penalty": 0.26666666666666666
+        },
+        "physics": {
+          "k_medoids_similarity": 0.3204466998577118,
+          "calibrated_confidence": 0.75,
+          "ood_detected": "False",
+          "ood_confidence": 0.0,
+          "composite_score": 0.6281786799430849,
+          "ood_penalty": 0.0
+        }
+      },
+      "correct": true
+    },
+    {
+      "test_case": {
+        "name": "Borderline Medical",
+        "text": "Treatment protocol for patient care management.",
+        "expected_domain": "medical",
+        "expected_decision": "create_new_patch",
+        "description": "Medium similarity, medium confidence, low OOD"
+      },
+      "decision": {
+        "selected_domain": "medical",
+        "decision_flag": "create_new_patch",
+        "confidence_in_decision": 0.2536553743664384,
+        "composite_score": 0.45295602565435433,
+        "quality_score": 0.7,
+        "reasoning": [
+          "Medium composite score (0.453) suitable for patch creation",
+          "Low similarity to existing medoids"
+        ],
+        "ood_analysis": {
+          "is_ood": "True",
+          "ood_confidence": 0.3333333333333333
+        },
+        "similarity_analysis": {
+          "similarity_score": 0.2066742181777954,
+          "adjusted_similarity": 0.17911765575408936
+        },
+        "confidence_analysis": {
+          "calibrated_confidence": 0.7999169205206313,
+          "adjusted_confidence": 0.5866057417151297
+        }
+      },
+      "expert_analyses": {
+        "medical": {
+          "k_medoids_similarity": 0.2066742181777954,
+          "calibrated_confidence": 0.7999169205206313,
+          "ood_detected": "True",
+          "ood_confidence": 0.3333333333333333,
+          "composite_score": 0.45295602565435433,
+          "ood_penalty": 0.26666666666666666
+        },
+        "music": {
+          "k_medoids_similarity": 0.08688327670097351,
+          "calibrated_confidence": 0.7430915371329879,
+          "ood_detected": "True",
+          "ood_confidence": 0.3333333333333333,
+          "composite_score": 0.39475972014868066,
+          "ood_penalty": 0.26666666666666666
+        },
+        "physics": {
+          "k_medoids_similarity": 0.15190686285495758,
+          "calibrated_confidence": 0.75,
+          "ood_detected": "True",
+          "ood_confidence": 0.3333333333333333,
+          "composite_score": 0.41932771245638534,
+          "ood_penalty": 0.26666666666666666
+        }
+      },
+      "correct": true
+    },
+    {
+      "test_case": {
+        "name": "Cross-Domain (Physics + Medical)",
+        "text": "The electromagnetic radiation from the MRI machine provides detailed anatomical imaging for diagnostic purposes.",
+        "expected_domain": "medical",
+        "expected_decision": "create_new_patch",
+        "description": "Mixed domain signals, moderate all scores"
+      },
+      "decision": {
+        "selected_domain": "medical",
+        "decision_flag": "create_new_expert",
+        "confidence_in_decision": 0.9,
+        "composite_score": 0.30306210709159576,
+        "quality_score": 0.7,
+        "reasoning": [
+          "High OOD penalty (0.533) suggests input is out-of-distribution",
+          "Low similarity to existing medoids",
+          "OOD detection flagged potential distribution shift"
+        ],
+        "ood_analysis": {
+          "is_ood": "True",
+          "ood_confidence": 0.6666666666666666
+        },
+        "similarity_analysis": {
+          "similarity_score": 0.2059464156627655,
+          "adjusted_similarity": 0.15102737148602804
+        },
+        "confidence_analysis": {
+          "calibrated_confidence": 0.7999169205206313,
+          "adjusted_confidence": 0.373294562909628
+        }
+      },
+      "expert_analyses": {
+        "medical": {
+          "k_medoids_similarity": 0.2059464156627655,
+          "calibrated_confidence": 0.7999169205206313,
+          "ood_detected": "True",
+          "ood_confidence": 0.6666666666666666,
+          "composite_score": 0.30306210709159576,
+          "ood_penalty": 0.5333333333333333
+        },
+        "music": {
+          "k_medoids_similarity": 0.017471425235271454,
+          "calibrated_confidence": 0.7430915371329879,
+          "ood_detected": "True",
+          "ood_confidence": 0.6666666666666666,
+          "composite_score": 0.23716870500050402,
+          "ood_penalty": 0.5333333333333333
+        },
+        "physics": {
+          "k_medoids_similarity": 0.07174526154994965,
+          "calibrated_confidence": 0.75,
+          "ood_detected": "True",
+          "ood_confidence": 0.6666666666666666,
+          "composite_score": 0.2543786100546519,
+          "ood_penalty": 0.5333333333333333
+        }
+      },
+      "correct": false
+    },
+    {
+      "test_case": {
+        "name": "Finance (OOD)",
+        "text": "The financial derivatives market experienced significant volatility during the trading session with high leverage.",
+        "expected_domain": null,
+        "expected_decision": "create_new_expert",
+        "description": "Should trigger high OOD detection across all domains"
+      },
+      "decision": {
+        "selected_domain": "music",
+        "decision_flag": "create_new_patch",
+        "confidence_in_decision": 0.21433245206469428,
+        "composite_score": 0.38273652154409693,
+        "quality_score": 0.7,
+        "reasoning": [
+          "Medium composite score (0.383) suitable for patch creation",
+          "Low similarity to existing medoids"
+        ],
+        "ood_analysis": {
+          "is_ood": "True",
+          "ood_confidence": 0.3333333333333333
+        },
+        "similarity_analysis": {
+          "similarity_score": 0.05220097303390503,
+          "adjusted_similarity": 0.04524084329605103
+        },
+        "confidence_analysis": {
+          "calibrated_confidence": 0.7430915371329879,
+          "adjusted_confidence": 0.5449337938975245
+        }
+      },
+      "expert_analyses": {
+        "medical": {
+          "k_medoids_similarity": 0.05389408767223358,
+          "calibrated_confidence": 0.7999169205206313,
+          "ood_detected": "True",
+          "ood_confidence": 1.0,
+          "composite_score": 0.11692793468298655,
+          "ood_penalty": 0.8
+        },
+        "music": {
+          "k_medoids_similarity": 0.05220097303390503,
+          "calibrated_confidence": 0.7430915371329879,
+          "ood_detected": "True",
+          "ood_confidence": 0.3333333333333333,
+          "composite_score": 0.38273652154409693,
+          "ood_penalty": 0.26666666666666666
+        },
+        "physics": {
+          "k_medoids_similarity": 0.15303529798984528,
+          "calibrated_confidence": 0.75,
+          "ood_detected": "True",
+          "ood_confidence": 1.0,
+          "composite_score": 0.13672847151756284,
+          "ood_penalty": 0.8
+        }
+      },
+      "correct": false
+    },
+    {
+      "test_case": {
+        "name": "Cooking Recipe (OOD)",
+        "text": "Mix flour, eggs, and milk to create a smooth batter, then cook on medium heat until golden brown.",
+        "expected_domain": null,
+        "expected_decision": "create_new_expert",
+        "description": "Clear out-of-distribution for all expert domains"
+      },
+      "decision": {
+        "selected_domain": "medical",
+        "decision_flag": "create_new_patch",
+        "confidence_in_decision": 0.2383765475892981,
+        "composite_score": 0.4256724064094609,
+        "quality_score": 0.7,
+        "reasoning": [
+          "Medium composite score (0.426) suitable for patch creation",
+          "Low similarity to existing medoids"
+        ],
+        "ood_analysis": {
+          "is_ood": "True",
+          "ood_confidence": 0.3333333333333333
+        },
+        "similarity_analysis": {
+          "similarity_score": 0.12797147035598755,
+          "adjusted_similarity": 0.11090860764185588
+        },
+        "confidence_analysis": {
+          "calibrated_confidence": 0.7999169205206313,
+          "adjusted_confidence": 0.5866057417151297
+        }
+      },
+      "expert_analyses": {
+        "medical": {
+          "k_medoids_similarity": 0.12797147035598755,
+          "calibrated_confidence": 0.7999169205206313,
+          "ood_detected": "True",
+          "ood_confidence": 0.3333333333333333,
+          "composite_score": 0.4256724064094609,
+          "ood_penalty": 0.26666666666666666
+        },
+        "music": {
+          "k_medoids_similarity": 0.10318063199520111,
+          "calibrated_confidence": 0.7430915371329879,
+          "ood_detected": "True",
+          "ood_confidence": 0.3333333333333333,
+          "composite_score": 0.40040946998401294,
+          "ood_penalty": 0.26666666666666666
+        },
+        "physics": {
+          "k_medoids_similarity": 0.13793106377124786,
+          "calibrated_confidence": 0.75,
+          "ood_detected": "True",
+          "ood_confidence": 1.0,
+          "composite_score": 0.13310345530509948,
+          "ood_penalty": 0.8
+        }
+      },
+      "correct": false
+    },
+    {
+      "test_case": {
+        "name": "Nonsense Text (OOD)",
+        "text": "Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt.",
+        "expected_domain": null,
+        "expected_decision": "create_new_expert",
+        "description": "Should trigger multiple OOD detection methods"
+      },
+      "decision": {
+        "selected_domain": "medical",
+        "decision_flag": "create_new_expert",
+        "confidence_in_decision": 0.9,
+        "composite_score": 0.2669510020071765,
+        "quality_score": 0.7,
+        "reasoning": [
+          "High OOD penalty (0.533) suggests input is out-of-distribution",
+          "Low similarity to existing medoids",
+          "OOD detection flagged potential distribution shift"
+        ],
+        "ood_analysis": {
+          "is_ood": "True",
+          "ood_confidence": 0.6666666666666666
+        },
+        "similarity_analysis": {
+          "similarity_score": 0.08284037560224533,
+          "adjusted_similarity": 0.06074960877497992
+        },
+        "confidence_analysis": {
+          "calibrated_confidence": 0.7999169205206313,
+          "adjusted_confidence": 0.373294562909628
+        }
+      },
+      "expert_analyses": {
+        "medical": {
+          "k_medoids_similarity": 0.08284037560224533,
+          "calibrated_confidence": 0.7999169205206313,
+          "ood_detected": "True",
+          "ood_confidence": 0.6666666666666666,
+          "composite_score": 0.2669510020071765,
+          "ood_penalty": 0.5333333333333333
+        },
+        "music": {
+          "k_medoids_similarity": 0.23029866814613342,
+          "calibrated_confidence": 0.7430915371329879,
+          "ood_detected": "True",
+          "ood_confidence": 1.0,
+          "composite_score": 0.15471900332571104,
+          "ood_penalty": 0.8
+        },
+        "physics": {
+          "k_medoids_similarity": 0.06299509108066559,
+          "calibrated_confidence": 0.75,
+          "ood_detected": "True",
+          "ood_confidence": 1.0,
+          "composite_score": 0.11511882185935972,
+          "ood_penalty": 0.8
+        }
+      },
+      "correct": true
+    },
+    {
+      "test_case": {
+        "name": "Short Ambiguous Text",
+        "text": "therapy treatment",
+        "expected_domain": "medical",
+        "expected_decision": "create_new_expert",
+        "description": "Short text may trigger distance-based OOD detection"
+      },
+      "decision": {
+        "selected_domain": "medical",
+        "decision_flag": "create_new_patch",
+        "confidence_in_decision": 0.26345997660795456,
+        "composite_score": 0.470464243942776,
+        "quality_score": 0.7,
+        "reasoning": [
+          "Medium composite score (0.470) suitable for patch creation"
+        ],
+        "ood_analysis": {
+          "is_ood": "True",
+          "ood_confidence": 0.3333333333333333
+        },
+        "similarity_analysis": {
+          "similarity_score": 0.2571786940097809,
+          "adjusted_similarity": 0.22288820147514343
+        },
+        "confidence_analysis": {
+          "calibrated_confidence": 0.7999169205206313,
+          "adjusted_confidence": 0.5866057417151297
+        }
+      },
+      "expert_analyses": {
+        "medical": {
+          "k_medoids_similarity": 0.2571786940097809,
+          "calibrated_confidence": 0.7999169205206313,
+          "ood_detected": "True",
+          "ood_confidence": 0.3333333333333333,
+          "composite_score": 0.470464243942776,
+          "ood_penalty": 0.26666666666666666
+        },
+        "music": {
+          "k_medoids_similarity": 0.21314385533332825,
+          "calibrated_confidence": 0.7430915371329879,
+          "ood_detected": "True",
+          "ood_confidence": 0.3333333333333333,
+          "composite_score": 0.4385300540745637,
+          "ood_penalty": 0.26666666666666666
+        },
+        "physics": {
+          "k_medoids_similarity": 0.09424808621406555,
+          "calibrated_confidence": 0.75,
+          "ood_detected": "True",
+          "ood_confidence": 0.6666666666666666,
+          "composite_score": 0.26097943862279255,
+          "ood_penalty": 0.5333333333333333
+        }
+      },
+      "correct": false
+    }
+  ],
+  "system_description": {
+    "k_medoids": "Domain representation using 10 medoids per expert",
+    "calibration": "Well-calibrated confidence scores using isotonic regression",
+    "ood_detection": "Multi-method ensemble including SVM distance, nearest neighbors, and isolation forest"
+  }
+}

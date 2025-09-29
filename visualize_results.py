@@ -3,118 +3,203 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 import numpy as np
-from collections import Counter
+from collections import Counter, defaultdict
 
 def visualize_mycelium_results():
-    """Create visualizations for Mycelium workflow results"""
+    """Create visualizations for Mycelium unified expert system results"""
     
-    # Load data
-    with open("evaluation_data/expert_evaluation_results.json", "r") as f:
-        expert_data = json.load(f)
+    # Load the data files
+    try:
+        with open("evaluation_data/expert_evaluation_results.json", "r") as f:
+            expert_data = json.load(f)
+    except FileNotFoundError:
+        print("Error: expert_evaluation_results.json not found")
+        return
+    except json.JSONDecodeError:
+        print("Error: Invalid JSON in expert_evaluation_results.json")
+        return
     
-    with open("evaluation_data/tag_clusters_transformer.json", "r") as f:
-        cluster_data = json.load(f)
+    # Create visualization dashboard
+    plt.style.use('default')
+    fig, axes = plt.subplots(2, 3, figsize=(20, 12))
+    fig.suptitle('Mycelium Unified Expert System Analysis', fontsize=16, fontweight='bold')
     
-    with open("evaluation_data/temporal_analysis.json", "r") as f:
-        temporal_data = json.load(f)
-    
-    # Set up the plotting style
-    plt.style.use('seaborn-v0_8')
-    fig, axes = plt.subplots(2, 3, figsize=(18, 12))
-    fig.suptitle('Mycelium Expert Evaluation & Clustering Analysis', fontsize=16)
-    
-    # 1. Expert Flag Distribution
-    flags = expert_data["flag_summary"]
-    axes[0, 0].pie(flags.values(), labels=flags.keys(), autopct='%1.1f%%', startangle=90)
-    axes[0, 0].set_title('Expert Flag Distribution')
-    
-    # 2. F1 Score Distribution by Expert
-    f1_scores = []
-    expert_names = []
-    for result in expert_data["detailed_results"]:
-        for expert, scores in result["expert_scores"].items():
-            f1_scores.append(scores["f1"])
-            expert_names.append(expert)
-    
-    if f1_scores:
-        df_scores = pd.DataFrame({"Expert": expert_names, "F1_Score": f1_scores})
-        sns.boxplot(data=df_scores, x="Expert", y="F1_Score", ax=axes[0, 1])
-        axes[0, 1].set_title('F1 Score Distribution by Expert')
-        axes[0, 1].tick_params(axis='x', rotation=45)
-    
-    # 3. Cluster Size Distribution
-    cluster_sizes = [len(tags) for tags in cluster_data["clusters"].values()]
-    axes[0, 2].hist(cluster_sizes, bins=10, edgecolor='black')
-    axes[0, 2].set_title('Cluster Size Distribution')
-    axes[0, 2].set_xlabel('Cluster Size')
-    axes[0, 2].set_ylabel('Frequency')
-    
-    # 4. Tag Frequency
-    all_tags = []
-    for result in expert_data["detailed_results"]:
-        all_tags.extend(result["tags"])
-    
-    tag_counts = Counter(all_tags)
-    top_tags = dict(tag_counts.most_common(10))
-    
-    axes[1, 0].bar(top_tags.keys(), top_tags.values())
-    axes[1, 0].set_title('Top 10 Most Frequent Tags')
-    axes[1, 0].tick_params(axis='x', rotation=45)
-    
-    # 5. Expert Performance Heatmap
-    experts = list(set(expert_names))
-    metrics = ['precision', 'recall', 'f1', 'mse', 'mae']
-    
-    if experts and len(experts) > 1:
-        heatmap_data = []
-        for expert in experts:
-            expert_metrics = []
-            for metric in metrics:
-                scores = []
-                for result in expert_data["detailed_results"]:
-                    if expert in result["expert_scores"]:
-                        scores.append(result["expert_scores"][expert][metric])
-                expert_metrics.append(np.mean(scores) if scores else 0)
-            heatmap_data.append(expert_metrics)
-        
-        sns.heatmap(heatmap_data, annot=True, xticklabels=metrics, 
-                   yticklabels=experts, ax=axes[1, 1], cmap='RdYlBu_r')
-        axes[1, 1].set_title('Expert Performance Heatmap (Average Scores)')
-    
-    # 6. Temporal Analysis
-    if temporal_data["frequent_tags"]:
-        freq_tags = temporal_data["frequent_tags"]
-        axes[1, 2].bar(freq_tags.keys(), freq_tags.values())
-        axes[1, 2].set_title('Frequent Tags (Recent Activity)')
-        axes[1, 2].tick_params(axis='x', rotation=45)
+    # 1. Expert Decision Distribution (Pie Chart)
+    if "flag_summary" in expert_data:
+        flags = expert_data["flag_summary"]
+        colors = ['#ff7f7f', '#87ceeb', '#98fb98', '#dda0dd']
+        if flags:
+            wedges, texts, autotexts = axes[0, 0].pie(
+                flags.values(), 
+                labels=flags.keys(), 
+                autopct='%1.1f%%',
+                colors=colors[:len(flags)], 
+                startangle=90
+            )
+            axes[0, 0].set_title('Expert Decision Distribution', fontweight='bold')
+        else:
+            axes[0, 0].text(0.5, 0.5, 'No flag data available', ha='center', va='center')
+            axes[0, 0].set_title('Expert Decision Distribution (No Data)', fontweight='bold')
     else:
-        axes[1, 2].text(0.5, 0.5, 'No frequent tags data', 
-                       horizontalalignment='center', verticalalignment='center')
-        axes[1, 2].set_title('Frequent Tags (Recent Activity)')
+        axes[0, 0].text(0.5, 0.5, 'No flag summary found', ha='center', va='center')
+        axes[0, 0].set_title('Expert Decision Distribution (No Data)', fontweight='bold')
     
+    # 2. Extract data for analysis
+    similarity_scores = []
+    confidence_scores = []
+    expert_labels = []
+    decision_types = []
+    ood_confidences = []
+    
+    # Parse unified expert system data format
+    if "detailed_results" in expert_data:
+        for result in expert_data["detailed_results"]:
+            if "expert_decision" in result:
+                expert_decision = result["expert_decision"]
+                
+                # Extract from unified decision structure
+                if "unified_decision" in expert_decision:
+                    unified_decision = expert_decision["unified_decision"]
+                    selected_domain = unified_decision.get("selected_domain", "unknown")
+                    decision_type = unified_decision.get("decision_flag", "unknown")
+                    
+                    # Get expert analyses for the selected domain
+                    if "expert_analyses" in expert_decision and selected_domain in expert_decision["expert_analyses"]:
+                        domain_analysis = expert_decision["expert_analyses"][selected_domain]
+                        
+                        # Extract systems analysis data
+                        if "systems_analysis" in domain_analysis:
+                            systems = domain_analysis["systems_analysis"]
+                            
+                            # Extract similarity from k-medoids analysis
+                            if "k_medoids" in systems:
+                                similarity = systems["k_medoids"].get("similarity_score", 0.0)
+                                similarity_scores.append(similarity)
+                            else:
+                                similarity_scores.append(0.0)
+                            
+                            # Extract confidence from calibration analysis
+                            if "calibration" in systems:
+                                confidence = systems["calibration"].get("confidence_score", 0.0)
+                                confidence_scores.append(confidence)
+                            else:
+                                confidence_scores.append(0.0)
+                            
+                            # Extract OOD confidence
+                            if "ood_detection" in systems:
+                                ood_confidence = systems["ood_detection"].get("ood_confidence", 0.0)
+                                ood_confidences.append(ood_confidence)
+                            else:
+                                ood_confidences.append(0.0)
+                            
+                            expert_labels.append(selected_domain)
+                            decision_types.append(decision_type)
+    
+    # 3. System Performance Scatter Plot
+    if similarity_scores and confidence_scores:
+        scatter = axes[0, 1].scatter(
+            similarity_scores, 
+            confidence_scores, 
+            c=ood_confidences,
+            cmap='viridis',
+            alpha=0.7,
+            s=100
+        )
+        axes[0, 1].set_xlabel('Similarity Score')
+        axes[0, 1].set_ylabel('Confidence Score')
+        axes[0, 1].set_title('System Performance Analysis', fontweight='bold')
+        plt.colorbar(scatter, ax=axes[0, 1], label='OOD Confidence')
+    else:
+        axes[0, 1].text(0.5, 0.5, 'No performance data available', ha='center', va='center')
+        axes[0, 1].set_title('System Performance Analysis (No Data)', fontweight='bold')
+    
+    # 4. Decision Type Distribution (Bar Chart)
+    if decision_types:
+        decision_counts = Counter(decision_types)
+        axes[0, 2].bar(decision_counts.keys(), decision_counts.values(), color='skyblue')
+        axes[0, 2].set_title('Decision Type Distribution', fontweight='bold')
+        axes[0, 2].set_xlabel('Decision Type')
+        axes[0, 2].set_ylabel('Count')
+        plt.setp(axes[0, 2].xaxis.get_majorticklabels(), rotation=45)
+    else:
+        axes[0, 2].text(0.5, 0.5, 'No decision data available', ha='center', va='center')
+        axes[0, 2].set_title('Decision Type Distribution (No Data)', fontweight='bold')
+    
+    # 5. Domain Distribution (Bar Chart)
+    if expert_labels:
+        domain_counts = Counter(expert_labels)
+        axes[1, 0].bar(domain_counts.keys(), domain_counts.values(), color='lightcoral')
+        axes[1, 0].set_title('Domain Distribution', fontweight='bold')
+        axes[1, 0].set_xlabel('Domain')
+        axes[1, 0].set_ylabel('Count')
+        plt.setp(axes[1, 0].xaxis.get_majorticklabels(), rotation=45)
+    else:
+        axes[1, 0].text(0.5, 0.5, 'No domain data available', ha='center', va='center')
+        axes[1, 0].set_title('Domain Distribution (No Data)', fontweight='bold')
+    
+    # 6. System Performance Heatmap
+    if similarity_scores and confidence_scores and ood_confidences:
+        # Create a matrix for heatmap
+        data_matrix = []
+        metrics = ['Similarity', 'Confidence', 'OOD Confidence']
+        
+        unique_domains = list(set(expert_labels))
+        for domain in unique_domains:
+            domain_indices = [j for j, label in enumerate(expert_labels) if label == domain]
+            if domain_indices:
+                avg_similarity = np.mean([similarity_scores[j] for j in domain_indices])
+                avg_confidence = np.mean([confidence_scores[j] for j in domain_indices])
+                avg_ood_confidence = np.mean([ood_confidences[j] for j in domain_indices])
+                data_matrix.append([avg_similarity, avg_confidence, avg_ood_confidence])
+        
+        if data_matrix:
+            heatmap_data = pd.DataFrame(data_matrix, 
+                                      index=unique_domains, 
+                                      columns=metrics)
+            sns.heatmap(heatmap_data, annot=True, cmap='coolwarm', ax=axes[1, 1], fmt='.3f')
+            axes[1, 1].set_title('System Performance Heatmap', fontweight='bold')
+        else:
+            axes[1, 1].text(0.5, 0.5, 'Insufficient data for heatmap', ha='center', va='center')
+            axes[1, 1].set_title('System Performance Heatmap (No Data)', fontweight='bold')
+    else:
+        axes[1, 1].text(0.5, 0.5, 'No performance metrics available', ha='center', va='center')
+        axes[1, 1].set_title('System Performance Heatmap (No Data)', fontweight='bold')
+    
+    # 7. Score Distribution Histogram
+    if similarity_scores:
+        axes[1, 2].hist(similarity_scores, bins=10, alpha=0.7, color='blue', label='Similarity')
+        axes[1, 2].hist(confidence_scores, bins=10, alpha=0.7, color='red', label='Confidence')
+        axes[1, 2].set_title('Score Distribution', fontweight='bold')
+        axes[1, 2].set_xlabel('Score Value')
+        axes[1, 2].set_ylabel('Frequency')
+        axes[1, 2].legend()
+    else:
+        axes[1, 2].text(0.5, 0.5, 'No score data available', ha='center', va='center')
+        axes[1, 2].set_title('Score Distribution (No Data)', fontweight='bold')
+    
+    # Adjust layout and save
     plt.tight_layout()
     plt.savefig('evaluation_data/mycelium_analysis.png', dpi=300, bbox_inches='tight')
+    print("✓ Visualization saved to evaluation_data/mycelium_analysis.png")
+    
+    # Display summary statistics
+    print("\n=== Mycelium Analysis Summary ===")
+    if similarity_scores:
+        print(f"Average Similarity Score: {np.mean(similarity_scores):.3f}")
+        print(f"Average Confidence Score: {np.mean(confidence_scores):.3f}")
+        print(f"Average OOD Confidence: {np.mean(ood_confidences):.3f}")
+        print(f"Similarity Score Range: [{min(similarity_scores):.3f}, {max(similarity_scores):.3f}]")
+        print(f"Confidence Score Range: [{min(confidence_scores):.3f}, {max(confidence_scores):.3f}]")
+    
+    if expert_labels:
+        print(f"Total Decisions Analyzed: {len(expert_labels)}")
+        print(f"Unique Domains: {len(set(expert_labels))}")
+        print(f"Domain Distribution: {dict(Counter(expert_labels))}")
+    
+    if decision_types:
+        print(f"Decision Type Distribution: {dict(Counter(decision_types))}")
+    
     plt.show()
-    
-    # Print summary statistics
-    print("=== MYCELIUM ANALYSIS SUMMARY ===")
-    print(f"Total sentences evaluated: {expert_data['sentences_evaluated']}")
-    print(f"Flag distribution: {expert_data['flag_summary']}")
-    print(f"Number of clusters: {len(cluster_data['clusters'])}")
-    print(f"Average cluster size: {np.mean(cluster_sizes):.2f}")
-    print(f"Recent statements analyzed: {temporal_data['recent_statements_count']}")
-    print(f"Patch assignment: {temporal_data['patch_assignment']['action']}")
-    
-    if f1_scores:
-        print(f"Average F1 score across all experts: {np.mean(f1_scores):.3f}")
-        print(f"Best performing expert: {expert_names[np.argmax(f1_scores)]} (F1: {max(f1_scores):.3f})")
 
 if __name__ == "__main__":
-    try:
-        visualize_mycelium_results()
-    except FileNotFoundError as e:
-        print(f"Error: {e}")
-        print("Please run the workflow first to generate the required JSON files.")
-    except Exception as e:
-        print(f"Visualization error: {e}")
-        print("Make sure you have matplotlib, seaborn, pandas, and numpy installed.")
+    visualize_mycelium_results()

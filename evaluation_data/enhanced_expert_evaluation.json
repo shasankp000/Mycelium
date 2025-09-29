@@ -1,0 +1,298 @@
+{
+  "test_results": [
+    {
+      "input_text": "The patient showed symptoms of acute myocardial infarction with elevated troponin levels.",
+      "flag": "create_new_patch",
+      "analysis": {
+        "medical": {
+          "similarity_score": 0.22310753166675568,
+          "confidence_score": 0.8987645451824705,
+          "expert_uuid": "15a8dec7-fb94-4610-ab2d-91b19d3fbbdd"
+        },
+        "music": {
+          "similarity_score": 0.044372521340847015,
+          "confidence_score": 0.37935832063433683,
+          "expert_uuid": "017d84ee-6e22-41d8-b81b-225d6a4eb5a9"
+        },
+        "physics": {
+          "similarity_score": 0.10671292245388031,
+          "confidence_score": 0.0611638303153407,
+          "expert_uuid": "910f81b0-4280-4565-b0f7-5ad535ee8253"
+        },
+        "selected_expert": {
+          "domain": "medical",
+          "similarity": 0.22310753166675568,
+          "confidence": 0.8987645451824705,
+          "expert_uuid": "15a8dec7-fb94-4610-ab2d-91b19d3fbbdd"
+        }
+      },
+      "ood_analysis": {
+        "medical": {
+          "is_ood": "False",
+          "ood_confidence": 0.3333333333333333,
+          "decision_distance": 1.797529090364941,
+          "nn_distance": "0.62261385",
+          "isolation_score": 0.04371551900189713
+        },
+        "music": {
+          "is_ood": "False",
+          "ood_confidence": 0.3333333333333333,
+          "decision_distance": 0.7587166412686737,
+          "nn_distance": "0.7914708",
+          "isolation_score": 0.011919988395024728
+        },
+        "physics": {
+          "is_ood": "True",
+          "ood_confidence": 0.6666666666666666,
+          "decision_distance": 0.1223276606306814,
+          "nn_distance": "0.76008415",
+          "isolation_score": -0.0019484383483199808
+        }
+      },
+      "reasoning": [
+        "Medium similarity (0.223) and confidence (0.899), suitable for patch"
+      ]
+    },
+    {
+      "input_text": "The wave function collapse occurs when quantum measurement is performed on the system.",
+      "flag": "create_new_expert",
+      "analysis": {
+        "medical": {
+          "similarity_score": 0.011946044862270355,
+          "confidence_score": 0.047376238881851274,
+          "expert_uuid": "15a8dec7-fb94-4610-ab2d-91b19d3fbbdd"
+        },
+        "music": {
+          "similarity_score": 0.004154486581683159,
+          "confidence_score": 0.3806848493425219,
+          "expert_uuid": "017d84ee-6e22-41d8-b81b-225d6a4eb5a9"
+        },
+        "physics": {
+          "similarity_score": 0.30916929244995117,
+          "confidence_score": 0.24240073237932047,
+          "expert_uuid": "910f81b0-4280-4565-b0f7-5ad535ee8253"
+        }
+      },
+      "ood_analysis": {
+        "medical": {
+          "is_ood": "True",
+          "ood_confidence": 0.6666666666666666,
+          "decision_distance": 0.09475247776370255,
+          "nn_distance": "0.83976936",
+          "isolation_score": 0.0005022092114916332
+        },
+        "music": {
+          "is_ood": "False",
+          "ood_confidence": 0.3333333333333333,
+          "decision_distance": 0.7613696986850438,
+          "nn_distance": "0.84245294",
+          "isolation_score": 0.0023471602205199504
+        },
+        "physics": {
+          "is_ood": "False",
+          "ood_confidence": 0.0,
+          "decision_distance": 0.48480146475864094,
+          "nn_distance": "0.5407346",
+          "isolation_score": 0.00631858931370044
+        }
+      },
+      "reasoning": [
+        "Low similarity (0.309) or confidence (0.242), or OOD detected"
+      ]
+    },
+    {
+      "input_text": "Recipe: Mix flour, eggs, and milk to create a smooth batter for pancakes.",
+      "flag": "create_new_expert",
+      "analysis": {
+        "medical": {
+          "similarity_score": 0.11889392882585526,
+          "confidence_score": 0.380367873186675,
+          "expert_uuid": "15a8dec7-fb94-4610-ab2d-91b19d3fbbdd"
+        },
+        "music": {
+          "similarity_score": 0.09376125782728195,
+          "confidence_score": 0.44171674418919066,
+          "expert_uuid": "017d84ee-6e22-41d8-b81b-225d6a4eb5a9"
+        },
+        "physics": {
+          "similarity_score": 0.11117422580718994,
+          "confidence_score": 0.15547207159080767,
+          "expert_uuid": "910f81b0-4280-4565-b0f7-5ad535ee8253"
+        }
+      },
+      "ood_analysis": {
+        "medical": {
+          "is_ood": "False",
+          "ood_confidence": 0.3333333333333333,
+          "decision_distance": 0.76073574637335,
+          "nn_distance": "0.7933634",
+          "isolation_score": 0.014147736161168822
+        },
+        "music": {
+          "is_ood": "False",
+          "ood_confidence": 0.3333333333333333,
+          "decision_distance": 0.8834334883783813,
+          "nn_distance": "0.79616946",
+          "isolation_score": -0.012909584863797396
+        },
+        "physics": {
+          "is_ood": "False",
+          "ood_confidence": 0.3333333333333333,
+          "decision_distance": 0.31094414318161534,
+          "nn_distance": "0.78632194",
+          "isolation_score": -0.0039034338445345096
+        }
+      },
+      "reasoning": [
+        "Low similarity (0.119) or confidence (0.380), or OOD detected"
+      ]
+    },
+    {
+      "input_text": "Lorem ipsum dolor sit amet consectetur adipiscing elit.",
+      "flag": "create_new_expert",
+      "analysis": {
+        "medical": {
+          "similarity_score": 0.03773166984319687,
+          "confidence_score": 0.5415381148596349,
+          "expert_uuid": "15a8dec7-fb94-4610-ab2d-91b19d3fbbdd"
+        },
+        "music": {
+          "similarity_score": 0.2333085983991623,
+          "confidence_score": 0.20301670597409627,
+          "expert_uuid": "017d84ee-6e22-41d8-b81b-225d6a4eb5a9"
+        },
+        "physics": {
+          "similarity_score": 0.09250257909297943,
+          "confidence_score": 0.17171890824227526,
+          "expert_uuid": "910f81b0-4280-4565-b0f7-5ad535ee8253"
+        }
+      },
+      "ood_analysis": {
+        "medical": {
+          "is_ood": "False",
+          "ood_confidence": 0.3333333333333333,
+          "decision_distance": 1.0830762297192698,
+          "nn_distance": "0.83733416",
+          "isolation_score": -0.014217940740551216
+        },
+        "music": {
+          "is_ood": "False",
+          "ood_confidence": 0.3333333333333333,
+          "decision_distance": 0.40603341194819254,
+          "nn_distance": "0.7418396",
+          "isolation_score": -0.015045320536247186
+        },
+        "physics": {
+          "is_ood": "False",
+          "ood_confidence": 0.3333333333333333,
+          "decision_distance": 0.3434378164845505,
+          "nn_distance": "0.77539635",
+          "isolation_score": -0.033115795484181865
+        }
+      },
+      "reasoning": [
+        "Low similarity (0.233) or confidence (0.203), or OOD detected"
+      ]
+    },
+    {
+      "input_text": "Treatment protocol for hypertension management.",
+      "flag": "create_new_expert",
+      "analysis": {
+        "medical": {
+          "similarity_score": 0.47765350341796875,
+          "confidence_score": 0.32778127902136145,
+          "expert_uuid": "15a8dec7-fb94-4610-ab2d-91b19d3fbbdd"
+        },
+        "music": {
+          "similarity_score": 0.027022920548915863,
+          "confidence_score": 0.5221962857992886,
+          "expert_uuid": "017d84ee-6e22-41d8-b81b-225d6a4eb5a9"
+        },
+        "physics": {
+          "similarity_score": 0.11341987550258636,
+          "confidence_score": 0.2575068873232636,
+          "expert_uuid": "910f81b0-4280-4565-b0f7-5ad535ee8253"
+        }
+      },
+      "ood_analysis": {
+        "medical": {
+          "is_ood": "False",
+          "ood_confidence": 0.0,
+          "decision_distance": 0.6555625580427229,
+          "nn_distance": "0.48352435",
+          "isolation_score": 0.004236773708363006
+        },
+        "music": {
+          "is_ood": "False",
+          "ood_confidence": 0.3333333333333333,
+          "decision_distance": 1.0443925715985771,
+          "nn_distance": "0.8199756",
+          "isolation_score": 0.021503390986718662
+        },
+        "physics": {
+          "is_ood": "False",
+          "ood_confidence": 0.3333333333333333,
+          "decision_distance": 0.5150137746465272,
+          "nn_distance": "0.78492147",
+          "isolation_score": 0.010383550209557724
+        }
+      },
+      "reasoning": [
+        "Low similarity (0.478) or confidence (0.328), or OOD detected"
+      ]
+    },
+    {
+      "input_text": "The financial derivatives market experienced significant volatility.",
+      "flag": "create_new_expert",
+      "analysis": {
+        "medical": {
+          "similarity_score": 0.04612985625863075,
+          "confidence_score": 0.04856115272288758,
+          "expert_uuid": "15a8dec7-fb94-4610-ab2d-91b19d3fbbdd"
+        },
+        "music": {
+          "similarity_score": 0.05991952121257782,
+          "confidence_score": 0.475755699558006,
+          "expert_uuid": "017d84ee-6e22-41d8-b81b-225d6a4eb5a9"
+        },
+        "physics": {
+          "similarity_score": 0.1952935755252838,
+          "confidence_score": 0.013941966470586,
+          "expert_uuid": "910f81b0-4280-4565-b0f7-5ad535ee8253"
+        }
+      },
+      "ood_analysis": {
+        "medical": {
+          "is_ood": "True",
+          "ood_confidence": 0.6666666666666666,
+          "decision_distance": 0.09712230544577516,
+          "nn_distance": "0.7960915",
+          "isolation_score": 0.02138125069349822
+        },
+        "music": {
+          "is_ood": "False",
+          "ood_confidence": 0.3333333333333333,
+          "decision_distance": 0.951511399116012,
+          "nn_distance": "0.83010405",
+          "isolation_score": 0.0045305258636360035
+        },
+        "physics": {
+          "is_ood": "True",
+          "ood_confidence": 0.6666666666666666,
+          "decision_distance": 0.027883932941172,
+          "nn_distance": "0.7702746",
+          "isolation_score": 0.0014116713421505334
+        }
+      },
+      "reasoning": [
+        "Low similarity (0.060) or confidence (0.476), or OOD detected"
+      ]
+    }
+  ],
+  "summary": {
+    "total_tests": 6,
+    "use_existing_count": 0,
+    "create_patch_count": 1,
+    "create_new_count": 5
+  }
+}

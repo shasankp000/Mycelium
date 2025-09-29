@@ -1,12 +1,33 @@
 import json
 import datetime
+import numpy as np
 from layer_1_prototype import (
     extract_tags_llama, normalize_tags, embed_tags_transformer, cluster_tags_transformer,
     TemporalLocalityLayer, analyze_spatial_locality, assign_domain_patch
 )
 from layer_2_prototype import get_expert_model
+import layer_2_prototype
+from unified_expert_system import UnifiedExpertSystem
+
+class NumpyEncoder(json.JSONEncoder):
+    """Custom JSON encoder for numpy types."""
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, np.bool_):
+            return bool(obj)
+        return super().default(obj)
 
 def run_mycelium_workflow(sentences):
+    # Step 0: Initialize unified expert system
+    print("Initializing unified expert system (K-Medoids + Calibration + OOD Detection)...")
+    expert_system = UnifiedExpertSystem()
+    print(f"Initialized unified expert system with {len(expert_system.experts)} experts\n")
+    
     # Step 1: Tag generation and normalization
     temporal_layer = TemporalLocalityLayer(max_size=50, time_window_hours=24)
     all_sentence_data = []
@@ -18,48 +39,27 @@ def run_mycelium_workflow(sentences):
         timestamp = datetime.datetime.now().isoformat()
         temporal_layer.add_statement(text, normalized_tags, timestamp)
         
-        # Expert evaluation
-        expert_scores = {}
-        matched_experts = []
-        for tag in normalized_tags:
-            expert = get_expert_model(tag)
-            if expert:
-                score = expert.score(text, normalized_tags)
-                expert_scores[tag] = score
-                matched_experts.append(tag)
-        
-        # Flag logic
-        flag = None
-        if not matched_experts:
-            flag = "create_new_expert"
-        elif len(matched_experts) == 1:
-            score = expert_scores[matched_experts[0]]
-            if score["f1"] > 0.7:
-                flag = "use_existing_expert"
-            else:
-                flag = "create_new_expert"
-        else:
-            good_experts = [tag for tag in matched_experts if expert_scores[tag]["f1"] > 0.7]
-            if len(good_experts) > 1:
-                flag = "create_hybrid_expert"
-            elif len(good_experts) == 1:
-                flag = "use_existing_expert"
-            else:
-                flag = "create_new_expert"
+        # Unified expert system evaluation
+        expert_decision = expert_system.unified_decision_analysis(text)
+        flag = expert_decision['unified_decision']['decision_flag']
+        selected_domain = expert_decision['unified_decision']['selected_domain']
+        confidence = expert_decision['unified_decision']['confidence_in_decision']
         
         all_sentence_data.append({
             "sentence": text,
             "tags": normalized_tags,
             "timestamp": timestamp,
-            "expert_scores": expert_scores,
-            "expert_flag": flag
+            "expert_decision": expert_decision,
+            "expert_flag": flag,
+            "selected_domain": selected_domain,
+            "decision_confidence": confidence
         })
         all_tags.extend(normalized_tags)
-        print(f"Sentence: {text}\nTags: {normalized_tags}\nTimestamp: {timestamp}\nExpert Scores: {expert_scores}\nExpert Flag: {flag}\n")
+        print(f"Sentence: {text}\nTags: {normalized_tags}\nTimestamp: {timestamp}\nUnified Decision: {flag} (Domain: {selected_domain}, Confidence: {confidence:.3f})\n")
     
     # Step 2: Save all sentences, tags, and timestamps to JSON
     with open("evaluation_data/sentence_tags.json", "w", encoding="utf-8") as f:
-        json.dump(all_sentence_data, f, indent=4)
+        json.dump(all_sentence_data, f, indent=4, cls=NumpyEncoder)
     
     # Save expert evaluation results separately
     expert_evaluation_results = {
@@ -75,7 +75,7 @@ def run_mycelium_workflow(sentences):
         expert_evaluation_results["flag_summary"][flag] = expert_evaluation_results["flag_summary"].get(flag, 0) + 1
     
     with open("evaluation_data/expert_evaluation_results.json", "w", encoding="utf-8") as f:
-        json.dump(expert_evaluation_results, f, indent=4)
+        json.dump(expert_evaluation_results, f, indent=4, cls=NumpyEncoder)
     print("Expert evaluation results saved to expert_evaluation_results.json")
     
     # Step 3: Remove duplicates for clustering
@@ -106,17 +106,25 @@ def run_mycelium_workflow(sentences):
         json.dump(temporal_analysis_data, f, indent=4)
     print("Temporal analysis saved to temporal_analysis.json")
 
+import pandas as pd
+import random
+
+def get_random_samples():
+    base_dir = __file__
+    # Medical
+    med_df = pd.read_csv("dummy_models/Medical/medical_dataset.csv")
+    med_samples = med_df['sentence'].dropna().sample(3, random_state=42).tolist()
+    # Music
+    music_df = pd.read_csv("dummy_models/Music/music_classification_dataset.csv")
+    music_samples = music_df['sentence'].dropna().sample(3, random_state=43).tolist()
+    # Physics
+    phys_df = pd.read_csv("dummy_models/Physics/physics_data.csv")
+    phys_samples = phys_df['Comment'].dropna().sample(4, random_state=44).tolist()
+    # Mix and shuffle
+    all_samples = med_samples + music_samples + phys_samples
+    random.shuffle(all_samples)
+    return all_samples
+
 if __name__ == "__main__":
-    sentences = [
-        "AI-driven systems can analyze data, improve healthcare, and optimize logistics",
-        "Quantum computers are revolutionizing physics and mathematics research",
-        "Financial markets are influenced by global politics and economic trends",
-        "Music and art therapy are used in modern healthcare for mental wellness",
-        "Education technology platforms leverage AI to personalize learning",
-        "Sports analytics use big data to optimize team performance",
-        "Biology and chemistry are foundational for pharmaceutical innovations",
-        "History and literature provide context for understanding political movements",
-        "Mathematics is essential for advancements in physics and finance",
-        "Logistics companies use AI and IoT to streamline supply chains"
-    ]
+    sentences = get_random_samples()
     run_mycelium_workflow(sentences)

@@ -1,0 +1,834 @@
+{
+  "summary": {
+    "accuracy": 0.875,
+    "correct_count": 7,
+    "total_count": 8,
+    "timestamp": "2025-09-29T19:29:09.106255"
+  },
+  "detailed_results": [
+    {
+      "test_case": {
+        "text": "The patient showed symptoms of acute myocardial infarction with elevated troponin levels.",
+        "expected_domain": "medical",
+        "expected_ood": false,
+        "description": "Clear medical terminology"
+      },
+      "analysis": {
+        "query": "The patient showed symptoms of acute myocardial infarction with elevated troponin levels.",
+        "timestamp": "2025-09-29T19:27:56.338212",
+        "domain_analyses": {
+          "medical": {
+            "text": "The patient showed symptoms of acute myocardial infarction with elevated troponin levels.",
+            "domain": "medical",
+            "is_ood": "False",
+            "confidence_score": 0.8987645451824705,
+            "ood_scores": {
+              "svm_distance": 1.797529090364941,
+              "lof_score": 0.0,
+              "isolation_score": 0.015796966163462378,
+              "elliptic_score": 325.9538652911465,
+              "nn_distance": "0.5097394",
+              "mahalanobis_distance": 20.59251756482683
+            },
+            "ood_flags": {
+              "svm_boundary": "False",
+              "low_confidence": "False",
+              "lof_outlier": "False",
+              "isolation_outlier": "False",
+              "elliptic_outlier": "False",
+              "nn_far": "False",
+              "mahalanobis_outlier": "True"
+            },
+            "overall_ood_score": 0.14285714285714285,
+            "detailed_analysis": {
+              "text_length": 89,
+              "unique_words": 12,
+              "feature_density": 0.0016,
+              "embedding_norm": "0.99999994",
+              "closest_training_distance": "0.3259002",
+              "prediction": "Yes"
+            }
+          },
+          "music": {
+            "text": "The patient showed symptoms of acute myocardial infarction with elevated troponin levels.",
+            "domain": "music",
+            "is_ood": "True",
+            "confidence_score": 0.37935832063433683,
+            "ood_scores": {
+              "svm_distance": -0.7587166412686737,
+              "lof_score": 0.017545565726738155,
+              "isolation_score": -0.014214607540178614,
+              "elliptic_score": -61.28732264463838,
+              "nn_distance": "0.6985779",
+              "mahalanobis_distance": 26.666573796817318
+            },
+            "ood_flags": {
+              "svm_boundary": "False",
+              "low_confidence": "True",
+              "lof_outlier": "False",
+              "isolation_outlier": "True",
+              "elliptic_outlier": "True",
+              "nn_far": "False",
+              "mahalanobis_outlier": "True"
+            },
+            "overall_ood_score": 0.5714285714285714,
+            "detailed_analysis": {
+              "text_length": 89,
+              "unique_words": 12,
+              "feature_density": 0.0004,
+              "embedding_norm": "0.99999994",
+              "closest_training_distance": "0.6740421",
+              "prediction": "No"
+            }
+          }
+        },
+        "recommendations": {
+          "best_domain": "medical",
+          "confidence": 0.7703696101564034,
+          "action": "use_existing_expert",
+          "reasoning": [
+            "High confidence match with medical domain",
+            "medical: Within distribution (confidence: 0.899)",
+            "music: Detected as out-of-distribution"
+          ],
+          "ood_summary": {
+            "medical": {
+              "is_ood": "False",
+              "ood_score": 0.14285714285714285,
+              "confidence": 0.8987645451824705,
+              "composite_score": 0.7703696101564034
+            },
+            "music": {
+              "is_ood": "True",
+              "ood_score": 0.5714285714285714,
+              "confidence": 0.37935832063433683,
+              "composite_score": 0.1625821374147158
+            }
+          }
+        }
+      },
+      "correct": true
+    },
+    {
+      "test_case": {
+        "text": "The wave function collapse occurs when quantum measurement is performed on the system.",
+        "expected_domain": "physics",
+        "expected_ood": false,
+        "description": "Clear physics terminology"
+      },
+      "analysis": {
+        "query": "The wave function collapse occurs when quantum measurement is performed on the system.",
+        "timestamp": "2025-09-29T19:28:05.744324",
+        "domain_analyses": {
+          "medical": {
+            "text": "The wave function collapse occurs when quantum measurement is performed on the system.",
+            "domain": "medical",
+            "is_ood": "True",
+            "confidence_score": 0.047376238881851274,
+            "ood_scores": {
+              "svm_distance": 0.09475247776370255,
+              "lof_score": 0.0,
+              "isolation_score": 0.009230162406266396,
+              "elliptic_score": -283.04505609841704,
+              "nn_distance": "0.7527704",
+              "mahalanobis_distance": 27.851210394864456
+            },
+            "ood_flags": {
+              "svm_boundary": "True",
+              "low_confidence": "True",
+              "lof_outlier": "False",
+              "isolation_outlier": "False",
+              "elliptic_outlier": "True",
+              "nn_far": "True",
+              "mahalanobis_outlier": "True"
+            },
+            "overall_ood_score": 0.7142857142857143,
+            "detailed_analysis": {
+              "text_length": 86,
+              "unique_words": 12,
+              "feature_density": 0.0012,
+              "embedding_norm": "1.0000001",
+              "closest_training_distance": "0.72558653",
+              "prediction": "Yes"
+            }
+          },
+          "music": {
+            "text": "The wave function collapse occurs when quantum measurement is performed on the system.",
+            "domain": "music",
+            "is_ood": "True",
+            "confidence_score": 0.3806848493425219,
+            "ood_scores": {
+              "svm_distance": -0.7613696986850438,
+              "lof_score": 0.01666587928376917,
+              "isolation_score": 0.007225616079646224,
+              "elliptic_score": -253.7458524220035,
+              "nn_distance": "0.7792389",
+              "mahalanobis_distance": 28.95430344458587
+            },
+            "ood_flags": {
+              "svm_boundary": "False",
+              "low_confidence": "True",
+              "lof_outlier": "False",
+              "isolation_outlier": "False",
+              "elliptic_outlier": "True",
+              "nn_far": "True",
+              "mahalanobis_outlier": "True"
+            },
+            "overall_ood_score": 0.5714285714285714,
+            "detailed_analysis": {
+              "text_length": 86,
+              "unique_words": 12,
+              "feature_density": 0.0008,
+              "embedding_norm": "1.0000001",
+              "closest_training_distance": "0.768394",
+              "prediction": "No"
+            }
+          }
+        },
+        "recommendations": {
+          "best_domain": "music",
+          "confidence": 0.16315064971822368,
+          "action": "create_new_expert",
+          "reasoning": [
+            "Low confidence across all domains, likely OOD",
+            "medical: Detected as out-of-distribution",
+            "music: Detected as out-of-distribution"
+          ],
+          "ood_summary": {
+            "medical": {
+              "is_ood": "True",
+              "ood_score": 0.7142857142857143,
+              "confidence": 0.047376238881851274,
+              "composite_score": 0.013536068251957505
+            },
+            "music": {
+              "is_ood": "True",
+              "ood_score": 0.5714285714285714,
+              "confidence": 0.3806848493425219,
+              "composite_score": 0.16315064971822368
+            }
+          }
+        }
+      },
+      "correct": true
+    },
+    {
+      "test_case": {
+        "text": "The rhythm section provides the foundation for the entire musical composition.",
+        "expected_domain": "music",
+        "expected_ood": false,
+        "description": "Music terminology"
+      },
+      "analysis": {
+        "query": "The rhythm section provides the foundation for the entire musical composition.",
+        "timestamp": "2025-09-29T19:28:14.827584",
+        "domain_analyses": {
+          "medical": {
+            "text": "The rhythm section provides the foundation for the entire musical composition.",
+            "domain": "medical",
+            "is_ood": "True",
+            "confidence_score": 0.12872406181366286,
+            "ood_scores": {
+              "svm_distance": -0.2574481236273257,
+              "lof_score": 1.9073486328125e-06,
+              "isolation_score": -0.007160715005791185,
+              "elliptic_score": -382.88853066628985,
+              "nn_distance": "0.70436674",
+              "mahalanobis_distance": 26.753910995470616
+            },
+            "ood_flags": {
+              "svm_boundary": "True",
+              "low_confidence": "True",
+              "lof_outlier": "False",
+              "isolation_outlier": "True",
+              "elliptic_outlier": "True",
+              "nn_far": "True",
+              "mahalanobis_outlier": "True"
+            },
+            "overall_ood_score": 0.8571428571428571,
+            "detailed_analysis": {
+              "text_length": 78,
+              "unique_words": 9,
+              "feature_density": 0.001,
+              "embedding_norm": "0.99999994",
+              "closest_training_distance": "0.6375588",
+              "prediction": "No"
+            }
+          },
+          "music": {
+            "text": "The rhythm section provides the foundation for the entire musical composition.",
+            "domain": "music",
+            "is_ood": "False",
+            "confidence_score": 0.31258144409714245,
+            "ood_scores": {
+              "svm_distance": -0.6251628881942849,
+              "lof_score": 0.015575946378871164,
+              "isolation_score": -0.00018523579180196315,
+              "elliptic_score": 62.0812286195021,
+              "nn_distance": "0.62525254",
+              "mahalanobis_distance": 26.22751277793611
+            },
+            "ood_flags": {
+              "svm_boundary": "False",
+              "low_confidence": "True",
+              "lof_outlier": "False",
+              "isolation_outlier": "True",
+              "elliptic_outlier": "False",
+              "nn_far": "False",
+              "mahalanobis_outlier": "True"
+            },
+            "overall_ood_score": 0.42857142857142855,
+            "detailed_analysis": {
+              "text_length": 78,
+              "unique_words": 9,
+              "feature_density": 0.0006,
+              "embedding_norm": "0.99999994",
+              "closest_training_distance": "0.59988385",
+              "prediction": "No"
+            }
+          }
+        },
+        "recommendations": {
+          "best_domain": "music",
+          "confidence": 0.17861796805550995,
+          "action": "create_new_expert",
+          "reasoning": [
+            "Low confidence across all domains, likely OOD",
+            "medical: Detected as out-of-distribution",
+            "music: Within distribution (confidence: 0.313)"
+          ],
+          "ood_summary": {
+            "medical": {
+              "is_ood": "True",
+              "ood_score": 0.8571428571428571,
+              "confidence": 0.12872406181366286,
+              "composite_score": 0.01838915168766613
+            },
+            "music": {
+              "is_ood": "False",
+              "ood_score": 0.42857142857142855,
+              "confidence": 0.31258144409714245,
+              "composite_score": 0.17861796805550995
+            }
+          }
+        }
+      },
+      "correct": true
+    },
+    {
+      "test_case": {
+        "text": "The financial derivatives market experienced significant volatility during the trading session.",
+        "expected_domain": null,
+        "expected_ood": true,
+        "description": "Finance domain - should be OOD for all experts"
+      },
+      "analysis": {
+        "query": "The financial derivatives market experienced significant volatility during the trading session.",
+        "timestamp": "2025-09-29T19:28:23.917518",
+        "domain_analyses": {
+          "medical": {
+            "text": "The financial derivatives market experienced significant volatility during the trading session.",
+            "domain": "medical",
+            "is_ood": "True",
+            "confidence_score": 0.04856115272288758,
+            "ood_scores": {
+              "svm_distance": -0.09712230544577516,
+              "lof_score": 499999999.99970627,
+              "isolation_score": -0.009714528103136444,
+              "elliptic_score": -343.30234624520153,
+              "nn_distance": "0.68970156",
+              "mahalanobis_distance": 27.722146385911174
+            },
+            "ood_flags": {
+              "svm_boundary": "True",
+              "low_confidence": "True",
+              "lof_outlier": "False",
+              "isolation_outlier": "True",
+              "elliptic_outlier": "True",
+              "nn_far": "False",
+              "mahalanobis_outlier": "True"
+            },
+            "overall_ood_score": 0.7142857142857143,
+            "detailed_analysis": {
+              "text_length": 95,
+              "unique_words": 10,
+              "feature_density": 0.0004,
+              "embedding_norm": "1.0000001",
+              "closest_training_distance": "0.6744624",
+              "prediction": "No"
+            }
+          },
+          "music": {
+            "text": "The financial derivatives market experienced significant volatility during the trading session.",
+            "domain": "music",
+            "is_ood": "True",
+            "confidence_score": 0.475755699558006,
+            "ood_scores": {
+              "svm_distance": -0.951511399116012,
+              "lof_score": 0.023000774840127747,
+              "isolation_score": -0.006928826490331386,
+              "elliptic_score": -393.32764334517674,
+              "nn_distance": "0.70755297",
+              "mahalanobis_distance": 28.804284717202464
+            },
+            "ood_flags": {
+              "svm_boundary": "False",
+              "low_confidence": "True",
+              "lof_outlier": "False",
+              "isolation_outlier": "True",
+              "elliptic_outlier": "True",
+              "nn_far": "True",
+              "mahalanobis_outlier": "True"
+            },
+            "overall_ood_score": 0.7142857142857143,
+            "detailed_analysis": {
+              "text_length": 95,
+              "unique_words": 10,
+              "feature_density": 0.0002,
+              "embedding_norm": "1.0000001",
+              "closest_training_distance": "0.6744624",
+              "prediction": "No"
+            }
+          }
+        },
+        "recommendations": {
+          "best_domain": "music",
+          "confidence": 0.135930199873716,
+          "action": "create_new_expert",
+          "reasoning": [
+            "Low confidence across all domains, likely OOD",
+            "medical: Detected as out-of-distribution",
+            "music: Detected as out-of-distribution"
+          ],
+          "ood_summary": {
+            "medical": {
+              "is_ood": "True",
+              "ood_score": 0.7142857142857143,
+              "confidence": 0.04856115272288758,
+              "composite_score": 0.013874615063682165
+            },
+            "music": {
+              "is_ood": "True",
+              "ood_score": 0.7142857142857143,
+              "confidence": 0.475755699558006,
+              "composite_score": 0.135930199873716
+            }
+          }
+        }
+      },
+      "correct": "True"
+    },
+    {
+      "test_case": {
+        "text": "Recipe: Mix flour, eggs, and milk to create a smooth batter for pancakes.",
+        "expected_domain": null,
+        "expected_ood": true,
+        "description": "Cooking domain - should be OOD for all experts"
+      },
+      "analysis": {
+        "query": "Recipe: Mix flour, eggs, and milk to create a smooth batter for pancakes.",
+        "timestamp": "2025-09-29T19:28:32.875750",
+        "domain_analyses": {
+          "medical": {
+            "text": "Recipe: Mix flour, eggs, and milk to create a smooth batter for pancakes.",
+            "domain": "medical",
+            "is_ood": "False",
+            "confidence_score": 0.380367873186675,
+            "ood_scores": {
+              "svm_distance": -0.76073574637335,
+              "lof_score": 1999999999.9999876,
+              "isolation_score": 0.025946081093734197,
+              "elliptic_score": -15.663171859350427,
+              "nn_distance": "0.585744",
+              "mahalanobis_distance": 23.61359951916051
+            },
+            "ood_flags": {
+              "svm_boundary": "False",
+              "low_confidence": "True",
+              "lof_outlier": "False",
+              "isolation_outlier": "False",
+              "elliptic_outlier": "True",
+              "nn_far": "False",
+              "mahalanobis_outlier": "True"
+            },
+            "overall_ood_score": 0.42857142857142855,
+            "detailed_analysis": {
+              "text_length": 73,
+              "unique_words": 13,
+              "feature_density": 0.0004,
+              "embedding_norm": "1.0",
+              "closest_training_distance": "0.5036836",
+              "prediction": "No"
+            }
+          },
+          "music": {
+            "text": "Recipe: Mix flour, eggs, and milk to create a smooth batter for pancakes.",
+            "domain": "music",
+            "is_ood": "False",
+            "confidence_score": 0.44171674418919066,
+            "ood_scores": {
+              "svm_distance": -0.8834334883783813,
+              "lof_score": 0.007474371157011106,
+              "isolation_score": 0.019419552969978993,
+              "elliptic_score": 36.363392337952746,
+              "nn_distance": "0.57843906",
+              "mahalanobis_distance": 24.718656282852205
+            },
+            "ood_flags": {
+              "svm_boundary": "False",
+              "low_confidence": "True",
+              "lof_outlier": "False",
+              "isolation_outlier": "False",
+              "elliptic_outlier": "False",
+              "nn_far": "False",
+              "mahalanobis_outlier": "True"
+            },
+            "overall_ood_score": 0.2857142857142857,
+            "detailed_analysis": {
+              "text_length": 73,
+              "unique_words": 13,
+              "feature_density": 0.001,
+              "embedding_norm": "1.0",
+              "closest_training_distance": "0.5036836",
+              "prediction": "No"
+            }
+          }
+        },
+        "recommendations": {
+          "best_domain": "music",
+          "confidence": 0.3155119601351362,
+          "action": "create_new_patch",
+          "reasoning": [
+            "Medium confidence with music, suggest patch",
+            "medical: Within distribution (confidence: 0.380)",
+            "music: Within distribution (confidence: 0.442)"
+          ],
+          "ood_summary": {
+            "medical": {
+              "is_ood": "False",
+              "ood_score": 0.42857142857142855,
+              "confidence": 0.380367873186675,
+              "composite_score": 0.2173530703923857
+            },
+            "music": {
+              "is_ood": "False",
+              "ood_score": 0.2857142857142857,
+              "confidence": 0.44171674418919066,
+              "composite_score": 0.3155119601351362
+            }
+          }
+        }
+      },
+      "correct": "False"
+    },
+    {
+      "test_case": {
+        "text": "Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor.",
+        "expected_domain": null,
+        "expected_ood": true,
+        "description": "Nonsense text - should be highly OOD"
+      },
+      "analysis": {
+        "query": "Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor.",
+        "timestamp": "2025-09-29T19:28:41.948349",
+        "domain_analyses": {
+          "medical": {
+            "text": "Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor.",
+            "domain": "medical",
+            "is_ood": "True",
+            "confidence_score": 0.5415381148596349,
+            "ood_scores": {
+              "svm_distance": -1.0830762297192698,
+              "lof_score": 10000000000.0,
+              "isolation_score": -0.008203683430493769,
+              "elliptic_score": -197.79234593076978,
+              "nn_distance": "0.76997197",
+              "mahalanobis_distance": 26.773192453868027
+            },
+            "ood_flags": {
+              "svm_boundary": "False",
+              "low_confidence": "True",
+              "lof_outlier": "False",
+              "isolation_outlier": "True",
+              "elliptic_outlier": "True",
+              "nn_far": "True",
+              "mahalanobis_outlier": "True"
+            },
+            "overall_ood_score": 0.7142857142857143,
+            "detailed_analysis": {
+              "text_length": 77,
+              "unique_words": 12,
+              "feature_density": 0.0,
+              "embedding_norm": "1.0000001",
+              "closest_training_distance": "0.76644707",
+              "prediction": "No"
+            }
+          },
+          "music": {
+            "text": "Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor.",
+            "domain": "music",
+            "is_ood": "True",
+            "confidence_score": 0.20301670597409627,
+            "ood_scores": {
+              "svm_distance": -0.40603341194819254,
+              "lof_score": 0.0186870242404652,
+              "isolation_score": -0.013251840064736287,
+              "elliptic_score": 10.104552438398287,
+              "nn_distance": "0.66922957",
+              "mahalanobis_distance": 26.702224642160477
+            },
+            "ood_flags": {
+              "svm_boundary": "True",
+              "low_confidence": "True",
+              "lof_outlier": "False",
+              "isolation_outlier": "True",
+              "elliptic_outlier": "False",
+              "nn_far": "False",
+              "mahalanobis_outlier": "True"
+            },
+            "overall_ood_score": 0.5714285714285714,
+            "detailed_analysis": {
+              "text_length": 77,
+              "unique_words": 12,
+              "feature_density": 0.0002,
+              "embedding_norm": "1.0000001",
+              "closest_training_distance": "0.64594525",
+              "prediction": "No"
+            }
+          }
+        },
+        "recommendations": {
+          "best_domain": "medical",
+          "confidence": 0.1547251756741814,
+          "action": "create_new_expert",
+          "reasoning": [
+            "Low confidence across all domains, likely OOD",
+            "medical: Detected as out-of-distribution",
+            "music: Detected as out-of-distribution"
+          ],
+          "ood_summary": {
+            "medical": {
+              "is_ood": "True",
+              "ood_score": 0.7142857142857143,
+              "confidence": 0.5415381148596349,
+              "composite_score": 0.1547251756741814
+            },
+            "music": {
+              "is_ood": "True",
+              "ood_score": 0.5714285714285714,
+              "confidence": 0.20301670597409627,
+              "composite_score": 0.08700715970318412
+            }
+          }
+        }
+      },
+      "correct": "True"
+    },
+    {
+      "test_case": {
+        "text": "Treatment protocol.",
+        "expected_domain": "medical",
+        "expected_ood": true,
+        "description": "Very short medical text - may trigger distance-based OOD"
+      },
+      "analysis": {
+        "query": "Treatment protocol.",
+        "timestamp": "2025-09-29T19:28:50.640686",
+        "domain_analyses": {
+          "medical": {
+            "text": "Treatment protocol.",
+            "domain": "medical",
+            "is_ood": "False",
+            "confidence_score": 0.15981722612909094,
+            "ood_scores": {
+              "svm_distance": -0.3196344522581819,
+              "lof_score": 1000000000.0,
+              "isolation_score": 0.015526518870883244,
+              "elliptic_score": 70.5327316406192,
+              "nn_distance": "0.55478305",
+              "mahalanobis_distance": 24.06366915481618
+            },
+            "ood_flags": {
+              "svm_boundary": "True",
+              "low_confidence": "True",
+              "lof_outlier": "False",
+              "isolation_outlier": "False",
+              "elliptic_outlier": "False",
+              "nn_far": "False",
+              "mahalanobis_outlier": "True"
+            },
+            "overall_ood_score": 0.42857142857142855,
+            "detailed_analysis": {
+              "text_length": 19,
+              "unique_words": 2,
+              "feature_density": 0.0004,
+              "embedding_norm": "1.0",
+              "closest_training_distance": "0.52431",
+              "prediction": "No"
+            }
+          },
+          "music": {
+            "text": "Treatment protocol.",
+            "domain": "music",
+            "is_ood": "True",
+            "confidence_score": 0.5221962857992886,
+            "ood_scores": {
+              "svm_distance": -1.0443925715985771,
+              "lof_score": 0.027837742959500922,
+              "isolation_score": -0.006922907010433521,
+              "elliptic_score": -328.79542250071063,
+              "nn_distance": "0.606479",
+              "mahalanobis_distance": 27.23477498906616
+            },
+            "ood_flags": {
+              "svm_boundary": "False",
+              "low_confidence": "True",
+              "lof_outlier": "False",
+              "isolation_outlier": "True",
+              "elliptic_outlier": "True",
+              "nn_far": "False",
+              "mahalanobis_outlier": "True"
+            },
+            "overall_ood_score": 0.5714285714285714,
+            "detailed_analysis": {
+              "text_length": 19,
+              "unique_words": 2,
+              "feature_density": 0.0002,
+              "embedding_norm": "1.0",
+              "closest_training_distance": "0.5711252",
+              "prediction": "No"
+            }
+          }
+        },
+        "recommendations": {
+          "best_domain": "music",
+          "confidence": 0.22379840819969513,
+          "action": "create_new_patch",
+          "reasoning": [
+            "Medium confidence with music, suggest patch",
+            "medical: Within distribution (confidence: 0.160)",
+            "music: Detected as out-of-distribution"
+          ],
+          "ood_summary": {
+            "medical": {
+              "is_ood": "False",
+              "ood_score": 0.42857142857142855,
+              "confidence": 0.15981722612909094,
+              "composite_score": 0.09132412921662339
+            },
+            "music": {
+              "is_ood": "True",
+              "ood_score": 0.5714285714285714,
+              "confidence": 0.5221962857992886,
+              "composite_score": 0.22379840819969513
+            }
+          }
+        }
+      },
+      "correct": "True"
+    },
+    {
+      "test_case": {
+        "text": "The electromagnetic radiation from the patient's medical imaging device produced detailed anatomical structures for diagnostic purposes.",
+        "expected_domain": null,
+        "expected_ood": false,
+        "description": "Cross-domain text (physics + medical) - interesting test case"
+      },
+      "analysis": {
+        "query": "The electromagnetic radiation from the patient's medical imaging device produced detailed anatomical...",
+        "timestamp": "2025-09-29T19:28:59.415371",
+        "domain_analyses": {
+          "medical": {
+            "text": "The electromagnetic radiation from the patient's medical imaging device produced detailed anatomical...",
+            "domain": "medical",
+            "is_ood": "False",
+            "confidence_score": 0.37539336962812064,
+            "ood_scores": {
+              "svm_distance": 0.7507867392562413,
+              "lof_score": 0.0,
+              "isolation_score": 0.01998446694042688,
+              "elliptic_score": 191.12289989836768,
+              "nn_distance": "0.5492732",
+              "mahalanobis_distance": 22.677105759715662
+            },
+            "ood_flags": {
+              "svm_boundary": "False",
+              "low_confidence": "True",
+              "lof_outlier": "False",
+              "isolation_outlier": "False",
+              "elliptic_outlier": "False",
+              "nn_far": "False",
+              "mahalanobis_outlier": "True"
+            },
+            "overall_ood_score": 0.2857142857142857,
+            "detailed_analysis": {
+              "text_length": 136,
+              "unique_words": 15,
+              "feature_density": 0.002,
+              "embedding_norm": "1.0",
+              "closest_training_distance": "0.5337207",
+              "prediction": "Yes"
+            }
+          },
+          "music": {
+            "text": "The electromagnetic radiation from the patient's medical imaging device produced detailed anatomical...",
+            "domain": "music",
+            "is_ood": "True",
+            "confidence_score": 0.39829562382084915,
+            "ood_scores": {
+              "svm_distance": -0.7965912476416983,
+              "lof_score": 0.01957953083619901,
+              "isolation_score": 0.004324264775149023,
+              "elliptic_score": -394.6856513272767,
+              "nn_distance": "0.7427184",
+              "mahalanobis_distance": 30.10460844299048
+            },
+            "ood_flags": {
+              "svm_boundary": "False",
+              "low_confidence": "True",
+              "lof_outlier": "False",
+              "isolation_outlier": "False",
+              "elliptic_outlier": "True",
+              "nn_far": "True",
+              "mahalanobis_outlier": "True"
+            },
+            "overall_ood_score": 0.5714285714285714,
+            "detailed_analysis": {
+              "text_length": 136,
+              "unique_words": 15,
+              "feature_density": 0.0002,
+              "embedding_norm": "1.0",
+              "closest_training_distance": "0.73187596",
+              "prediction": "No"
+            }
+          }
+        },
+        "recommendations": {
+          "best_domain": "medical",
+          "confidence": 0.26813812116294333,
+          "action": "create_new_patch",
+          "reasoning": [
+            "Medium confidence with medical, suggest patch",
+            "medical: Within distribution (confidence: 0.375)",
+            "music: Detected as out-of-distribution"
+          ],
+          "ood_summary": {
+            "medical": {
+              "is_ood": "False",
+              "ood_score": 0.2857142857142857,
+              "confidence": 0.37539336962812064,
+              "composite_score": 0.26813812116294333
+            },
+            "music": {
+              "is_ood": "True",
+              "ood_score": 0.5714285714285714,
+              "confidence": 0.39829562382084915,
+              "composite_score": 0.17069812449464966
+            }
+          }
+        }
+      },
+      "correct": true
+    }
+  ]
+}

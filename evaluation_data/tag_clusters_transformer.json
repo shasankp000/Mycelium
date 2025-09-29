@@ -1,60 +1,48 @@
 {
     "tags": [
-        "art",
         "physics",
-        "education",
-        "politics",
         "healthcare",
-        "AI",
-        "maths",
+        "medicine",
         "biology",
+        "none",
+        "AI",
         "literature",
         "technology",
-        "music",
-        "sports",
-        "finance",
-        "chemistry",
-        "logistics",
-        "history"
+        "politics",
+        "history",
+        "maths",
+        "music"
     ],
     "clusters": {
         "0": [
-            "art",
-            "literature",
-            "music"
+            "physics",
+            "maths"
         ],
         "1": [
-            "physics",
-            "maths",
-            "chemistry"
+            "healthcare",
+            "medicine"
         ],
         "2": [
-            "education"
-        ],
-        "3": [
-            "politics"
-        ],
-        "4": [
-            "healthcare"
-        ],
-        "5": [
-            "AI"
-        ],
-        "6": [
             "biology"
         ],
-        "7": [
+        "3": [
+            "none"
+        ],
+        "4": [
+            "AI"
+        ],
+        "5": [
+            "literature",
+            "history"
+        ],
+        "6": [
             "technology"
         ],
+        "7": [
+            "politics"
+        ],
         "8": [
-            "sports"
-        ],
-        "9": [
-            "finance",
-            "logistics"
-        ],
-        "10": [
-            "history"
+            "music"
         ]
     }
 }

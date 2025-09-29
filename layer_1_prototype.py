@@ -7,7 +7,7 @@ from fuzzywuzzy import process
 from sklearn.cluster import AgglomerativeClustering
 import ollama
 # Import dummy expert models
-from layer_2_prototype import get_expert_model, get_all_expert_models
+from layer_2_prototype import get_expert_model
 def embed_tags_transformer(tags, model_name="all-MiniLM-L6-v2"):
     model = SentenceTransformer(model_name)
     embeddings = model.encode(tags)
