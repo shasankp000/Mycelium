@@ -2,3 +2,7 @@ reports/initial_findings_report_22_09_2025.md
 __pycache__
 .vscode
 reports/unified_expert_system_report.md
+*.safetensors
+*.pt
+*.bin
+
