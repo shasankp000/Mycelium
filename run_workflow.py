@@ -8,6 +8,7 @@ from layer_1_prototype import (
 from layer_2_prototype import get_expert_model
 import layer_2_prototype
 from unified_expert_system import UnifiedExpertSystem
+from expert_filter import ExpertFilter
 
 class NumpyEncoder(json.JSONEncoder):
     """Custom JSON encoder for numpy types."""
@@ -28,6 +29,11 @@ def run_mycelium_workflow(sentences):
     expert_system = UnifiedExpertSystem()
     print(f"Initialized unified expert system with {len(expert_system.experts)} experts\n")
     
+    # Initialize expert filter for tag-based routing
+    print("Initializing expert filter for tag-based routing...")
+    expert_filter = ExpertFilter()
+    print("✅ Expert filter initialized\n")
+    
     # Step 1: Tag generation and normalization
     temporal_layer = TemporalLocalityLayer(max_size=50, time_window_hours=24)
     all_sentence_data = []
@@ -39,8 +45,36 @@ def run_mycelium_workflow(sentences):
         timestamp = datetime.datetime.now().isoformat()
         temporal_layer.add_statement(text, normalized_tags, timestamp)
         
-        # Unified expert system evaluation
-        expert_decision = expert_system.unified_decision_analysis(text)
+        # Filter experts by tags (only evaluate relevant experts)
+        # Create a dummy BERT manager (None if no BERT experts)
+        class DummyBERTManager:
+            def get_available_domains(self):
+                # Return BERT domains from expert_system
+                return [d for d in expert_system.experts.keys() if d in ['physics', 'chemistry']]
+        
+        bert_manager = DummyBERTManager()
+        filter_result = expert_filter.filter_experts_by_tags(normalized_tags, expert_system, bert_manager)
+        
+        # Get relevant experts only
+        relevant_domains = filter_result['relevant_svm_experts'] + filter_result['relevant_bert_experts']
+        
+        if not relevant_domains:
+            # No expert for this domain
+            expert_decision = {
+                'unified_decision': {
+                    'decision_flag': 'create_new_expert',
+                    'selected_domain': 'unknown',
+                    'confidence_in_decision': 0.9,
+                    'reasoning': [f"No expert available for tags: {normalized_tags}"]
+                },
+                'expert_analyses': {},
+                'system_summary': {'experts_analyzed': 0}
+            }
+        else:
+            # Evaluate only relevant experts
+            filtered_experts = {domain: expert_system.experts[domain] for domain in relevant_domains if domain in expert_system.experts}
+            expert_decision = expert_system.unified_decision_analysis(text, filtered_experts=filtered_experts)
+        
         flag = expert_decision['unified_decision']['decision_flag']
         selected_domain = expert_decision['unified_decision']['selected_domain']
         confidence = expert_decision['unified_decision']['confidence_in_decision']

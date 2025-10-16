@@ -1,0 +1,29 @@
+{
+    "summary": {
+        "total_domains_defined": 16,
+        "domains_with_samples": 6,
+        "supported_domains_count": 2,
+        "unsupported_domains_count": 4,
+        "total_samples_seen": 40,
+        "samples_needing_new_experts": 20,
+        "coverage_percentage": 33.33333333333333
+    },
+    "supported_domains": {
+        "physics": 10,
+        "chemistry": 10
+    },
+    "unsupported_domains": {
+        "maths": 4,
+        "biology": 14,
+        "technology": 1,
+        "politics": 1
+    },
+    "all_domains_with_samples": {
+        "physics": 10,
+        "maths": 4,
+        "biology": 14,
+        "chemistry": 10,
+        "technology": 1,
+        "politics": 1
+    }
+}

@@ -1,393 +1,343 @@
 {
-    "evaluation_timestamp": "2025-09-29T21:48:18.396664",
+    "evaluation_timestamp": "2025-10-16T18:27:14.398827",
     "sentences_evaluated": 10,
     "flag_summary": {
-        "create_new_patch": 5,
-        "use_existing_expert": 4,
-        "create_new_expert": 1
+        "create_new_expert": 5,
+        "use_existing_expert": 5
     },
     "detailed_results": [
+        {
+            "sentence": "I remember doing a review for Ideonella Saikainesis? Its the bacteria that was discovered in Japan that can use PHET plastics as a sole carbon source for metabolism but it does the process very long so its not feasible to just use them for breaking down those types of plastics. Could be about that since ocean plastics are big on the news.\\n\\nAnother is antibiotic resistance in microbes that can affect us plus agriculture. Lots of stuff",
+            "tags": [
+                "biology",
+                "biology"
+            ],
+            "timestamp": "2025-10-16T18:26:33.321063",
+            "expert_decision": {
+                "unified_decision": {
+                    "decision_flag": "create_new_expert",
+                    "selected_domain": "unknown",
+                    "confidence_in_decision": 0.9,
+                    "reasoning": [
+                        "No expert available for tags: ['biology', 'biology']"
+                    ]
+                },
+                "expert_analyses": {},
+                "system_summary": {
+                    "experts_analyzed": 0
+                }
+            },
+            "expert_flag": "create_new_expert",
+            "selected_domain": "unknown",
+            "decision_confidence": 0.9
+        },
+        {
+            "sentence": "People still got cancer before we knew about radiation it was causing harm but we didn\u2019t know about radiation so didn\u2019t know what was causing it.",
+            "tags": [
+                "biology",
+                "physics"
+            ],
+            "timestamp": "2025-10-16T18:26:33.554189",
+            "expert_decision": {
+                "input_text": "People still got cancer before we knew about radiation it was causing harm but we didn\u2019t know about radiation so didn\u2019t know what was causing it.",
+                "timestamp": "2025-10-16T18:26:33.555196",
+                "expert_analyses": {
+                    "physics": {
+                        "input_text": "People still got cancer before we knew about radiation it was causing harm but we didn\u2019t know about ...",
+                        "domain": "physics",
+                        "timestamp": "2025-10-16T18:26:33.557194",
+                        "systems_analysis": {
+                            "k_medoids": {
+                                "similarity_score": 0.1078498363494873,
+                                "num_medoids": 10,
+                                "primary_medoid_text": "Organisms that reproduce sexually by joining gamet..."
+                            },
+                            "calibration": {
+                                "enabled": true,
+                                "prediction": 0,
+                                "confidence_score": 0.6713320544321243,
+                                "raw_confidence": 0.8658522963523865,
+                                "calibration_quality": 0.5506849315068493
+                            },
+                            "ood_detection": {
+                                "enabled": true,
+                                "is_ood": false,
+                                "ood_confidence": 0.3333333333333333,
+                                "ood_scores": {
+                                    "svm_distance": 0.9691212773323059,
+                                    "nn_distance": 0.6684907078742981,
+                                    "isolation_score": 0.00786983264714658
+                                },
+                                "reason": "1/3 methods flagged as OOD"
+                            }
+                        },
+                        "unified_scores": {
+                            "base_similarity": 0.1078498363494873,
+                            "base_confidence": 0.6713320544321243,
+                            "ood_penalty": 0.06666666666666667,
+                            "adjusted_similarity": 0.10569283962249755,
+                            "adjusted_confidence": 0.6265765841366493,
+                            "composite_score": 0.4228545740249494,
+                            "quality_score": 0.7,
+                            "systems_enabled": {
+                                "k_medoids": true,
+                                "calibration": true,
+                                "ood_detection": true
+                            }
+                        },
+                        "recommendation": {
+                            "decision": "use_existing_expert",
+                            "confidence_in_decision": 0.29599820181746456,
+                            "reasoning": [
+                                "High composite score (0.423) with acceptable OOD risk",
+                                "Low similarity to existing medoids"
+                            ],
+                            "thresholds_used": {
+                                "high_threshold": 0.35,
+                                "medium_threshold": 0.175,
+                                "ood_rejection_threshold": 0.6
+                            }
+                        }
+                    }
+                },
+                "unified_decision": {
+                    "selected_domain": "physics",
+                    "decision_flag": "use_existing_expert",
+                    "confidence_in_decision": 0.29599820181746456,
+                    "composite_score": 0.4228545740249494,
+                    "quality_score": 0.7,
+                    "reasoning": [
+                        "High composite score (0.423) with acceptable OOD risk",
+                        "Low similarity to existing medoids"
+                    ],
+                    "ood_analysis": {
+                        "is_ood": false,
+                        "ood_confidence": 0.3333333333333333
+                    },
+                    "similarity_analysis": {
+                        "similarity_score": 0.1078498363494873,
+                        "adjusted_similarity": 0.10569283962249755
+                    },
+                    "confidence_analysis": {
+                        "calibrated_confidence": 0.6713320544321243,
+                        "adjusted_confidence": 0.6265765841366493
+                    }
+                },
+                "system_summary": {
+                    "experts_analyzed": 1,
+                    "systems_enabled": {
+                        "k_medoids": true,
+                        "calibration": true,
+                        "ood_detection": true
+                    }
+                }
+            },
+            "expert_flag": "use_existing_expert",
+            "selected_domain": "physics",
+            "decision_confidence": 0.29599820181746456
+        },
+        {
+            "sentence": "He also explains later why that doesn't work (in [another video](https://www.youtube.com/watch?v=SDtAh9IwG-I)). Basically temporal coherence is a bitch and overlooked easily, you attenuate the wave instead of shooting wave packets. Making true single photons is difficult, you need either SPDC or a clever quantum dot system. We actually still suck at making single photons (though progress is being rapidly made!).",
+            "tags": [
+                "AI",
+                "physics",
+                "maths"
+            ],
+            "timestamp": "2025-10-16T18:26:43.255077",
+            "expert_decision": {
+                "input_text": "He also explains later why that doesn't work (in [another video](https://www.youtube.com/watch?v=SDtAh9IwG-I)). Basically temporal coherence is a bitch and overlooked easily, you attenuate the wave instead of shooting wave packets. Making true single photons is difficult, you need either SPDC or a clever quantum dot system. We actually still suck at making single photons (though progress is being rapidly made!).",
+                "timestamp": "2025-10-16T18:26:43.255077",
+                "expert_analyses": {
+                    "physics": {
+                        "input_text": "He also explains later why that doesn't work (in [another video](https://www.youtube.com/watch?v=SDt...",
+                        "domain": "physics",
+                        "timestamp": "2025-10-16T18:26:43.255077",
+                        "systems_analysis": {
+                            "k_medoids": {
+                                "similarity_score": 0.10404571145772934,
+                                "num_medoids": 10,
+                                "primary_medoid_text": "Organisms that reproduce sexually by joining gamet..."
+                            },
+                            "calibration": {
+                                "enabled": true,
+                                "prediction": 1,
+                                "confidence_score": 0.7706507268017286,
+                                "raw_confidence": 0.9939488172531128,
+                                "calibration_quality": 0.5506849315068493
+                            },
+                            "ood_detection": {
+                                "enabled": true,
+                                "is_ood": false,
+                                "ood_confidence": 0.3333333333333333,
+                                "ood_scores": {
+                                    "svm_distance": 2.264285087585449,
+                                    "nn_distance": 0.7846112847328186,
+                                    "isolation_score": -0.008066719889988139
+                                },
+                                "reason": "1/3 methods flagged as OOD"
+                            }
+                        },
+                        "unified_scores": {
+                            "base_similarity": 0.10404571145772934,
+                            "base_confidence": 0.7706507268017286,
+                            "ood_penalty": 0.06666666666666667,
+                            "adjusted_similarity": 0.10196479722857475,
+                            "adjusted_confidence": 0.7192740116816134,
+                            "composite_score": 0.462890797342918,
+                            "quality_score": 0.7,
+                            "systems_enabled": {
+                                "k_medoids": true,
+                                "calibration": true,
+                                "ood_detection": true
+                            }
+                        },
+                        "recommendation": {
+                            "decision": "use_existing_expert",
+                            "confidence_in_decision": 0.3240235581400426,
+                            "reasoning": [
+                                "High composite score (0.463) with acceptable OOD risk",
+                                "Low similarity to existing medoids"
+                            ],
+                            "thresholds_used": {
+                                "high_threshold": 0.35,
+                                "medium_threshold": 0.175,
+                                "ood_rejection_threshold": 0.6
+                            }
+                        }
+                    }
+                },
+                "unified_decision": {
+                    "selected_domain": "physics",
+                    "decision_flag": "use_existing_expert",
+                    "confidence_in_decision": 0.3240235581400426,
+                    "composite_score": 0.462890797342918,
+                    "quality_score": 0.7,
+                    "reasoning": [
+                        "High composite score (0.463) with acceptable OOD risk",
+                        "Low similarity to existing medoids"
+                    ],
+                    "ood_analysis": {
+                        "is_ood": false,
+                        "ood_confidence": 0.3333333333333333
+                    },
+                    "similarity_analysis": {
+                        "similarity_score": 0.10404571145772934,
+                        "adjusted_similarity": 0.10196479722857475
+                    },
+                    "confidence_analysis": {
+                        "calibrated_confidence": 0.7706507268017286,
+                        "adjusted_confidence": 0.7192740116816134
+                    }
+                },
+                "system_summary": {
+                    "experts_analyzed": 1,
+                    "systems_enabled": {
+                        "k_medoids": true,
+                        "calibration": true,
+                        "ood_detection": true
+                    }
+                }
+            },
+            "expert_flag": "use_existing_expert",
+            "selected_domain": "physics",
+            "decision_confidence": 0.3240235581400426
+        },
         {
             "sentence": "Immigrants In Major Cities See No Sign Of Mass ICE Raids Yet",
             "tags": [
                 "politics"
             ],
-            "timestamp": "2025-09-29T21:43:45.114666",
+            "timestamp": "2025-10-16T18:26:50.408223",
             "expert_decision": {
-                "input_text": "Immigrants In Major Cities See No Sign Of Mass ICE Raids Yet",
-                "timestamp": "2025-09-29T21:43:45.114700",
-                "expert_analyses": {
-                    "medical": {
-                        "input_text": "Immigrants In Major Cities See No Sign Of Mass ICE Raids Yet",
-                        "domain": "medical",
-                        "timestamp": "2025-09-29T21:43:45.114801",
-                        "systems_analysis": {
-                            "k_medoids": {
-                                "similarity_score": -0.02298891916871071,
-                                "num_medoids": 10,
-                                "primary_medoid_text": "Dapsone is an effective therapy for the skin lesio..."
-                            },
-                            "calibration": {
-                                "enabled": true,
-                                "prediction": "No",
-                                "confidence_score": 0.7999169205206313,
-                                "raw_confidence": 1.0,
-                                "calibration_quality": 0.5998338410412628
-                            },
-                            "ood_detection": {
-                                "enabled": true,
-                                "is_ood": true,
-                                "ood_confidence": 0.3333333333333333,
-                                "ood_scores": {
-                                    "svm_distance": 1.1585664249111018,
-                                    "nn_distance": 0.6532970070838928,
-                                    "isolation_score": 0.01671149481560552
-                                },
-                                "reason": "1/3 methods flagged as OOD"
-                            }
-                        },
-                        "unified_scores": {
-                            "base_similarity": -0.02298891916871071,
-                            "base_confidence": 0.7999169205206313,
-                            "ood_penalty": 0.26666666666666666,
-                            "adjusted_similarity": -0.019923729946215947,
-                            "adjusted_confidence": 0.5866057417151297,
-                            "composite_score": 0.3733394713742322,
-                            "quality_score": 0.7,
-                            "systems_enabled": {
-                                "k_medoids": true,
-                                "calibration": true,
-                                "ood_detection": true
-                            }
-                        },
-                        "recommendation": {
-                            "decision": "create_new_patch",
-                            "confidence_in_decision": 0.20907010396957004,
-                            "reasoning": [
-                                "Medium composite score (0.373) suitable for patch creation",
-                                "Low similarity to existing medoids"
-                            ],
-                            "thresholds_used": {
-                                "high_threshold": 0.42,
-                                "medium_threshold": 0.21,
-                                "ood_rejection_threshold": 0.4
-                            }
-                        }
-                    },
-                    "music": {
-                        "input_text": "Immigrants In Major Cities See No Sign Of Mass ICE Raids Yet",
-                        "domain": "music",
-                        "timestamp": "2025-09-29T21:43:53.672663",
-                        "systems_analysis": {
-                            "k_medoids": {
-                                "similarity_score": 0.07125920802354813,
-                                "num_medoids": 10,
-                                "primary_medoid_text": "Now darling, you should know\r\nThat I'm really, rea..."
-                            },
-                            "calibration": {
-                                "enabled": true,
-                                "prediction": "No",
-                                "confidence_score": 0.7430915371329879,
-                                "raw_confidence": 1.0,
-                                "calibration_quality": 0.48618307426597585
-                            },
-                            "ood_detection": {
-                                "enabled": true,
-                                "is_ood": true,
-                                "ood_confidence": 0.3333333333333333,
-                                "ood_scores": {
-                                    "svm_distance": 1.2509410770401765,
-                                    "nn_distance": 0.7152946591377258,
-                                    "isolation_score": 0.013192937111533631
-                                },
-                                "reason": "1/3 methods flagged as OOD"
-                            }
-                        },
-                        "unified_scores": {
-                            "base_similarity": 0.07125920802354813,
-                            "base_confidence": 0.7430915371329879,
-                            "ood_penalty": 0.26666666666666666,
-                            "adjusted_similarity": 0.06175798028707505,
-                            "adjusted_confidence": 0.5449337938975245,
-                            "composite_score": 0.38934337634050653,
-                            "quality_score": 0.7,
-                            "systems_enabled": {
-                                "k_medoids": true,
-                                "calibration": true,
-                                "ood_detection": true
-                            }
-                        },
-                        "recommendation": {
-                            "decision": "create_new_patch",
-                            "confidence_in_decision": 0.21803229075068364,
-                            "reasoning": [
-                                "Medium composite score (0.389) suitable for patch creation",
-                                "Low similarity to existing medoids"
-                            ],
-                            "thresholds_used": {
-                                "high_threshold": 0.42,
-                                "medium_threshold": 0.21,
-                                "ood_rejection_threshold": 0.4
-                            }
-                        }
-                    },
-                    "physics": {
-                        "input_text": "Immigrants In Major Cities See No Sign Of Mass ICE Raids Yet",
-                        "domain": "physics",
-                        "timestamp": "2025-09-29T21:44:02.137360",
-                        "systems_analysis": {
-                            "k_medoids": {
-                                "similarity_score": 0.10938115417957306,
-                                "num_medoids": 10,
-                                "primary_medoid_text": "If you are doing an experiment at school you shoul..."
-                            },
-                            "calibration": {
-                                "enabled": true,
-                                "prediction": "Non-physics",
-                                "confidence_score": 0.75,
-                                "raw_confidence": 1.0,
-                                "calibration_quality": 0.5
-                            },
-                            "ood_detection": {
-                                "enabled": true,
-                                "is_ood": true,
-                                "ood_confidence": 0.6666666666666666,
-                                "ood_scores": {
-                                    "svm_distance": 0.11545452687429314,
-                                    "nn_distance": 0.7756373882293701,
-                                    "isolation_score": 0.004954036606502954
-                                },
-                                "reason": "2/3 methods flagged as OOD"
-                            }
-                        },
-                        "unified_scores": {
-                            "base_similarity": 0.10938115417957306,
-                            "base_confidence": 0.75,
-                            "ood_penalty": 0.5333333333333333,
-                            "adjusted_similarity": 0.08021284639835358,
-                            "adjusted_confidence": 0.35,
-                            "composite_score": 0.26541847189267476,
-                            "quality_score": 0.7,
-                            "systems_enabled": {
-                                "k_medoids": true,
-                                "calibration": true,
-                                "ood_detection": true
-                            }
-                        },
-                        "recommendation": {
-                            "decision": "create_new_expert",
-                            "confidence_in_decision": 0.9,
-                            "reasoning": [
-                                "High OOD penalty (0.533) suggests input is out-of-distribution",
-                                "Low similarity to existing medoids",
-                                "OOD detection flagged potential distribution shift"
-                            ],
-                            "thresholds_used": {
-                                "high_threshold": 0.42,
-                                "medium_threshold": 0.21,
-                                "ood_rejection_threshold": 0.4
-                            }
-                        }
-                    }
-                },
                 "unified_decision": {
-                    "selected_domain": "music",
-                    "decision_flag": "create_new_patch",
-                    "confidence_in_decision": 0.21803229075068364,
-                    "composite_score": 0.38934337634050653,
-                    "quality_score": 0.7,
+                    "decision_flag": "create_new_expert",
+                    "selected_domain": "unknown",
+                    "confidence_in_decision": 0.9,
                     "reasoning": [
-                        "Medium composite score (0.389) suitable for patch creation",
-                        "Low similarity to existing medoids"
-                    ],
-                    "ood_analysis": {
-                        "is_ood": true,
-                        "ood_confidence": 0.3333333333333333
-                    },
-                    "similarity_analysis": {
-                        "similarity_score": 0.07125920802354813,
-                        "adjusted_similarity": 0.06175798028707505
-                    },
-                    "confidence_analysis": {
-                        "calibrated_confidence": 0.7430915371329879,
-                        "adjusted_confidence": 0.5449337938975245
-                    }
+                        "No expert available for tags: ['politics']"
+                    ]
                 },
+                "expert_analyses": {},
                 "system_summary": {
-                    "experts_analyzed": 3,
-                    "systems_enabled": {
-                        "k_medoids": true,
-                        "calibration": true,
-                        "ood_detection": true
-                    }
+                    "experts_analyzed": 0
                 }
             },
-            "expert_flag": "create_new_patch",
-            "selected_domain": "music",
-            "decision_confidence": 0.21803229075068364
+            "expert_flag": "create_new_expert",
+            "selected_domain": "unknown",
+            "decision_confidence": 0.9
+        },
+        {
+            "sentence": "First Lady Jill Biden To Meet Ukrainian Refugees During Border Visit",
+            "tags": [
+                "politics",
+                "history"
+            ],
+            "timestamp": "2025-10-16T18:26:50.647753",
+            "expert_decision": {
+                "unified_decision": {
+                    "decision_flag": "create_new_expert",
+                    "selected_domain": "unknown",
+                    "confidence_in_decision": 0.9,
+                    "reasoning": [
+                        "No expert available for tags: ['politics', 'history']"
+                    ]
+                },
+                "expert_analyses": {},
+                "system_summary": {
+                    "experts_analyzed": 0
+                }
+            },
+            "expert_flag": "create_new_expert",
+            "selected_domain": "unknown",
+            "decision_confidence": 0.9
         },
         {
             "sentence": "The part where they ask \"what is this called when a shadow has multiple shadows \"layered\" behind each other\".\\n\\nPenumbra is a continuous spectrum of shadows, which you could argue are infinitely layered over each other, but they don't appear as *separate* layers, so I interpret that as not what OP is asking for.\\n\\nThey specifically are asking about layers.",
             "tags": [
-                "maths",
-                "physics"
+                "physics",
+                "maths"
             ],
-            "timestamp": "2025-09-29T21:44:11.939952",
+            "timestamp": "2025-10-16T18:26:50.887201",
             "expert_decision": {
                 "input_text": "The part where they ask \"what is this called when a shadow has multiple shadows \"layered\" behind each other\".\\n\\nPenumbra is a continuous spectrum of shadows, which you could argue are infinitely layered over each other, but they don't appear as *separate* layers, so I interpret that as not what OP is asking for.\\n\\nThey specifically are asking about layers.",
-                "timestamp": "2025-09-29T21:44:11.939985",
+                "timestamp": "2025-10-16T18:26:50.887201",
                 "expert_analyses": {
-                    "medical": {
+                    "physics": {
                         "input_text": "The part where they ask \"what is this called when a shadow has multiple shadows \"layered\" behind eac...",
-                        "domain": "medical",
-                        "timestamp": "2025-09-29T21:44:11.940042",
+                        "domain": "physics",
+                        "timestamp": "2025-10-16T18:26:50.887201",
                         "systems_analysis": {
                             "k_medoids": {
-                                "similarity_score": 0.09319872409105301,
+                                "similarity_score": 0.2090950608253479,
                                 "num_medoids": 10,
-                                "primary_medoid_text": "Dapsone is an effective therapy for the skin lesio..."
+                                "primary_medoid_text": "Organisms that reproduce sexually by joining gamet..."
                             },
                             "calibration": {
                                 "enabled": true,
-                                "prediction": "No",
-                                "confidence_score": 0.7999169205206313,
-                                "raw_confidence": 1.0,
-                                "calibration_quality": 0.5998338410412628
+                                "prediction": 0,
+                                "confidence_score": 0.7623549418906643,
+                                "raw_confidence": 0.983249306678772,
+                                "calibration_quality": 0.5506849315068493
                             },
                             "ood_detection": {
                                 "enabled": true,
-                                "is_ood": true,
+                                "is_ood": false,
                                 "ood_confidence": 0.3333333333333333,
                                 "ood_scores": {
-                                    "svm_distance": 0.5129752071815449,
-                                    "nn_distance": 0.82831209897995,
-                                    "isolation_score": 0.012756382621169349
+                                    "svm_distance": 2.1938812732696533,
+                                    "nn_distance": 0.6693746447563171,
+                                    "isolation_score": 0.014380712084409775
                                 },
                                 "reason": "1/3 methods flagged as OOD"
                             }
                         },
                         "unified_scores": {
-                            "base_similarity": 0.09319872409105301,
-                            "base_confidence": 0.7999169205206313,
-                            "ood_penalty": 0.26666666666666666,
-                            "adjusted_similarity": 0.08077222754557928,
-                            "adjusted_confidence": 0.5866057417151297,
-                            "composite_score": 0.41361785437095033,
-                            "quality_score": 0.7,
-                            "systems_enabled": {
-                                "k_medoids": true,
-                                "calibration": true,
-                                "ood_detection": true
-                            }
-                        },
-                        "recommendation": {
-                            "decision": "create_new_patch",
-                            "confidence_in_decision": 0.23162599844773216,
-                            "reasoning": [
-                                "Medium composite score (0.414) suitable for patch creation",
-                                "Low similarity to existing medoids"
-                            ],
-                            "thresholds_used": {
-                                "high_threshold": 0.42,
-                                "medium_threshold": 0.21,
-                                "ood_rejection_threshold": 0.4
-                            }
-                        }
-                    },
-                    "music": {
-                        "input_text": "The part where they ask \"what is this called when a shadow has multiple shadows \"layered\" behind eac...",
-                        "domain": "music",
-                        "timestamp": "2025-09-29T21:44:20.509704",
-                        "systems_analysis": {
-                            "k_medoids": {
-                                "similarity_score": 0.17604216933250427,
-                                "num_medoids": 10,
-                                "primary_medoid_text": "Now darling, you should know\r\nThat I'm really, rea..."
-                            },
-                            "calibration": {
-                                "enabled": true,
-                                "prediction": "No",
-                                "confidence_score": 0.7430915371329879,
-                                "raw_confidence": 1.0,
-                                "calibration_quality": 0.48618307426597585
-                            },
-                            "ood_detection": {
-                                "enabled": true,
-                                "is_ood": true,
-                                "ood_confidence": 0.6666666666666666,
-                                "ood_scores": {
-                                    "svm_distance": 0.05349103033758973,
-                                    "nn_distance": 0.7278969287872314,
-                                    "isolation_score": 0.017420378285913418
-                                },
-                                "reason": "2/3 methods flagged as OOD"
-                            }
-                        },
-                        "unified_scores": {
-                            "base_similarity": 0.17604216933250427,
-                            "base_confidence": 0.7430915371329879,
-                            "ood_penalty": 0.5333333333333333,
-                            "adjusted_similarity": 0.12909759084383648,
-                            "adjusted_confidence": 0.346776050662061,
-                            "composite_score": 0.28368278993569235,
-                            "quality_score": 0.7,
-                            "systems_enabled": {
-                                "k_medoids": true,
-                                "calibration": true,
-                                "ood_detection": true
-                            }
-                        },
-                        "recommendation": {
-                            "decision": "create_new_expert",
-                            "confidence_in_decision": 0.9,
-                            "reasoning": [
-                                "High OOD penalty (0.533) suggests input is out-of-distribution",
-                                "Low similarity to existing medoids",
-                                "OOD detection flagged potential distribution shift"
-                            ],
-                            "thresholds_used": {
-                                "high_threshold": 0.42,
-                                "medium_threshold": 0.21,
-                                "ood_rejection_threshold": 0.4
-                            }
-                        }
-                    },
-                    "physics": {
-                        "input_text": "The part where they ask \"what is this called when a shadow has multiple shadows \"layered\" behind eac...",
-                        "domain": "physics",
-                        "timestamp": "2025-09-29T21:44:29.601251",
-                        "systems_analysis": {
-                            "k_medoids": {
-                                "similarity_score": 0.18082532286643982,
-                                "num_medoids": 10,
-                                "primary_medoid_text": "If you are doing an experiment at school you shoul..."
-                            },
-                            "calibration": {
-                                "enabled": true,
-                                "prediction": "Non-physics",
-                                "confidence_score": 0.75,
-                                "raw_confidence": 1.0,
-                                "calibration_quality": 0.5
-                            },
-                            "ood_detection": {
-                                "enabled": true,
-                                "is_ood": false,
-                                "ood_confidence": 0.0,
-                                "ood_scores": {
-                                    "svm_distance": 0.7046117140226298,
-                                    "nn_distance": 0.45033982396125793,
-                                    "isolation_score": 0.02227154285398225
-                                },
-                                "reason": "0/3 methods flagged as OOD"
-                            }
-                        },
-                        "unified_scores": {
-                            "base_similarity": 0.18082532286643982,
-                            "base_confidence": 0.75,
-                            "ood_penalty": 0.0,
-                            "adjusted_similarity": 0.18082532286643982,
-                            "adjusted_confidence": 0.75,
-                            "composite_score": 0.572330129146576,
+                            "base_similarity": 0.2090950608253479,
+                            "base_confidence": 0.7623549418906643,
+                            "ood_penalty": 0.06666666666666667,
+                            "adjusted_similarity": 0.20491315960884093,
+                            "adjusted_confidence": 0.7115312790979534,
+                            "composite_score": 0.5057333307513908,
                             "quality_score": 0.7,
                             "systems_enabled": {
                                 "k_medoids": true,
@@ -397,15 +347,14 @@
                         },
                         "recommendation": {
                             "decision": "use_existing_expert",
-                            "confidence_in_decision": 0.4006310904026032,
+                            "confidence_in_decision": 0.35401333152597353,
                             "reasoning": [
-                                "High composite score (0.572) with low OOD risk",
-                                "Low similarity to existing medoids"
+                                "High composite score (0.506) with acceptable OOD risk"
                             ],
                             "thresholds_used": {
-                                "high_threshold": 0.42,
-                                "medium_threshold": 0.21,
-                                "ood_rejection_threshold": 0.4
+                                "high_threshold": 0.35,
+                                "medium_threshold": 0.175,
+                                "ood_rejection_threshold": 0.6
                             }
                         }
                     }
@@ -413,28 +362,27 @@
                 "unified_decision": {
                     "selected_domain": "physics",
                     "decision_flag": "use_existing_expert",
-                    "confidence_in_decision": 0.4006310904026032,
-                    "composite_score": 0.572330129146576,
+                    "confidence_in_decision": 0.35401333152597353,
+                    "composite_score": 0.5057333307513908,
                     "quality_score": 0.7,
                     "reasoning": [
-                        "High composite score (0.572) with low OOD risk",
-                        "Low similarity to existing medoids"
+                        "High composite score (0.506) with acceptable OOD risk"
                     ],
                     "ood_analysis": {
                         "is_ood": false,
-                        "ood_confidence": 0.0
+                        "ood_confidence": 0.3333333333333333
                     },
                     "similarity_analysis": {
-                        "similarity_score": 0.18082532286643982,
-                        "adjusted_similarity": 0.18082532286643982
+                        "similarity_score": 0.2090950608253479,
+                        "adjusted_similarity": 0.20491315960884093
                     },
                     "confidence_analysis": {
-                        "calibrated_confidence": 0.75,
-                        "adjusted_confidence": 0.75
+                        "calibrated_confidence": 0.7623549418906643,
+                        "adjusted_confidence": 0.7115312790979534
                     }
                 },
                 "system_summary": {
-                    "experts_analyzed": 3,
+                    "experts_analyzed": 1,
                     "systems_enabled": {
                         "k_medoids": true,
                         "calibration": true,
@@ -444,275 +392,55 @@
             },
             "expert_flag": "use_existing_expert",
             "selected_domain": "physics",
-            "decision_confidence": 0.4006310904026032
-        },
-        {
-            "sentence": "He also explains later why that doesn't work (in [another video](https://www.youtube.com/watch?v=SDtAh9IwG-I)). Basically temporal coherence is a bitch and overlooked easily, you attenuate the wave instead of shooting wave packets. Making true single photons is difficult, you need either SPDC or a clever quantum dot system. We actually still suck at making single photons (though progress is being rapidly made!).",
-            "tags": [
-                "physics",
-                "maths",
-                "technology"
-            ],
-            "timestamp": "2025-09-29T21:44:38.929926",
-            "expert_decision": {
-                "input_text": "He also explains later why that doesn't work (in [another video](https://www.youtube.com/watch?v=SDtAh9IwG-I)). Basically temporal coherence is a bitch and overlooked easily, you attenuate the wave instead of shooting wave packets. Making true single photons is difficult, you need either SPDC or a clever quantum dot system. We actually still suck at making single photons (though progress is being rapidly made!).",
-                "timestamp": "2025-09-29T21:44:38.929953",
-                "expert_analyses": {
-                    "medical": {
-                        "input_text": "He also explains later why that doesn't work (in [another video](https://www.youtube.com/watch?v=SDt...",
-                        "domain": "medical",
-                        "timestamp": "2025-09-29T21:44:38.930008",
-                        "systems_analysis": {
-                            "k_medoids": {
-                                "similarity_score": 0.01802179217338562,
-                                "num_medoids": 10,
-                                "primary_medoid_text": "Dapsone is an effective therapy for the skin lesio..."
-                            },
-                            "calibration": {
-                                "enabled": true,
-                                "prediction": "No",
-                                "confidence_score": 0.7999169205206313,
-                                "raw_confidence": 1.0,
-                                "calibration_quality": 0.5998338410412628
-                            },
-                            "ood_detection": {
-                                "enabled": true,
-                                "is_ood": true,
-                                "ood_confidence": 0.6666666666666666,
-                                "ood_scores": {
-                                    "svm_distance": 0.49264096324631956,
-                                    "nn_distance": 0.8301982283592224,
-                                    "isolation_score": 0.0047342143405950665
-                                },
-                                "reason": "2/3 methods flagged as OOD"
-                            }
-                        },
-                        "unified_scores": {
-                            "base_similarity": 0.01802179217338562,
-                            "base_confidence": 0.7999169205206313,
-                            "ood_penalty": 0.5333333333333333,
-                            "adjusted_similarity": 0.013215980927149457,
-                            "adjusted_confidence": 0.373294562909628,
-                            "composite_score": 0.2479375508680443,
-                            "quality_score": 0.7,
-                            "systems_enabled": {
-                                "k_medoids": true,
-                                "calibration": true,
-                                "ood_detection": true
-                            }
-                        },
-                        "recommendation": {
-                            "decision": "create_new_expert",
-                            "confidence_in_decision": 0.9,
-                            "reasoning": [
-                                "High OOD penalty (0.533) suggests input is out-of-distribution",
-                                "Low similarity to existing medoids",
-                                "OOD detection flagged potential distribution shift"
-                            ],
-                            "thresholds_used": {
-                                "high_threshold": 0.42,
-                                "medium_threshold": 0.21,
-                                "ood_rejection_threshold": 0.4
-                            }
-                        }
-                    },
-                    "music": {
-                        "input_text": "He also explains later why that doesn't work (in [another video](https://www.youtube.com/watch?v=SDt...",
-                        "domain": "music",
-                        "timestamp": "2025-09-29T21:44:47.489729",
-                        "systems_analysis": {
-                            "k_medoids": {
-                                "similarity_score": 0.07515060156583786,
-                                "num_medoids": 10,
-                                "primary_medoid_text": "Now darling, you should know\r\nThat I'm really, rea..."
-                            },
-                            "calibration": {
-                                "enabled": true,
-                                "prediction": "No",
-                                "confidence_score": 0.7430915371329879,
-                                "raw_confidence": 1.0,
-                                "calibration_quality": 0.48618307426597585
-                            },
-                            "ood_detection": {
-                                "enabled": true,
-                                "is_ood": true,
-                                "ood_confidence": 1.0,
-                                "ood_scores": {
-                                    "svm_distance": 0.4989583295086897,
-                                    "nn_distance": 0.8378923535346985,
-                                    "isolation_score": -0.005136675833015025
-                                },
-                                "reason": "3/3 methods flagged as OOD"
-                            }
-                        },
-                        "unified_scores": {
-                            "base_similarity": 0.07515060156583786,
-                            "base_confidence": 0.7430915371329879,
-                            "ood_penalty": 0.8,
-                            "adjusted_similarity": 0.045090360939502715,
-                            "adjusted_confidence": 0.14861830742659754,
-                            "composite_score": 0.11748346734644009,
-                            "quality_score": 0.7,
-                            "systems_enabled": {
-                                "k_medoids": true,
-                                "calibration": true,
-                                "ood_detection": true
-                            }
-                        },
-                        "recommendation": {
-                            "decision": "create_new_expert",
-                            "confidence_in_decision": 0.9,
-                            "reasoning": [
-                                "High OOD penalty (0.800) suggests input is out-of-distribution",
-                                "Low similarity to existing medoids",
-                                "OOD detection flagged potential distribution shift"
-                            ],
-                            "thresholds_used": {
-                                "high_threshold": 0.42,
-                                "medium_threshold": 0.21,
-                                "ood_rejection_threshold": 0.4
-                            }
-                        }
-                    },
-                    "physics": {
-                        "input_text": "He also explains later why that doesn't work (in [another video](https://www.youtube.com/watch?v=SDt...",
-                        "domain": "physics",
-                        "timestamp": "2025-09-29T21:44:56.275103",
-                        "systems_analysis": {
-                            "k_medoids": {
-                                "similarity_score": 0.2790055274963379,
-                                "num_medoids": 10,
-                                "primary_medoid_text": "If you are doing an experiment at school you shoul..."
-                            },
-                            "calibration": {
-                                "enabled": true,
-                                "prediction": "Non-physics",
-                                "confidence_score": 0.75,
-                                "raw_confidence": 1.0,
-                                "calibration_quality": 0.5
-                            },
-                            "ood_detection": {
-                                "enabled": true,
-                                "is_ood": false,
-                                "ood_confidence": 0.0,
-                                "ood_scores": {
-                                    "svm_distance": 0.9187321117015285,
-                                    "nn_distance": 0.3604304790496826,
-                                    "isolation_score": 0.04338565978523007
-                                },
-                                "reason": "0/3 methods flagged as OOD"
-                            }
-                        },
-                        "unified_scores": {
-                            "base_similarity": 0.2790055274963379,
-                            "base_confidence": 0.75,
-                            "ood_penalty": 0.0,
-                            "adjusted_similarity": 0.2790055274963379,
-                            "adjusted_confidence": 0.75,
-                            "composite_score": 0.6116022109985353,
-                            "quality_score": 0.7,
-                            "systems_enabled": {
-                                "k_medoids": true,
-                                "calibration": true,
-                                "ood_detection": true
-                            }
-                        },
-                        "recommendation": {
-                            "decision": "use_existing_expert",
-                            "confidence_in_decision": 0.4281215476989747,
-                            "reasoning": [
-                                "High composite score (0.612) with low OOD risk"
-                            ],
-                            "thresholds_used": {
-                                "high_threshold": 0.42,
-                                "medium_threshold": 0.21,
-                                "ood_rejection_threshold": 0.4
-                            }
-                        }
-                    }
-                },
-                "unified_decision": {
-                    "selected_domain": "physics",
-                    "decision_flag": "use_existing_expert",
-                    "confidence_in_decision": 0.4281215476989747,
-                    "composite_score": 0.6116022109985353,
-                    "quality_score": 0.7,
-                    "reasoning": [
-                        "High composite score (0.612) with low OOD risk"
-                    ],
-                    "ood_analysis": {
-                        "is_ood": false,
-                        "ood_confidence": 0.0
-                    },
-                    "similarity_analysis": {
-                        "similarity_score": 0.2790055274963379,
-                        "adjusted_similarity": 0.2790055274963379
-                    },
-                    "confidence_analysis": {
-                        "calibrated_confidence": 0.75,
-                        "adjusted_confidence": 0.75
-                    }
-                },
-                "system_summary": {
-                    "experts_analyzed": 3,
-                    "systems_enabled": {
-                        "k_medoids": true,
-                        "calibration": true,
-                        "ood_detection": true
-                    }
-                }
-            },
-            "expert_flag": "use_existing_expert",
-            "selected_domain": "physics",
-            "decision_confidence": 0.4281215476989747
+            "decision_confidence": 0.35401333152597353
         },
         {
             "sentence": "Cells immunoreactive for neuropeptide in human thymomas. The presence of opioid peptides, bombesin, and substance P was investigated by immunohistochemistry in tissue sections from six human thymomas. The number of immunoreactive cells seemed to vary from one case to another. Ultrastructural investigation, showing the presence of desmosomes in labelled cells, allowed these cells to be classified as epithelial lineage cells. The occurrence of cells containing neuropeptide in thymomas suggest that peptide molecules could have modulated the behaviour of this tumour, given the reported influence of these molecules on immune functions and their growth promoting activity on several cell types, including mesenchymal and epithelial cells. ",
             "tags": [
                 "biology",
-                "medicine"
+                "chemistry"
             ],
-            "timestamp": "2025-09-29T21:45:05.565700",
+            "timestamp": "2025-10-16T18:26:58.085470",
             "expert_decision": {
                 "input_text": "Cells immunoreactive for neuropeptide in human thymomas. The presence of opioid peptides, bombesin, and substance P was investigated by immunohistochemistry in tissue sections from six human thymomas. The number of immunoreactive cells seemed to vary from one case to another. Ultrastructural investigation, showing the presence of desmosomes in labelled cells, allowed these cells to be classified as epithelial lineage cells. The occurrence of cells containing neuropeptide in thymomas suggest that peptide molecules could have modulated the behaviour of this tumour, given the reported influence of these molecules on immune functions and their growth promoting activity on several cell types, including mesenchymal and epithelial cells. ",
-                "timestamp": "2025-09-29T21:45:05.565722",
+                "timestamp": "2025-10-16T18:26:58.085470",
                 "expert_analyses": {
-                    "medical": {
+                    "chemistry": {
                         "input_text": "Cells immunoreactive for neuropeptide in human thymomas. The presence of opioid peptides, bombesin, ...",
-                        "domain": "medical",
-                        "timestamp": "2025-09-29T21:45:05.565770",
+                        "domain": "chemistry",
+                        "timestamp": "2025-10-16T18:26:58.085470",
                         "systems_analysis": {
                             "k_medoids": {
-                                "similarity_score": 0.35177311301231384,
+                                "similarity_score": 0.21176278591156006,
                                 "num_medoids": 10,
-                                "primary_medoid_text": "Dapsone is an effective therapy for the skin lesio..."
+                                "primary_medoid_text": "Organisms that reproduce sexually by joining gamet..."
                             },
                             "calibration": {
                                 "enabled": true,
-                                "prediction": "No",
-                                "confidence_score": 0.7999169205206313,
-                                "raw_confidence": 1.0,
-                                "calibration_quality": 0.5998338410412628
+                                "prediction": 0,
+                                "confidence_score": 0.6894950319581957,
+                                "raw_confidence": 0.9934659600257874,
+                                "calibration_quality": 0.3880597014925373
                             },
                             "ood_detection": {
                                 "enabled": true,
-                                "is_ood": true,
-                                "ood_confidence": 0.6666666666666666,
+                                "is_ood": false,
+                                "ood_confidence": 0.3333333333333333,
                                 "ood_scores": {
-                                    "svm_distance": 1.8651409248580435,
-                                    "nn_distance": 0.5331688523292542,
-                                    "isolation_score": -0.0014149436231598589
+                                    "svm_distance": 2.327200412750244,
+                                    "nn_distance": 0.7018572688102722,
+                                    "isolation_score": -0.00688573801447917
                                 },
-                                "reason": "2/3 methods flagged as OOD"
+                                "reason": "1/3 methods flagged as OOD"
                             }
                         },
                         "unified_scores": {
-                            "base_similarity": 0.35177311301231384,
-                            "base_confidence": 0.7999169205206313,
-                            "ood_penalty": 0.5333333333333333,
-                            "adjusted_similarity": 0.2579669495423635,
-                            "adjusted_confidence": 0.373294562909628,
-                            "composite_score": 0.34583793831412996,
+                            "base_similarity": 0.21176278591156006,
+                            "base_confidence": 0.6894950319581957,
+                            "ood_penalty": 0.06666666666666667,
+                            "adjusted_similarity": 0.20752753019332884,
+                            "adjusted_confidence": 0.643528696494316,
+                            "composite_score": 0.4763086353427735,
                             "quality_score": 0.7,
                             "systems_enabled": {
                                 "k_medoids": true,
@@ -721,161 +449,43 @@
                             }
                         },
                         "recommendation": {
-                            "decision": "create_new_expert",
-                            "confidence_in_decision": 0.9,
+                            "decision": "use_existing_expert",
+                            "confidence_in_decision": 0.33341604473994146,
                             "reasoning": [
-                                "High OOD penalty (0.533) suggests input is out-of-distribution",
-                                "OOD detection flagged potential distribution shift"
+                                "High composite score (0.476) with acceptable OOD risk"
                             ],
                             "thresholds_used": {
-                                "high_threshold": 0.42,
-                                "medium_threshold": 0.21,
-                                "ood_rejection_threshold": 0.4
-                            }
-                        }
-                    },
-                    "music": {
-                        "input_text": "Cells immunoreactive for neuropeptide in human thymomas. The presence of opioid peptides, bombesin, ...",
-                        "domain": "music",
-                        "timestamp": "2025-09-29T21:45:14.231996",
-                        "systems_analysis": {
-                            "k_medoids": {
-                                "similarity_score": 0.09432283043861389,
-                                "num_medoids": 10,
-                                "primary_medoid_text": "Now darling, you should know\r\nThat I'm really, rea..."
-                            },
-                            "calibration": {
-                                "enabled": true,
-                                "prediction": "No",
-                                "confidence_score": 0.7430915371329879,
-                                "raw_confidence": 1.0,
-                                "calibration_quality": 0.48618307426597585
-                            },
-                            "ood_detection": {
-                                "enabled": true,
-                                "is_ood": true,
-                                "ood_confidence": 0.6666666666666666,
-                                "ood_scores": {
-                                    "svm_distance": 0.5525647953994557,
-                                    "nn_distance": 0.8487299084663391,
-                                    "isolation_score": -0.015827250873465593
-                                },
-                                "reason": "2/3 methods flagged as OOD"
-                            }
-                        },
-                        "unified_scores": {
-                            "base_similarity": 0.09432283043861389,
-                            "base_confidence": 0.7430915371329879,
-                            "ood_penalty": 0.5333333333333333,
-                            "adjusted_similarity": 0.06917007565498352,
-                            "adjusted_confidence": 0.346776050662061,
-                            "composite_score": 0.25971178386015115,
-                            "quality_score": 0.7,
-                            "systems_enabled": {
-                                "k_medoids": true,
-                                "calibration": true,
-                                "ood_detection": true
-                            }
-                        },
-                        "recommendation": {
-                            "decision": "create_new_expert",
-                            "confidence_in_decision": 0.9,
-                            "reasoning": [
-                                "High OOD penalty (0.533) suggests input is out-of-distribution",
-                                "Low similarity to existing medoids",
-                                "OOD detection flagged potential distribution shift"
-                            ],
-                            "thresholds_used": {
-                                "high_threshold": 0.42,
-                                "medium_threshold": 0.21,
-                                "ood_rejection_threshold": 0.4
-                            }
-                        }
-                    },
-                    "physics": {
-                        "input_text": "Cells immunoreactive for neuropeptide in human thymomas. The presence of opioid peptides, bombesin, ...",
-                        "domain": "physics",
-                        "timestamp": "2025-09-29T21:45:22.771137",
-                        "systems_analysis": {
-                            "k_medoids": {
-                                "similarity_score": 0.01582522690296173,
-                                "num_medoids": 10,
-                                "primary_medoid_text": "If you are doing an experiment at school you shoul..."
-                            },
-                            "calibration": {
-                                "enabled": true,
-                                "prediction": "Non-physics",
-                                "confidence_score": 0.75,
-                                "raw_confidence": 1.0,
-                                "calibration_quality": 0.5
-                            },
-                            "ood_detection": {
-                                "enabled": true,
-                                "is_ood": true,
-                                "ood_confidence": 0.6666666666666666,
-                                "ood_scores": {
-                                    "svm_distance": 0.7090813989373279,
-                                    "nn_distance": 0.7162362933158875,
-                                    "isolation_score": -0.026782733511673373
-                                },
-                                "reason": "2/3 methods flagged as OOD"
-                            }
-                        },
-                        "unified_scores": {
-                            "base_similarity": 0.01582522690296173,
-                            "base_confidence": 0.75,
-                            "ood_penalty": 0.5333333333333333,
-                            "adjusted_similarity": 0.011605166395505271,
-                            "adjusted_confidence": 0.35,
-                            "composite_score": 0.23797539989153543,
-                            "quality_score": 0.7,
-                            "systems_enabled": {
-                                "k_medoids": true,
-                                "calibration": true,
-                                "ood_detection": true
-                            }
-                        },
-                        "recommendation": {
-                            "decision": "create_new_expert",
-                            "confidence_in_decision": 0.9,
-                            "reasoning": [
-                                "High OOD penalty (0.533) suggests input is out-of-distribution",
-                                "Low similarity to existing medoids",
-                                "OOD detection flagged potential distribution shift"
-                            ],
-                            "thresholds_used": {
-                                "high_threshold": 0.42,
-                                "medium_threshold": 0.21,
-                                "ood_rejection_threshold": 0.4
+                                "high_threshold": 0.35,
+                                "medium_threshold": 0.175,
+                                "ood_rejection_threshold": 0.6
                             }
                         }
                     }
                 },
                 "unified_decision": {
-                    "selected_domain": "medical",
-                    "decision_flag": "create_new_expert",
-                    "confidence_in_decision": 0.9,
-                    "composite_score": 0.34583793831412996,
+                    "selected_domain": "chemistry",
+                    "decision_flag": "use_existing_expert",
+                    "confidence_in_decision": 0.33341604473994146,
+                    "composite_score": 0.4763086353427735,
                     "quality_score": 0.7,
                     "reasoning": [
-                        "High OOD penalty (0.533) suggests input is out-of-distribution",
-                        "OOD detection flagged potential distribution shift"
+                        "High composite score (0.476) with acceptable OOD risk"
                     ],
                     "ood_analysis": {
-                        "is_ood": true,
-                        "ood_confidence": 0.6666666666666666
+                        "is_ood": false,
+                        "ood_confidence": 0.3333333333333333
                     },
                     "similarity_analysis": {
-                        "similarity_score": 0.35177311301231384,
-                        "adjusted_similarity": 0.2579669495423635
+                        "similarity_score": 0.21176278591156006,
+                        "adjusted_similarity": 0.20752753019332884
                     },
                     "confidence_analysis": {
-                        "calibrated_confidence": 0.7999169205206313,
-                        "adjusted_confidence": 0.373294562909628
+                        "calibrated_confidence": 0.6894950319581957,
+                        "adjusted_confidence": 0.643528696494316
                     }
                 },
                 "system_summary": {
-                    "experts_analyzed": 3,
+                    "experts_analyzed": 1,
                     "systems_enabled": {
                         "k_medoids": true,
                         "calibration": true,
@@ -883,8 +493,56 @@
                     }
                 }
             },
+            "expert_flag": "use_existing_expert",
+            "selected_domain": "chemistry",
+            "decision_confidence": 0.33341604473994146
+        },
+        {
+            "sentence": "Herman Cain Tweets 2 Weeks After Death, Slams Joe Biden And Kamala Harris",
+            "tags": [
+                "politics"
+            ],
+            "timestamp": "2025-10-16T18:27:07.003313",
+            "expert_decision": {
+                "unified_decision": {
+                    "decision_flag": "create_new_expert",
+                    "selected_domain": "unknown",
+                    "confidence_in_decision": 0.9,
+                    "reasoning": [
+                        "No expert available for tags: ['politics']"
+                    ]
+                },
+                "expert_analyses": {},
+                "system_summary": {
+                    "experts_analyzed": 0
+                }
+            },
             "expert_flag": "create_new_expert",
-            "selected_domain": "medical",
+            "selected_domain": "unknown",
+            "decision_confidence": 0.9
+        },
+        {
+            "sentence": "Hello, old friend\r\nI know it's been a while\r\nI'm here again\r\nAnd it won't be the last time\r\nI fall apart\r\nBut You won't let me get too far\r\nYou're speaking to my heart\r\nIt's good to know\r\nIt's good to feel the arms of grace\r\nTo know that my mistakes are covered by Your love\r\nIt's good to know\r\nIt's good to see that You won't change\r\nWhen it's said and done\r\nYou'll always be enough\r\nTo know that I can always come back home\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nGoodbye, old me\r\nYeah there's so much more that I\r\nKnow I could be\r\nSo take my worries with\r\nYou when you leave\r\nThere's hope that I am counting on\r\n'Cause I'm never too far gone\r\nIt's good to know\r\nIt's good to feel the arms of grace\r\nTo know that my mistakes are covered by Your love\r\nIt's good to know\r\nIt's good to see that You won't change\r\nWhen it's said and done\r\nYou'll always be enough\r\nTo know that I can always come back home\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\nThat there's a second chance\r\nKnow that it's all in Your hands\r\nEven if I just don't understand\r\n'Cause I know that I will be alright\r\nI finally see the other side\r\nIt takes the darkness to open up your eyes\r\nSometimes\r\nIt's good to know\r\nIt's good to know\r\nI'm covered by Your love\r\nOh, oh, it's good to know\r\nIt's good to see that You won't change\r\nWhen it's said and done You'll always be enough\r\nTo know that I can always come back home\r\nTo know that You will never let me go\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\nIt's good to know\r\noh, oh, oh, oh",
+            "tags": [
+                "none"
+            ],
+            "timestamp": "2025-10-16T18:27:07.436756",
+            "expert_decision": {
+                "unified_decision": {
+                    "decision_flag": "create_new_expert",
+                    "selected_domain": "unknown",
+                    "confidence_in_decision": 0.9,
+                    "reasoning": [
+                        "No expert available for tags: ['none']"
+                    ]
+                },
+                "expert_analyses": {},
+                "system_summary": {
+                    "experts_analyzed": 0
+                }
+            },
+            "expert_flag": "create_new_expert",
+            "selected_domain": "unknown",
             "decision_confidence": 0.9
         },
         {
@@ -893,18 +551,18 @@
                 "biology",
                 "medicine"
             ],
-            "timestamp": "2025-09-29T21:45:32.000266",
+            "timestamp": "2025-10-16T18:27:07.724881",
             "expert_decision": {
                 "input_text": "Late relapse with nodular lymphoma after treatment for diffuse non-Hodgkin's lymphoma. Histologic conversion from a low-grade non-Hodgkin's lymphoma (NHL) into a more aggressive histologic pattern is a common, well-documented event in NHL. The converse phenomenon, appearance of a low-grade, follicular NHL after treatment for diffuse, intermediate, or high-grade NHL, has only recently been recognized. The clinical, morphologic, and immunologic features of a patient in whom relapse with an indolent nodular lymphoma was noticed after combination chemotherapy for diffuse lymphoma are presented. Immunologic markers at presentation and relapse were similar. Other previously reported cases are reviewed. Implications for diagnosis and therapy as well as the pathogenesis of this unique form of conversion are discussed. ",
-                "timestamp": "2025-09-29T21:45:32.000289",
+                "timestamp": "2025-10-16T18:27:07.725886",
                 "expert_analyses": {
                     "medical": {
                         "input_text": "Late relapse with nodular lymphoma after treatment for diffuse non-Hodgkin's lymphoma. Histologic co...",
                         "domain": "medical",
-                        "timestamp": "2025-09-29T21:45:32.000334",
+                        "timestamp": "2025-10-16T18:27:07.725886",
                         "systems_analysis": {
                             "k_medoids": {
-                                "similarity_score": 0.42584919929504395,
+                                "similarity_score": 0.4258490204811096,
                                 "num_medoids": 10,
                                 "primary_medoid_text": "Dapsone is an effective therapy for the skin lesio..."
                             },
@@ -917,357 +575,23 @@
                             },
                             "ood_detection": {
                                 "enabled": true,
-                                "is_ood": true,
-                                "ood_confidence": 0.3333333333333333,
+                                "is_ood": false,
+                                "ood_confidence": 0.0,
                                 "ood_scores": {
                                     "svm_distance": 1.475077045445184,
-                                    "nn_distance": 0.5283052325248718,
-                                    "isolation_score": 0.01611033755956548
-                                },
-                                "reason": "1/3 methods flagged as OOD"
-                            }
-                        },
-                        "unified_scores": {
-                            "base_similarity": 0.42584919929504395,
-                            "base_confidence": 0.7999169205206313,
-                            "ood_penalty": 0.26666666666666666,
-                            "adjusted_similarity": 0.36906930605570476,
-                            "adjusted_confidence": 0.5866057417151297,
-                            "composite_score": 0.5289366857750005,
-                            "quality_score": 0.7,
-                            "systems_enabled": {
-                                "k_medoids": true,
-                                "calibration": true,
-                                "ood_detection": true
-                            }
-                        },
-                        "recommendation": {
-                            "decision": "create_new_patch",
-                            "confidence_in_decision": 0.2962045440340003,
-                            "reasoning": [
-                                "Medium composite score (0.529) suitable for patch creation"
-                            ],
-                            "thresholds_used": {
-                                "high_threshold": 0.42,
-                                "medium_threshold": 0.21,
-                                "ood_rejection_threshold": 0.4
-                            }
-                        }
-                    },
-                    "music": {
-                        "input_text": "Late relapse with nodular lymphoma after treatment for diffuse non-Hodgkin's lymphoma. Histologic co...",
-                        "domain": "music",
-                        "timestamp": "2025-09-29T21:45:40.938384",
-                        "systems_analysis": {
-                            "k_medoids": {
-                                "similarity_score": 0.07219652831554413,
-                                "num_medoids": 10,
-                                "primary_medoid_text": "Now darling, you should know\r\nThat I'm really, rea..."
-                            },
-                            "calibration": {
-                                "enabled": true,
-                                "prediction": "No",
-                                "confidence_score": 0.7430915371329879,
-                                "raw_confidence": 1.0,
-                                "calibration_quality": 0.48618307426597585
-                            },
-                            "ood_detection": {
-                                "enabled": true,
-                                "is_ood": true,
-                                "ood_confidence": 0.3333333333333333,
-                                "ood_scores": {
-                                    "svm_distance": 0.7147504486648886,
-                                    "nn_distance": 0.8155326843261719,
-                                    "isolation_score": 0.010786747096298288
-                                },
-                                "reason": "1/3 methods flagged as OOD"
-                            }
-                        },
-                        "unified_scores": {
-                            "base_similarity": 0.07219652831554413,
-                            "base_confidence": 0.7430915371329879,
-                            "ood_penalty": 0.26666666666666666,
-                            "adjusted_similarity": 0.06257032454013825,
-                            "adjusted_confidence": 0.5449337938975245,
-                            "composite_score": 0.38966831404173186,
-                            "quality_score": 0.7,
-                            "systems_enabled": {
-                                "k_medoids": true,
-                                "calibration": true,
-                                "ood_detection": true
-                            }
-                        },
-                        "recommendation": {
-                            "decision": "create_new_patch",
-                            "confidence_in_decision": 0.21821425586336984,
-                            "reasoning": [
-                                "Medium composite score (0.390) suitable for patch creation",
-                                "Low similarity to existing medoids"
-                            ],
-                            "thresholds_used": {
-                                "high_threshold": 0.42,
-                                "medium_threshold": 0.21,
-                                "ood_rejection_threshold": 0.4
-                            }
-                        }
-                    },
-                    "physics": {
-                        "input_text": "Late relapse with nodular lymphoma after treatment for diffuse non-Hodgkin's lymphoma. Histologic co...",
-                        "domain": "physics",
-                        "timestamp": "2025-09-29T21:45:50.932494",
-                        "systems_analysis": {
-                            "k_medoids": {
-                                "similarity_score": 0.09515239298343658,
-                                "num_medoids": 10,
-                                "primary_medoid_text": "If you are doing an experiment at school you shoul..."
-                            },
-                            "calibration": {
-                                "enabled": true,
-                                "prediction": "Non-physics",
-                                "confidence_score": 0.75,
-                                "raw_confidence": 1.0,
-                                "calibration_quality": 0.5
-                            },
-                            "ood_detection": {
-                                "enabled": true,
-                                "is_ood": true,
-                                "ood_confidence": 0.6666666666666666,
-                                "ood_scores": {
-                                    "svm_distance": 0.4219135684264549,
-                                    "nn_distance": 0.7380437850952148,
-                                    "isolation_score": 0.004047782292246838
-                                },
-                                "reason": "2/3 methods flagged as OOD"
-                            }
-                        },
-                        "unified_scores": {
-                            "base_similarity": 0.09515239298343658,
-                            "base_confidence": 0.75,
-                            "ood_penalty": 0.5333333333333333,
-                            "adjusted_similarity": 0.06977842152118684,
-                            "adjusted_confidence": 0.35,
-                            "composite_score": 0.26124470194180804,
-                            "quality_score": 0.7,
-                            "systems_enabled": {
-                                "k_medoids": true,
-                                "calibration": true,
-                                "ood_detection": true
-                            }
-                        },
-                        "recommendation": {
-                            "decision": "create_new_expert",
-                            "confidence_in_decision": 0.9,
-                            "reasoning": [
-                                "High OOD penalty (0.533) suggests input is out-of-distribution",
-                                "Low similarity to existing medoids",
-                                "OOD detection flagged potential distribution shift"
-                            ],
-                            "thresholds_used": {
-                                "high_threshold": 0.42,
-                                "medium_threshold": 0.21,
-                                "ood_rejection_threshold": 0.4
-                            }
-                        }
-                    }
-                },
-                "unified_decision": {
-                    "selected_domain": "medical",
-                    "decision_flag": "create_new_patch",
-                    "confidence_in_decision": 0.2962045440340003,
-                    "composite_score": 0.5289366857750005,
-                    "quality_score": 0.7,
-                    "reasoning": [
-                        "Medium composite score (0.529) suitable for patch creation"
-                    ],
-                    "ood_analysis": {
-                        "is_ood": true,
-                        "ood_confidence": 0.3333333333333333
-                    },
-                    "similarity_analysis": {
-                        "similarity_score": 0.42584919929504395,
-                        "adjusted_similarity": 0.36906930605570476
-                    },
-                    "confidence_analysis": {
-                        "calibrated_confidence": 0.7999169205206313,
-                        "adjusted_confidence": 0.5866057417151297
-                    }
-                },
-                "system_summary": {
-                    "experts_analyzed": 3,
-                    "systems_enabled": {
-                        "k_medoids": true,
-                        "calibration": true,
-                        "ood_detection": true
-                    }
-                }
-            },
-            "expert_flag": "create_new_patch",
-            "selected_domain": "medical",
-            "decision_confidence": 0.2962045440340003
-        },
-        {
-            "sentence": "People still got cancer before we knew about radiation it was causing harm but we didn\u2019t know about radiation so didn\u2019t know what was causing it.",
-            "tags": [
-                "biology",
-                "healthcare"
-            ],
-            "timestamp": "2025-09-29T21:46:00.577419",
-            "expert_decision": {
-                "input_text": "People still got cancer before we knew about radiation it was causing harm but we didn\u2019t know about radiation so didn\u2019t know what was causing it.",
-                "timestamp": "2025-09-29T21:46:00.577442",
-                "expert_analyses": {
-                    "medical": {
-                        "input_text": "People still got cancer before we knew about radiation it was causing harm but we didn\u2019t know about ...",
-                        "domain": "medical",
-                        "timestamp": "2025-09-29T21:46:00.577509",
-                        "systems_analysis": {
-                            "k_medoids": {
-                                "similarity_score": 0.16418343782424927,
-                                "num_medoids": 10,
-                                "primary_medoid_text": "Dapsone is an effective therapy for the skin lesio..."
-                            },
-                            "calibration": {
-                                "enabled": true,
-                                "prediction": "No",
-                                "confidence_score": 0.7999169205206313,
-                                "raw_confidence": 1.0,
-                                "calibration_quality": 0.5998338410412628
-                            },
-                            "ood_detection": {
-                                "enabled": true,
-                                "is_ood": true,
-                                "ood_confidence": 0.6666666666666666,
-                                "ood_scores": {
-                                    "svm_distance": 0.8421724924552445,
-                                    "nn_distance": 0.6833477020263672,
-                                    "isolation_score": -0.00041113216766597294
-                                },
-                                "reason": "2/3 methods flagged as OOD"
-                            }
-                        },
-                        "unified_scores": {
-                            "base_similarity": 0.16418343782424927,
-                            "base_confidence": 0.7999169205206313,
-                            "ood_penalty": 0.5333333333333333,
-                            "adjusted_similarity": 0.1204011877377828,
-                            "adjusted_confidence": 0.373294562909628,
-                            "composite_score": 0.29081163359229767,
-                            "quality_score": 0.7,
-                            "systems_enabled": {
-                                "k_medoids": true,
-                                "calibration": true,
-                                "ood_detection": true
-                            }
-                        },
-                        "recommendation": {
-                            "decision": "create_new_expert",
-                            "confidence_in_decision": 0.9,
-                            "reasoning": [
-                                "High OOD penalty (0.533) suggests input is out-of-distribution",
-                                "Low similarity to existing medoids",
-                                "OOD detection flagged potential distribution shift"
-                            ],
-                            "thresholds_used": {
-                                "high_threshold": 0.42,
-                                "medium_threshold": 0.21,
-                                "ood_rejection_threshold": 0.4
-                            }
-                        }
-                    },
-                    "music": {
-                        "input_text": "People still got cancer before we knew about radiation it was causing harm but we didn\u2019t know about ...",
-                        "domain": "music",
-                        "timestamp": "2025-09-29T21:46:09.444447",
-                        "systems_analysis": {
-                            "k_medoids": {
-                                "similarity_score": 0.012281697243452072,
-                                "num_medoids": 10,
-                                "primary_medoid_text": "Now darling, you should know\r\nThat I'm really, rea..."
-                            },
-                            "calibration": {
-                                "enabled": true,
-                                "prediction": "No",
-                                "confidence_score": 0.7430915371329879,
-                                "raw_confidence": 1.0,
-                                "calibration_quality": 0.48618307426597585
-                            },
-                            "ood_detection": {
-                                "enabled": true,
-                                "is_ood": true,
-                                "ood_confidence": 1.0,
-                                "ood_scores": {
-                                    "svm_distance": 0.43299792130545434,
-                                    "nn_distance": 0.6818897128105164,
-                                    "isolation_score": -0.015701255095531164
-                                },
-                                "reason": "3/3 methods flagged as OOD"
-                            }
-                        },
-                        "unified_scores": {
-                            "base_similarity": 0.012281697243452072,
-                            "base_confidence": 0.7430915371329879,
-                            "ood_penalty": 0.8,
-                            "adjusted_similarity": 0.007369018346071243,
-                            "adjusted_confidence": 0.14861830742659754,
-                            "composite_score": 0.10239493030906752,
-                            "quality_score": 0.7,
-                            "systems_enabled": {
-                                "k_medoids": true,
-                                "calibration": true,
-                                "ood_detection": true
-                            }
-                        },
-                        "recommendation": {
-                            "decision": "create_new_expert",
-                            "confidence_in_decision": 0.9,
-                            "reasoning": [
-                                "High OOD penalty (0.800) suggests input is out-of-distribution",
-                                "Low similarity to existing medoids",
-                                "OOD detection flagged potential distribution shift"
-                            ],
-                            "thresholds_used": {
-                                "high_threshold": 0.42,
-                                "medium_threshold": 0.21,
-                                "ood_rejection_threshold": 0.4
-                            }
-                        }
-                    },
-                    "physics": {
-                        "input_text": "People still got cancer before we knew about radiation it was causing harm but we didn\u2019t know about ...",
-                        "domain": "physics",
-                        "timestamp": "2025-09-29T21:46:19.681436",
-                        "systems_analysis": {
-                            "k_medoids": {
-                                "similarity_score": 0.1669275164604187,
-                                "num_medoids": 10,
-                                "primary_medoid_text": "If you are doing an experiment at school you shoul..."
-                            },
-                            "calibration": {
-                                "enabled": true,
-                                "prediction": "Non-physics",
-                                "confidence_score": 0.75,
-                                "raw_confidence": 1.0,
-                                "calibration_quality": 0.5
-                            },
-                            "ood_detection": {
-                                "enabled": true,
-                                "is_ood": false,
-                                "ood_confidence": 0.0,
-                                "ood_scores": {
-                                    "svm_distance": 0.5468379724166077,
-                                    "nn_distance": 0.39036825299263,
-                                    "isolation_score": 0.02274581811423715
+                                    "nn_distance": 0.5675151348114014,
+                                    "isolation_score": 0.02440374624543873
                                 },
                                 "reason": "0/3 methods flagged as OOD"
                             }
                         },
                         "unified_scores": {
-                            "base_similarity": 0.1669275164604187,
-                            "base_confidence": 0.75,
+                            "base_similarity": 0.4258490204811096,
+                            "base_confidence": 0.7999169205206313,
                             "ood_penalty": 0.0,
-                            "adjusted_similarity": 0.1669275164604187,
-                            "adjusted_confidence": 0.75,
-                            "composite_score": 0.5667710065841676,
+                            "adjusted_similarity": 0.4258490204811096,
+                            "adjusted_confidence": 0.7999169205206313,
+                            "composite_score": 0.6515946734507835,
                             "quality_score": 0.7,
                             "systems_enabled": {
                                 "k_medoids": true,
@@ -1277,44 +601,42 @@
                         },
                         "recommendation": {
                             "decision": "use_existing_expert",
-                            "confidence_in_decision": 0.3967397046089173,
+                            "confidence_in_decision": 0.4561162714155484,
                             "reasoning": [
-                                "High composite score (0.567) with low OOD risk",
-                                "Low similarity to existing medoids"
+                                "High composite score (0.652) with acceptable OOD risk"
                             ],
                             "thresholds_used": {
-                                "high_threshold": 0.42,
-                                "medium_threshold": 0.21,
-                                "ood_rejection_threshold": 0.4
+                                "high_threshold": 0.35,
+                                "medium_threshold": 0.175,
+                                "ood_rejection_threshold": 0.6
                             }
                         }
                     }
                 },
                 "unified_decision": {
-                    "selected_domain": "physics",
+                    "selected_domain": "medical",
                     "decision_flag": "use_existing_expert",
-                    "confidence_in_decision": 0.3967397046089173,
-                    "composite_score": 0.5667710065841676,
+                    "confidence_in_decision": 0.4561162714155484,
+                    "composite_score": 0.6515946734507835,
                     "quality_score": 0.7,
                     "reasoning": [
-                        "High composite score (0.567) with low OOD risk",
-                        "Low similarity to existing medoids"
+                        "High composite score (0.652) with acceptable OOD risk"
                     ],
                     "ood_analysis": {
                         "is_ood": false,
                         "ood_confidence": 0.0
                     },
                     "similarity_analysis": {
-                        "similarity_score": 0.1669275164604187,
-                        "adjusted_similarity": 0.1669275164604187
+                        "similarity_score": 0.4258490204811096,
+                        "adjusted_similarity": 0.4258490204811096
                     },
                     "confidence_analysis": {
-                        "calibrated_confidence": 0.75,
-                        "adjusted_confidence": 0.75
+                        "calibrated_confidence": 0.7999169205206313,
+                        "adjusted_confidence": 0.7999169205206313
                     }
                 },
                 "system_summary": {
-                    "experts_analyzed": 3,
+                    "experts_analyzed": 1,
                     "systems_enabled": {
                         "k_medoids": true,
                         "calibration": true,
@@ -1323,892 +645,8 @@
                 }
             },
             "expert_flag": "use_existing_expert",
-            "selected_domain": "physics",
-            "decision_confidence": 0.3967397046089173
-        },
-        {
-            "sentence": "First Lady Jill Biden To Meet Ukrainian Refugees During Border Visit",
-            "tags": [
-                "politics",
-                "history"
-            ],
-            "timestamp": "2025-09-29T21:46:29.190004",
-            "expert_decision": {
-                "input_text": "First Lady Jill Biden To Meet Ukrainian Refugees During Border Visit",
-                "timestamp": "2025-09-29T21:46:29.190026",
-                "expert_analyses": {
-                    "medical": {
-                        "input_text": "First Lady Jill Biden To Meet Ukrainian Refugees During Border Visit",
-                        "domain": "medical",
-                        "timestamp": "2025-09-29T21:46:29.190072",
-                        "systems_analysis": {
-                            "k_medoids": {
-                                "similarity_score": 0.08676084131002426,
-                                "num_medoids": 10,
-                                "primary_medoid_text": "Dapsone is an effective therapy for the skin lesio..."
-                            },
-                            "calibration": {
-                                "enabled": true,
-                                "prediction": "No",
-                                "confidence_score": 0.7999169205206313,
-                                "raw_confidence": 1.0,
-                                "calibration_quality": 0.5998338410412628
-                            },
-                            "ood_detection": {
-                                "enabled": true,
-                                "is_ood": true,
-                                "ood_confidence": 0.3333333333333333,
-                                "ood_scores": {
-                                    "svm_distance": 1.5720129671471144,
-                                    "nn_distance": 0.7342506051063538,
-                                    "isolation_score": 0.006863671795658444
-                                },
-                                "reason": "1/3 methods flagged as OOD"
-                            }
-                        },
-                        "unified_scores": {
-                            "base_similarity": 0.08676084131002426,
-                            "base_confidence": 0.7999169205206313,
-                            "ood_penalty": 0.26666666666666666,
-                            "adjusted_similarity": 0.07519272913535437,
-                            "adjusted_confidence": 0.5866057417151297,
-                            "composite_score": 0.4113860550068603,
-                            "quality_score": 0.7,
-                            "systems_enabled": {
-                                "k_medoids": true,
-                                "calibration": true,
-                                "ood_detection": true
-                            }
-                        },
-                        "recommendation": {
-                            "decision": "create_new_patch",
-                            "confidence_in_decision": 0.23037619080384175,
-                            "reasoning": [
-                                "Medium composite score (0.411) suitable for patch creation",
-                                "Low similarity to existing medoids"
-                            ],
-                            "thresholds_used": {
-                                "high_threshold": 0.42,
-                                "medium_threshold": 0.21,
-                                "ood_rejection_threshold": 0.4
-                            }
-                        }
-                    },
-                    "music": {
-                        "input_text": "First Lady Jill Biden To Meet Ukrainian Refugees During Border Visit",
-                        "domain": "music",
-                        "timestamp": "2025-09-29T21:46:37.600481",
-                        "systems_analysis": {
-                            "k_medoids": {
-                                "similarity_score": 0.030179187655448914,
-                                "num_medoids": 10,
-                                "primary_medoid_text": "Now darling, you should know\r\nThat I'm really, rea..."
-                            },
-                            "calibration": {
-                                "enabled": true,
-                                "prediction": "No",
-                                "confidence_score": 0.7430915371329879,
-                                "raw_confidence": 1.0,
-                                "calibration_quality": 0.48618307426597585
-                            },
-                            "ood_detection": {
-                                "enabled": true,
-                                "is_ood": true,
-                                "ood_confidence": 0.3333333333333333,
-                                "ood_scores": {
-                                    "svm_distance": 1.53438329370751,
-                                    "nn_distance": 0.6523025631904602,
-                                    "isolation_score": 0.014469656225354899
-                                },
-                                "reason": "1/3 methods flagged as OOD"
-                            }
-                        },
-                        "unified_scores": {
-                            "base_similarity": 0.030179187655448914,
-                            "base_confidence": 0.7430915371329879,
-                            "ood_penalty": 0.26666666666666666,
-                            "adjusted_similarity": 0.026155295968055724,
-                            "adjusted_confidence": 0.5449337938975245,
-                            "composite_score": 0.3751023026128988,
-                            "quality_score": 0.7,
-                            "systems_enabled": {
-                                "k_medoids": true,
-                                "calibration": true,
-                                "ood_detection": true
-                            }
-                        },
-                        "recommendation": {
-                            "decision": "create_new_patch",
-                            "confidence_in_decision": 0.2100572894632233,
-                            "reasoning": [
-                                "Medium composite score (0.375) suitable for patch creation",
-                                "Low similarity to existing medoids"
-                            ],
-                            "thresholds_used": {
-                                "high_threshold": 0.42,
-                                "medium_threshold": 0.21,
-                                "ood_rejection_threshold": 0.4
-                            }
-                        }
-                    },
-                    "physics": {
-                        "input_text": "First Lady Jill Biden To Meet Ukrainian Refugees During Border Visit",
-                        "domain": "physics",
-                        "timestamp": "2025-09-29T21:46:46.239977",
-                        "systems_analysis": {
-                            "k_medoids": {
-                                "similarity_score": 0.028110047802329063,
-                                "num_medoids": 10,
-                                "primary_medoid_text": "If you are doing an experiment at school you shoul..."
-                            },
-                            "calibration": {
-                                "enabled": true,
-                                "prediction": "Non-physics",
-                                "confidence_score": 0.75,
-                                "raw_confidence": 1.0,
-                                "calibration_quality": 0.5
-                            },
-                            "ood_detection": {
-                                "enabled": true,
-                                "is_ood": true,
-                                "ood_confidence": 0.6666666666666666,
-                                "ood_scores": {
-                                    "svm_distance": 0.18902360340185476,
-                                    "nn_distance": 0.8409902453422546,
-                                    "isolation_score": 0.004392831156289745
-                                },
-                                "reason": "2/3 methods flagged as OOD"
-                            }
-                        },
-                        "unified_scores": {
-                            "base_similarity": 0.028110047802329063,
-                            "base_confidence": 0.75,
-                            "ood_penalty": 0.5333333333333333,
-                            "adjusted_similarity": 0.020614035055041315,
-                            "adjusted_confidence": 0.35,
-                            "composite_score": 0.24157894735534985,
-                            "quality_score": 0.7,
-                            "systems_enabled": {
-                                "k_medoids": true,
-                                "calibration": true,
-                                "ood_detection": true
-                            }
-                        },
-                        "recommendation": {
-                            "decision": "create_new_expert",
-                            "confidence_in_decision": 0.9,
-                            "reasoning": [
-                                "High OOD penalty (0.533) suggests input is out-of-distribution",
-                                "Low similarity to existing medoids",
-                                "OOD detection flagged potential distribution shift"
-                            ],
-                            "thresholds_used": {
-                                "high_threshold": 0.42,
-                                "medium_threshold": 0.21,
-                                "ood_rejection_threshold": 0.4
-                            }
-                        }
-                    }
-                },
-                "unified_decision": {
-                    "selected_domain": "medical",
-                    "decision_flag": "create_new_patch",
-                    "confidence_in_decision": 0.23037619080384175,
-                    "composite_score": 0.4113860550068603,
-                    "quality_score": 0.7,
-                    "reasoning": [
-                        "Medium composite score (0.411) suitable for patch creation",
-                        "Low similarity to existing medoids"
-                    ],
-                    "ood_analysis": {
-                        "is_ood": true,
-                        "ood_confidence": 0.3333333333333333
-                    },
-                    "similarity_analysis": {
-                        "similarity_score": 0.08676084131002426,
-                        "adjusted_similarity": 0.07519272913535437
-                    },
-                    "confidence_analysis": {
-                        "calibrated_confidence": 0.7999169205206313,
-                        "adjusted_confidence": 0.5866057417151297
-                    }
-                },
-                "system_summary": {
-                    "experts_analyzed": 3,
-                    "systems_enabled": {
-                        "k_medoids": true,
-                        "calibration": true,
-                        "ood_detection": true
-                    }
-                }
-            },
-            "expert_flag": "create_new_patch",
             "selected_domain": "medical",
-            "decision_confidence": 0.23037619080384175
-        },
-        {
-            "sentence": "Herman Cain Tweets 2 Weeks After Death, Slams Joe Biden And Kamala Harris",
-            "tags": [
-                "AI",
-                "politics",
-                "technology"
-            ],
-            "timestamp": "2025-09-29T21:46:55.151842",
-            "expert_decision": {
-                "input_text": "Herman Cain Tweets 2 Weeks After Death, Slams Joe Biden And Kamala Harris",
-                "timestamp": "2025-09-29T21:46:55.151864",
-                "expert_analyses": {
-                    "medical": {
-                        "input_text": "Herman Cain Tweets 2 Weeks After Death, Slams Joe Biden And Kamala Harris",
-                        "domain": "medical",
-                        "timestamp": "2025-09-29T21:46:55.151911",
-                        "systems_analysis": {
-                            "k_medoids": {
-                                "similarity_score": 0.11375975608825684,
-                                "num_medoids": 10,
-                                "primary_medoid_text": "Dapsone is an effective therapy for the skin lesio..."
-                            },
-                            "calibration": {
-                                "enabled": true,
-                                "prediction": "No",
-                                "confidence_score": 0.7999169205206313,
-                                "raw_confidence": 1.0,
-                                "calibration_quality": 0.5998338410412628
-                            },
-                            "ood_detection": {
-                                "enabled": true,
-                                "is_ood": true,
-                                "ood_confidence": 0.3333333333333333,
-                                "ood_scores": {
-                                    "svm_distance": 1.5246642612718853,
-                                    "nn_distance": 0.5825074315071106,
-                                    "isolation_score": 0.03141848220631566
-                                },
-                                "reason": "1/3 methods flagged as OOD"
-                            }
-                        },
-                        "unified_scores": {
-                            "base_similarity": 0.11375975608825684,
-                            "base_confidence": 0.7999169205206313,
-                            "ood_penalty": 0.26666666666666666,
-                            "adjusted_similarity": 0.0985917886098226,
-                            "adjusted_confidence": 0.5866057417151297,
-                            "composite_score": 0.4207456787966476,
-                            "quality_score": 0.7,
-                            "systems_enabled": {
-                                "k_medoids": true,
-                                "calibration": true,
-                                "ood_detection": true
-                            }
-                        },
-                        "recommendation": {
-                            "decision": "create_new_patch",
-                            "confidence_in_decision": 0.23561758012612263,
-                            "reasoning": [
-                                "Medium composite score (0.421) suitable for patch creation",
-                                "Low similarity to existing medoids"
-                            ],
-                            "thresholds_used": {
-                                "high_threshold": 0.42,
-                                "medium_threshold": 0.21,
-                                "ood_rejection_threshold": 0.4
-                            }
-                        }
-                    },
-                    "music": {
-                        "input_text": "Herman Cain Tweets 2 Weeks After Death, Slams Joe Biden And Kamala Harris",
-                        "domain": "music",
-                        "timestamp": "2025-09-29T21:47:03.951058",
-                        "systems_analysis": {
-                            "k_medoids": {
-                                "similarity_score": 0.14727962017059326,
-                                "num_medoids": 10,
-                                "primary_medoid_text": "Now darling, you should know\r\nThat I'm really, rea..."
-                            },
-                            "calibration": {
-                                "enabled": true,
-                                "prediction": "No",
-                                "confidence_score": 0.7430915371329879,
-                                "raw_confidence": 1.0,
-                                "calibration_quality": 0.48618307426597585
-                            },
-                            "ood_detection": {
-                                "enabled": true,
-                                "is_ood": true,
-                                "ood_confidence": 0.3333333333333333,
-                                "ood_scores": {
-                                    "svm_distance": 2.1394863617360684,
-                                    "nn_distance": 0.5810499787330627,
-                                    "isolation_score": 0.03975619054415519
-                                },
-                                "reason": "1/3 methods flagged as OOD"
-                            }
-                        },
-                        "unified_scores": {
-                            "base_similarity": 0.14727962017059326,
-                            "base_confidence": 0.7430915371329879,
-                            "ood_penalty": 0.26666666666666666,
-                            "adjusted_similarity": 0.12764233748118084,
-                            "adjusted_confidence": 0.5449337938975245,
-                            "composite_score": 0.4156971192181489,
-                            "quality_score": 0.7,
-                            "systems_enabled": {
-                                "k_medoids": true,
-                                "calibration": true,
-                                "ood_detection": true
-                            }
-                        },
-                        "recommendation": {
-                            "decision": "create_new_patch",
-                            "confidence_in_decision": 0.23279038676216338,
-                            "reasoning": [
-                                "Medium composite score (0.416) suitable for patch creation",
-                                "Low similarity to existing medoids"
-                            ],
-                            "thresholds_used": {
-                                "high_threshold": 0.42,
-                                "medium_threshold": 0.21,
-                                "ood_rejection_threshold": 0.4
-                            }
-                        }
-                    },
-                    "physics": {
-                        "input_text": "Herman Cain Tweets 2 Weeks After Death, Slams Joe Biden And Kamala Harris",
-                        "domain": "physics",
-                        "timestamp": "2025-09-29T21:47:13.317108",
-                        "systems_analysis": {
-                            "k_medoids": {
-                                "similarity_score": 0.047881338745355606,
-                                "num_medoids": 10,
-                                "primary_medoid_text": "If you are doing an experiment at school you shoul..."
-                            },
-                            "calibration": {
-                                "enabled": true,
-                                "prediction": "Non-physics",
-                                "confidence_score": 0.75,
-                                "raw_confidence": 1.0,
-                                "calibration_quality": 0.5
-                            },
-                            "ood_detection": {
-                                "enabled": true,
-                                "is_ood": true,
-                                "ood_confidence": 0.3333333333333333,
-                                "ood_scores": {
-                                    "svm_distance": 0.6634070123510843,
-                                    "nn_distance": 0.7330933213233948,
-                                    "isolation_score": 0.0026596103475801103
-                                },
-                                "reason": "1/3 methods flagged as OOD"
-                            }
-                        },
-                        "unified_scores": {
-                            "base_similarity": 0.047881338745355606,
-                            "base_confidence": 0.75,
-                            "ood_penalty": 0.26666666666666666,
-                            "adjusted_similarity": 0.04149716024597486,
-                            "adjusted_confidence": 0.55,
-                            "composite_score": 0.38326553076505665,
-                            "quality_score": 0.7,
-                            "systems_enabled": {
-                                "k_medoids": true,
-                                "calibration": true,
-                                "ood_detection": true
-                            }
-                        },
-                        "recommendation": {
-                            "decision": "create_new_patch",
-                            "confidence_in_decision": 0.2146286972284317,
-                            "reasoning": [
-                                "Medium composite score (0.383) suitable for patch creation",
-                                "Low similarity to existing medoids"
-                            ],
-                            "thresholds_used": {
-                                "high_threshold": 0.42,
-                                "medium_threshold": 0.21,
-                                "ood_rejection_threshold": 0.4
-                            }
-                        }
-                    }
-                },
-                "unified_decision": {
-                    "selected_domain": "medical",
-                    "decision_flag": "create_new_patch",
-                    "confidence_in_decision": 0.23561758012612263,
-                    "composite_score": 0.4207456787966476,
-                    "quality_score": 0.7,
-                    "reasoning": [
-                        "Medium composite score (0.421) suitable for patch creation",
-                        "Low similarity to existing medoids"
-                    ],
-                    "ood_analysis": {
-                        "is_ood": true,
-                        "ood_confidence": 0.3333333333333333
-                    },
-                    "similarity_analysis": {
-                        "similarity_score": 0.11375975608825684,
-                        "adjusted_similarity": 0.0985917886098226
-                    },
-                    "confidence_analysis": {
-                        "calibrated_confidence": 0.7999169205206313,
-                        "adjusted_confidence": 0.5866057417151297
-                    }
-                },
-                "system_summary": {
-                    "experts_analyzed": 3,
-                    "systems_enabled": {
-                        "k_medoids": true,
-                        "calibration": true,
-                        "ood_detection": true
-                    }
-                }
-            },
-            "expert_flag": "create_new_patch",
-            "selected_domain": "medical",
-            "decision_confidence": 0.23561758012612263
-        },
-        {
-            "sentence": "I remember doing a review for Ideonella Saikainesis? Its the bacteria that was discovered in Japan that can use PHET plastics as a sole carbon source for metabolism but it does the process very long so its not feasible to just use them for breaking down those types of plastics. Could be about that since ocean plastics are big on the news.\\n\\nAnother is antibiotic resistance in microbes that can affect us plus agriculture. Lots of stuff",
-            "tags": [
-                "biology",
-                "technology",
-                "healthcare"
-            ],
-            "timestamp": "2025-09-29T21:47:22.600919",
-            "expert_decision": {
-                "input_text": "I remember doing a review for Ideonella Saikainesis? Its the bacteria that was discovered in Japan that can use PHET plastics as a sole carbon source for metabolism but it does the process very long so its not feasible to just use them for breaking down those types of plastics. Could be about that since ocean plastics are big on the news.\\n\\nAnother is antibiotic resistance in microbes that can affect us plus agriculture. Lots of stuff",
-                "timestamp": "2025-09-29T21:47:22.600942",
-                "expert_analyses": {
-                    "medical": {
-                        "input_text": "I remember doing a review for Ideonella Saikainesis? Its the bacteria that was discovered in Japan t...",
-                        "domain": "medical",
-                        "timestamp": "2025-09-29T21:47:22.600990",
-                        "systems_analysis": {
-                            "k_medoids": {
-                                "similarity_score": 0.14394345879554749,
-                                "num_medoids": 10,
-                                "primary_medoid_text": "Dapsone is an effective therapy for the skin lesio..."
-                            },
-                            "calibration": {
-                                "enabled": true,
-                                "prediction": "No",
-                                "confidence_score": 0.7999169205206313,
-                                "raw_confidence": 1.0,
-                                "calibration_quality": 0.5998338410412628
-                            },
-                            "ood_detection": {
-                                "enabled": true,
-                                "is_ood": true,
-                                "ood_confidence": 0.6666666666666666,
-                                "ood_scores": {
-                                    "svm_distance": 0.5710612077591047,
-                                    "nn_distance": 0.777810275554657,
-                                    "isolation_score": -0.005407698298717456
-                                },
-                                "reason": "2/3 methods flagged as OOD"
-                            }
-                        },
-                        "unified_scores": {
-                            "base_similarity": 0.14394345879554749,
-                            "base_confidence": 0.7999169205206313,
-                            "ood_penalty": 0.5333333333333333,
-                            "adjusted_similarity": 0.10555853645006816,
-                            "adjusted_confidence": 0.373294562909628,
-                            "composite_score": 0.2848745730772118,
-                            "quality_score": 0.7,
-                            "systems_enabled": {
-                                "k_medoids": true,
-                                "calibration": true,
-                                "ood_detection": true
-                            }
-                        },
-                        "recommendation": {
-                            "decision": "create_new_expert",
-                            "confidence_in_decision": 0.9,
-                            "reasoning": [
-                                "High OOD penalty (0.533) suggests input is out-of-distribution",
-                                "Low similarity to existing medoids",
-                                "OOD detection flagged potential distribution shift"
-                            ],
-                            "thresholds_used": {
-                                "high_threshold": 0.42,
-                                "medium_threshold": 0.21,
-                                "ood_rejection_threshold": 0.4
-                            }
-                        }
-                    },
-                    "music": {
-                        "input_text": "I remember doing a review for Ideonella Saikainesis? Its the bacteria that was discovered in Japan t...",
-                        "domain": "music",
-                        "timestamp": "2025-09-29T21:47:32.093384",
-                        "systems_analysis": {
-                            "k_medoids": {
-                                "similarity_score": -0.0036962665617465973,
-                                "num_medoids": 10,
-                                "primary_medoid_text": "Now darling, you should know\r\nThat I'm really, rea..."
-                            },
-                            "calibration": {
-                                "enabled": true,
-                                "prediction": "No",
-                                "confidence_score": 0.7430915371329879,
-                                "raw_confidence": 1.0,
-                                "calibration_quality": 0.48618307426597585
-                            },
-                            "ood_detection": {
-                                "enabled": true,
-                                "is_ood": true,
-                                "ood_confidence": 1.0,
-                                "ood_scores": {
-                                    "svm_distance": 0.2717544510240886,
-                                    "nn_distance": 0.7460639476776123,
-                                    "isolation_score": -0.016638250028382373
-                                },
-                                "reason": "3/3 methods flagged as OOD"
-                            }
-                        },
-                        "unified_scores": {
-                            "base_similarity": -0.0036962665617465973,
-                            "base_confidence": 0.7430915371329879,
-                            "ood_penalty": 0.8,
-                            "adjusted_similarity": -0.0022177599370479585,
-                            "adjusted_confidence": 0.14861830742659754,
-                            "composite_score": 0.09856021899581982,
-                            "quality_score": 0.7,
-                            "systems_enabled": {
-                                "k_medoids": true,
-                                "calibration": true,
-                                "ood_detection": true
-                            }
-                        },
-                        "recommendation": {
-                            "decision": "create_new_expert",
-                            "confidence_in_decision": 0.9,
-                            "reasoning": [
-                                "High OOD penalty (0.800) suggests input is out-of-distribution",
-                                "Low similarity to existing medoids",
-                                "OOD detection flagged potential distribution shift"
-                            ],
-                            "thresholds_used": {
-                                "high_threshold": 0.42,
-                                "medium_threshold": 0.21,
-                                "ood_rejection_threshold": 0.4
-                            }
-                        }
-                    },
-                    "physics": {
-                        "input_text": "I remember doing a review for Ideonella Saikainesis? Its the bacteria that was discovered in Japan t...",
-                        "domain": "physics",
-                        "timestamp": "2025-09-29T21:47:42.466164",
-                        "systems_analysis": {
-                            "k_medoids": {
-                                "similarity_score": 0.24646160006523132,
-                                "num_medoids": 10,
-                                "primary_medoid_text": "If you are doing an experiment at school you shoul..."
-                            },
-                            "calibration": {
-                                "enabled": true,
-                                "prediction": "Non-physics",
-                                "confidence_score": 0.75,
-                                "raw_confidence": 1.0,
-                                "calibration_quality": 0.5
-                            },
-                            "ood_detection": {
-                                "enabled": true,
-                                "is_ood": true,
-                                "ood_confidence": 0.3333333333333333,
-                                "ood_scores": {
-                                    "svm_distance": 0.693834682501452,
-                                    "nn_distance": 0.5814571976661682,
-                                    "isolation_score": 0.028447791789161514
-                                },
-                                "reason": "1/3 methods flagged as OOD"
-                            }
-                        },
-                        "unified_scores": {
-                            "base_similarity": 0.24646160006523132,
-                            "base_confidence": 0.75,
-                            "ood_penalty": 0.26666666666666666,
-                            "adjusted_similarity": 0.21360005338986715,
-                            "adjusted_confidence": 0.55,
-                            "composite_score": 0.45210668802261356,
-                            "quality_score": 0.7,
-                            "systems_enabled": {
-                                "k_medoids": true,
-                                "calibration": true,
-                                "ood_detection": true
-                            }
-                        },
-                        "recommendation": {
-                            "decision": "create_new_patch",
-                            "confidence_in_decision": 0.25317974529266357,
-                            "reasoning": [
-                                "Medium composite score (0.452) suitable for patch creation"
-                            ],
-                            "thresholds_used": {
-                                "high_threshold": 0.42,
-                                "medium_threshold": 0.21,
-                                "ood_rejection_threshold": 0.4
-                            }
-                        }
-                    }
-                },
-                "unified_decision": {
-                    "selected_domain": "physics",
-                    "decision_flag": "create_new_patch",
-                    "confidence_in_decision": 0.25317974529266357,
-                    "composite_score": 0.45210668802261356,
-                    "quality_score": 0.7,
-                    "reasoning": [
-                        "Medium composite score (0.452) suitable for patch creation"
-                    ],
-                    "ood_analysis": {
-                        "is_ood": true,
-                        "ood_confidence": 0.3333333333333333
-                    },
-                    "similarity_analysis": {
-                        "similarity_score": 0.24646160006523132,
-                        "adjusted_similarity": 0.21360005338986715
-                    },
-                    "confidence_analysis": {
-                        "calibrated_confidence": 0.75,
-                        "adjusted_confidence": 0.55
-                    }
-                },
-                "system_summary": {
-                    "experts_analyzed": 3,
-                    "systems_enabled": {
-                        "k_medoids": true,
-                        "calibration": true,
-                        "ood_detection": true
-                    }
-                }
-            },
-            "expert_flag": "create_new_patch",
-            "selected_domain": "physics",
-            "decision_confidence": 0.25317974529266357
-        },
-        {
-            "sentence": "Hello, old friend\r\nI know it's been a while\r\nI'm here again\r\nAnd it won't be the last time\r\nI fall apart\r\nBut You won't let me get too far\r\nYou're speaking to my heart\r\nIt's good to know\r\nIt's good to feel the arms of grace\r\nTo know that my mistakes are covered by Your love\r\nIt's good to know\r\nIt's good to see that You won't change\r\nWhen it's said and done\r\nYou'll always be enough\r\nTo know that I can always come back home\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nGoodbye, old me\r\nYeah there's so much more that I\r\nKnow I could be\r\nSo take my worries with\r\nYou when you leave\r\nThere's hope that I am counting on\r\n'Cause I'm never too far gone\r\nIt's good to know\r\nIt's good to feel the arms of grace\r\nTo know that my mistakes are covered by Your love\r\nIt's good to know\r\nIt's good to see that You won't change\r\nWhen it's said and done\r\nYou'll always be enough\r\nTo know that I can always come back home\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\nThat there's a second chance\r\nKnow that it's all in Your hands\r\nEven if I just don't understand\r\n'Cause I know that I will be alright\r\nI finally see the other side\r\nIt takes the darkness to open up your eyes\r\nSometimes\r\nIt's good to know\r\nIt's good to know\r\nI'm covered by Your love\r\nOh, oh, it's good to know\r\nIt's good to see that You won't change\r\nWhen it's said and done You'll always be enough\r\nTo know that I can always come back home\r\nTo know that You will never let me go\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\nIt's good to know\r\noh, oh, oh, oh",
-            "tags": [
-                "none",
-                "none",
-                "none",
-                "none",
-                "none",
-                "music",
-                "literature"
-            ],
-            "timestamp": "2025-09-29T21:47:51.940044",
-            "expert_decision": {
-                "input_text": "Hello, old friend\r\nI know it's been a while\r\nI'm here again\r\nAnd it won't be the last time\r\nI fall apart\r\nBut You won't let me get too far\r\nYou're speaking to my heart\r\nIt's good to know\r\nIt's good to feel the arms of grace\r\nTo know that my mistakes are covered by Your love\r\nIt's good to know\r\nIt's good to see that You won't change\r\nWhen it's said and done\r\nYou'll always be enough\r\nTo know that I can always come back home\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nGoodbye, old me\r\nYeah there's so much more that I\r\nKnow I could be\r\nSo take my worries with\r\nYou when you leave\r\nThere's hope that I am counting on\r\n'Cause I'm never too far gone\r\nIt's good to know\r\nIt's good to feel the arms of grace\r\nTo know that my mistakes are covered by Your love\r\nIt's good to know\r\nIt's good to see that You won't change\r\nWhen it's said and done\r\nYou'll always be enough\r\nTo know that I can always come back home\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\nThat there's a second chance\r\nKnow that it's all in Your hands\r\nEven if I just don't understand\r\n'Cause I know that I will be alright\r\nI finally see the other side\r\nIt takes the darkness to open up your eyes\r\nSometimes\r\nIt's good to know\r\nIt's good to know\r\nI'm covered by Your love\r\nOh, oh, it's good to know\r\nIt's good to see that You won't change\r\nWhen it's said and done You'll always be enough\r\nTo know that I can always come back home\r\nTo know that You will never let me go\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\nIt's good to know\r\noh, oh, oh, oh",
-                "timestamp": "2025-09-29T21:47:51.940070",
-                "expert_analyses": {
-                    "medical": {
-                        "input_text": "Hello, old friend\r\nI know it's been a while\r\nI'm here again\r\nAnd it won't be the last time\r\nI fall a...",
-                        "domain": "medical",
-                        "timestamp": "2025-09-29T21:47:51.940122",
-                        "systems_analysis": {
-                            "k_medoids": {
-                                "similarity_score": 0.10455930233001709,
-                                "num_medoids": 10,
-                                "primary_medoid_text": "Dapsone is an effective therapy for the skin lesio..."
-                            },
-                            "calibration": {
-                                "enabled": true,
-                                "prediction": "No",
-                                "confidence_score": 0.7999169205206313,
-                                "raw_confidence": 1.0,
-                                "calibration_quality": 0.5998338410412628
-                            },
-                            "ood_detection": {
-                                "enabled": true,
-                                "is_ood": true,
-                                "ood_confidence": 0.6666666666666666,
-                                "ood_scores": {
-                                    "svm_distance": 1.200849653478634,
-                                    "nn_distance": 0.769625186920166,
-                                    "isolation_score": -0.0118544393829631
-                                },
-                                "reason": "2/3 methods flagged as OOD"
-                            }
-                        },
-                        "unified_scores": {
-                            "base_similarity": 0.10455930233001709,
-                            "base_confidence": 0.7999169205206313,
-                            "ood_penalty": 0.5333333333333333,
-                            "adjusted_similarity": 0.0766768217086792,
-                            "adjusted_confidence": 0.373294562909628,
-                            "composite_score": 0.2733218871806562,
-                            "quality_score": 0.7,
-                            "systems_enabled": {
-                                "k_medoids": true,
-                                "calibration": true,
-                                "ood_detection": true
-                            }
-                        },
-                        "recommendation": {
-                            "decision": "create_new_expert",
-                            "confidence_in_decision": 0.9,
-                            "reasoning": [
-                                "High OOD penalty (0.533) suggests input is out-of-distribution",
-                                "Low similarity to existing medoids",
-                                "OOD detection flagged potential distribution shift"
-                            ],
-                            "thresholds_used": {
-                                "high_threshold": 0.42,
-                                "medium_threshold": 0.21,
-                                "ood_rejection_threshold": 0.4
-                            }
-                        }
-                    },
-                    "music": {
-                        "input_text": "Hello, old friend\r\nI know it's been a while\r\nI'm here again\r\nAnd it won't be the last time\r\nI fall a...",
-                        "domain": "music",
-                        "timestamp": "2025-09-29T21:48:00.370195",
-                        "systems_analysis": {
-                            "k_medoids": {
-                                "similarity_score": 0.6545128226280212,
-                                "num_medoids": 10,
-                                "primary_medoid_text": "Now darling, you should know\r\nThat I'm really, rea..."
-                            },
-                            "calibration": {
-                                "enabled": true,
-                                "prediction": "No",
-                                "confidence_score": 0.7430915371329879,
-                                "raw_confidence": 1.0,
-                                "calibration_quality": 0.48618307426597585
-                            },
-                            "ood_detection": {
-                                "enabled": true,
-                                "is_ood": false,
-                                "ood_confidence": 0.0,
-                                "ood_scores": {
-                                    "svm_distance": 4.33452487964631,
-                                    "nn_distance": 0.3371923267841339,
-                                    "isolation_score": 0.044754426303490136
-                                },
-                                "reason": "0/3 methods flagged as OOD"
-                            }
-                        },
-                        "unified_scores": {
-                            "base_similarity": 0.6545128226280212,
-                            "base_confidence": 0.7430915371329879,
-                            "ood_penalty": 0.0,
-                            "adjusted_similarity": 0.6545128226280212,
-                            "adjusted_confidence": 0.7430915371329879,
-                            "composite_score": 0.7590417439044037,
-                            "quality_score": 0.7,
-                            "systems_enabled": {
-                                "k_medoids": true,
-                                "calibration": true,
-                                "ood_detection": true
-                            }
-                        },
-                        "recommendation": {
-                            "decision": "use_existing_expert",
-                            "confidence_in_decision": 0.5313292207330825,
-                            "reasoning": [
-                                "High composite score (0.759) with low OOD risk"
-                            ],
-                            "thresholds_used": {
-                                "high_threshold": 0.42,
-                                "medium_threshold": 0.21,
-                                "ood_rejection_threshold": 0.4
-                            }
-                        }
-                    },
-                    "physics": {
-                        "input_text": "Hello, old friend\r\nI know it's been a while\r\nI'm here again\r\nAnd it won't be the last time\r\nI fall a...",
-                        "domain": "physics",
-                        "timestamp": "2025-09-29T21:48:09.319630",
-                        "systems_analysis": {
-                            "k_medoids": {
-                                "similarity_score": 0.10907700657844543,
-                                "num_medoids": 10,
-                                "primary_medoid_text": "If you are doing an experiment at school you shoul..."
-                            },
-                            "calibration": {
-                                "enabled": true,
-                                "prediction": "Non-physics",
-                                "confidence_score": 0.75,
-                                "raw_confidence": 1.0,
-                                "calibration_quality": 0.5
-                            },
-                            "ood_detection": {
-                                "enabled": true,
-                                "is_ood": true,
-                                "ood_confidence": 0.6666666666666666,
-                                "ood_scores": {
-                                    "svm_distance": 0.5427972896059845,
-                                    "nn_distance": 0.8114480376243591,
-                                    "isolation_score": -0.03791614629459039
-                                },
-                                "reason": "2/3 methods flagged as OOD"
-                            }
-                        },
-                        "unified_scores": {
-                            "base_similarity": 0.10907700657844543,
-                            "base_confidence": 0.75,
-                            "ood_penalty": 0.5333333333333333,
-                            "adjusted_similarity": 0.07998980482419332,
-                            "adjusted_confidence": 0.35,
-                            "composite_score": 0.26532925526301065,
-                            "quality_score": 0.7,
-                            "systems_enabled": {
-                                "k_medoids": true,
-                                "calibration": true,
-                                "ood_detection": true
-                            }
-                        },
-                        "recommendation": {
-                            "decision": "create_new_expert",
-                            "confidence_in_decision": 0.9,
-                            "reasoning": [
-                                "High OOD penalty (0.533) suggests input is out-of-distribution",
-                                "Low similarity to existing medoids",
-                                "OOD detection flagged potential distribution shift"
-                            ],
-                            "thresholds_used": {
-                                "high_threshold": 0.42,
-                                "medium_threshold": 0.21,
-                                "ood_rejection_threshold": 0.4
-                            }
-                        }
-                    }
-                },
-                "unified_decision": {
-                    "selected_domain": "music",
-                    "decision_flag": "use_existing_expert",
-                    "confidence_in_decision": 0.5313292207330825,
-                    "composite_score": 0.7590417439044037,
-                    "quality_score": 0.7,
-                    "reasoning": [
-                        "High composite score (0.759) with low OOD risk"
-                    ],
-                    "ood_analysis": {
-                        "is_ood": false,
-                        "ood_confidence": 0.0
-                    },
-                    "similarity_analysis": {
-                        "similarity_score": 0.6545128226280212,
-                        "adjusted_similarity": 0.6545128226280212
-                    },
-                    "confidence_analysis": {
-                        "calibrated_confidence": 0.7430915371329879,
-                        "adjusted_confidence": 0.7430915371329879
-                    }
-                },
-                "system_summary": {
-                    "experts_analyzed": 3,
-                    "systems_enabled": {
-                        "k_medoids": true,
-                        "calibration": true,
-                        "ood_detection": true
-                    }
-                }
-            },
-            "expert_flag": "use_existing_expert",
-            "selected_domain": "music",
-            "decision_confidence": 0.5313292207330825
+            "decision_confidence": 0.4561162714155484
         }
     ]
 }
