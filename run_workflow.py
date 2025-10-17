@@ -29,10 +29,15 @@ def run_mycelium_workflow(sentences):
     expert_system = UnifiedExpertSystem()
     print(f"Initialized unified expert system with {len(expert_system.experts)} experts\n")
     
-    # Initialize expert filter for tag-based routing
-    print("Initializing expert filter for tag-based routing...")
-    expert_filter = ExpertFilter()
-    print("✅ Expert filter initialized\n")
+    # Initialize expert filter for tag-based routing (with auto-clustering)
+    print("Initializing expert filter with automatic semantic clustering...")
+    domain_list = ['music', 'physics', 'chemistry', 'medical']
+    expert_filter = ExpertFilter(
+        domain_list=domain_list,
+        use_auto_clustering=True,
+        similarity_threshold=0.45
+    )
+    print("✅ Expert filter initialized with auto-clustering\n")
     
     # Step 1: Tag generation and normalization
     temporal_layer = TemporalLocalityLayer(max_size=50, time_window_hours=24)
@@ -45,18 +50,13 @@ def run_mycelium_workflow(sentences):
         timestamp = datetime.datetime.now().isoformat()
         temporal_layer.add_statement(text, normalized_tags, timestamp)
         
-        # Filter experts by tags (only evaluate relevant experts)
-        # Create a dummy BERT manager (None if no BERT experts)
-        class DummyBERTManager:
-            def get_available_domains(self):
-                # Return BERT domains from expert_system
-                return [d for d in expert_system.experts.keys() if d in ['physics', 'chemistry']]
-        
-        bert_manager = DummyBERTManager()
-        filter_result = expert_filter.filter_experts_by_tags(normalized_tags, expert_system, bert_manager)
-        
-        # Get relevant experts only
-        relevant_domains = filter_result['relevant_svm_experts'] + filter_result['relevant_bert_experts']
+        # Filter experts by tags using semantic clustering
+        relevant_domains = []
+        for tag in normalized_tags:
+            domain = expert_filter.normalize_domain(tag)
+            if domain:
+                relevant_domains.append(domain)
+        relevant_domains = list(set(relevant_domains))  # Remove duplicates
         
         if not relevant_domains:
             # No expert for this domain

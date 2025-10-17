@@ -1,40 +1,48 @@
 {
     "tags": [
-        "biology",
-        "history",
-        "none",
-        "politics",
         "maths",
+        "technology",
+        "history",
+        "music",
+        "none",
         "chemistry",
-        "medicine",
+        "physics",
+        "politics",
         "AI",
-        "physics"
+        "medicine",
+        "biology"
     ],
     "clusters": {
         "0": [
-            "biology"
-        ],
-        "1": [
-            "history"
-        ],
-        "2": [
-            "none"
-        ],
-        "3": [
-            "politics"
-        ],
-        "4": [
             "maths",
             "physics"
+        ],
+        "1": [
+            "technology"
+        ],
+        "2": [
+            "history"
+        ],
+        "3": [
+            "music"
+        ],
+        "4": [
+            "none"
         ],
         "5": [
             "chemistry"
         ],
         "6": [
-            "medicine"
+            "politics"
         ],
         "7": [
             "AI"
+        ],
+        "8": [
+            "medicine"
+        ],
+        "9": [
+            "biology"
         ]
     }
 }

@@ -772,11 +772,6 @@ def initialize_unified_experts(enable_calibration=True, enable_ood_detection=Tru
     
     # SVM-based domain configurations
     svm_domain_configs = {
-        'medical': {
-            'folder': 'Medical',
-            'text_column': 'sentence',
-            'type': 'svm'
-        },
         'music': {
             'folder': 'Music', 
             'text_column': 'sentence',
@@ -794,6 +789,11 @@ def initialize_unified_experts(enable_calibration=True, enable_ood_detection=Tru
         'chemistry': {
             'folder': 'Chemistry_BERT',
             'text_column': 'text',
+            'type': 'bert'
+        },
+        'medical': {
+            'folder': 'Medical_BERT',
+            'text_column': 'Text',
             'type': 'bert'
         }
     }

@@ -1,9 +1,9 @@
 {
-    "timestamp": "2025-10-16T19:08:03.998899",
+    "timestamp": "2025-10-17T23:29:10.604895",
     "total_cases": 12,
     "use_existing_expert_cases": 10,
-    "correct_predictions": 6,
-    "mismatches": 4,
+    "correct_predictions": 7,
+    "mismatches": 3,
     "detailed_results": [
         {
             "sentence": "The photoelectric effect demonstrates that light has particle properties, as Einstein showed in 1905.",
@@ -59,7 +59,7 @@
             ],
             "decision": "use_existing_expert",
             "domain": "physics",
-            "precheck_confidence": 0.3132115915228515,
+            "precheck_confidence": 0.3345001405338719,
             "model_prediction": {
                 "predicted_class": 1,
                 "class_label": "Physics",
@@ -72,13 +72,12 @@
                 "is_positive": true
             },
             "alignment": " CORRECT",
-            "confidence_diff": 0.6810279771874757
+            "confidence_diff": 0.6597394281764553
         },
         {
             "sentence": "The Haber process synthesizes ammonia from nitrogen and hydrogen using an iron catalyst.",
             "tags": [
-                "chemistry",
-                "technology"
+                "chemistry"
             ],
             "decision": "use_existing_expert",
             "domain": "chemistry",
@@ -100,26 +99,24 @@
         {
             "sentence": "Covalent bonds form when atoms share electrons to achieve stable electron configurations.",
             "tags": [
-                "chemistry",
-                "physics",
-                "maths"
+                "chemistry"
             ],
             "decision": "use_existing_expert",
-            "domain": "physics",
-            "precheck_confidence": 0.3785129397936064,
+            "domain": "chemistry",
+            "precheck_confidence": 0.35354600036099776,
             "model_prediction": {
                 "predicted_class": 1,
-                "class_label": "Physics",
-                "confidence": 0.995456337928772,
+                "class_label": "Chemistry",
+                "confidence": 0.9978813529014587,
                 "probabilities": {
-                    "P(Not Physics)": 0.004543634597212076,
-                    "P(Physics)": 0.995456337928772
+                    "P(Not Chemistry)": 0.0021186189260333776,
+                    "P(Chemistry)": 0.9978813529014587
                 },
-                "interpretation": " POSITIVE - Input belongs to PHYSICS domain",
+                "interpretation": " POSITIVE - Input belongs to CHEMISTRY domain",
                 "is_positive": true
             },
             "alignment": " CORRECT",
-            "confidence_diff": 0.6169433981351655
+            "confidence_diff": 0.6443353525404609
         },
         {
             "sentence": "Oxidation-reduction reactions involve the transfer of electrons between chemical species.",
@@ -151,43 +148,43 @@
             ],
             "decision": "use_existing_expert",
             "domain": "medical",
-            "precheck_confidence": 0.4489489918442536,
+            "precheck_confidence": 0.31562801466323437,
             "model_prediction": {
                 "predicted_class": 0,
                 "class_label": "Not Medical",
-                "confidence": 1.0,
+                "confidence": 0.9997770190238953,
                 "probabilities": {
-                    "P(Not Medical)": 1.0,
-                    "P(Medical)": 0.0
+                    "P(Not Medical)": 0.9997770190238953,
+                    "P(Medical)": 0.00022302135766949505
                 },
                 "interpretation": " NEGATIVE - Input does NOT belong to MEDICAL domain",
                 "is_positive": false
             },
             "alignment": " MISMATCH",
-            "confidence_diff": 0.5510510081557465
+            "confidence_diff": 0.6841490043606608
         },
         {
             "sentence": "Immunotherapy has revolutionized cancer treatment by harnessing the body's immune system.",
             "tags": [
-                "biology",
-                "healthcare"
+                "healthcare",
+                "AI"
             ],
             "decision": "use_existing_expert",
             "domain": "medical",
-            "precheck_confidence": 0.4248984287247894,
+            "precheck_confidence": 0.33347563098241884,
             "model_prediction": {
                 "predicted_class": 0,
                 "class_label": "Not Medical",
-                "confidence": 1.0,
+                "confidence": 0.9998593330383301,
                 "probabilities": {
-                    "P(Not Medical)": 1.0,
-                    "P(Medical)": 0.0
+                    "P(Not Medical)": 0.9998593330383301,
+                    "P(Medical)": 0.00014069152530282736
                 },
                 "interpretation": " NEGATIVE - Input does NOT belong to MEDICAL domain",
                 "is_positive": false
             },
             "alignment": " MISMATCH",
-            "confidence_diff": 0.5751015712752106
+            "confidence_diff": 0.6663837020559112
         },
         {
             "sentence": "Radiation therapy uses high-energy particles to destroy cancer cells.",
@@ -196,21 +193,21 @@
                 "medicine"
             ],
             "decision": "use_existing_expert",
-            "domain": "medical",
-            "precheck_confidence": 0.39265114123542794,
+            "domain": "physics",
+            "precheck_confidence": 0.3972285105851415,
             "model_prediction": {
-                "predicted_class": 0,
-                "class_label": "Not Medical",
-                "confidence": 1.0,
+                "predicted_class": 1,
+                "class_label": "Physics",
+                "confidence": 0.9955999851226807,
                 "probabilities": {
-                    "P(Not Medical)": 1.0,
-                    "P(Medical)": 0.0
+                    "P(Not Physics)": 0.004400044213980436,
+                    "P(Physics)": 0.9955999851226807
                 },
-                "interpretation": " NEGATIVE - Input does NOT belong to MEDICAL domain",
-                "is_positive": false
+                "interpretation": " POSITIVE - Input belongs to PHYSICS domain",
+                "is_positive": true
             },
-            "alignment": " MISMATCH",
-            "confidence_diff": 0.6073488587645721
+            "alignment": " CORRECT",
+            "confidence_diff": 0.5983714745375391
         },
         {
             "sentence": "People still got cancer before we knew about radiation it was causing harm.",
@@ -220,20 +217,20 @@
             ],
             "decision": "use_existing_expert",
             "domain": "medical",
-            "precheck_confidence": 0.37470906461198816,
+            "precheck_confidence": 0.32995959200412034,
             "model_prediction": {
                 "predicted_class": 0,
                 "class_label": "Not Medical",
-                "confidence": 1.0,
+                "confidence": 0.9918335676193237,
                 "probabilities": {
-                    "P(Not Medical)": 1.0,
-                    "P(Medical)": 0.0
+                    "P(Not Medical)": 0.9918335676193237,
+                    "P(Medical)": 0.008166407234966755
                 },
                 "interpretation": " NEGATIVE - Input does NOT belong to MEDICAL domain",
                 "is_positive": false
             },
             "alignment": " MISMATCH",
-            "confidence_diff": 0.6252909353880118
+            "confidence_diff": 0.6618739756152034
         },
         {
             "sentence": "The stock market crashed in 1929, leading to the Great Depression.",

@@ -3,74 +3,49 @@
         "sentence": "I remember doing a review for Ideonella Saikainesis? Its the bacteria that was discovered in Japan that can use PHET plastics as a sole carbon source for metabolism but it does the process very long so its not feasible to just use them for breaking down those types of plastics. Could be about that since ocean plastics are big on the news.\\n\\nAnother is antibiotic resistance in microbes that can affect us plus agriculture. Lots of stuff",
         "tags": [
             "biology",
-            "biology"
+            "technology"
         ],
-        "timestamp": "2025-10-16T18:26:33.321063",
+        "timestamp": "2025-10-18T00:30:35.553344",
         "expert_decision": {
-            "unified_decision": {
-                "decision_flag": "create_new_expert",
-                "selected_domain": "unknown",
-                "confidence_in_decision": 0.9,
-                "reasoning": [
-                    "No expert available for tags: ['biology', 'biology']"
-                ]
-            },
-            "expert_analyses": {},
-            "system_summary": {
-                "experts_analyzed": 0
-            }
-        },
-        "expert_flag": "create_new_expert",
-        "selected_domain": "unknown",
-        "decision_confidence": 0.9
-    },
-    {
-        "sentence": "People still got cancer before we knew about radiation it was causing harm but we didn\u2019t know about radiation so didn\u2019t know what was causing it.",
-        "tags": [
-            "biology",
-            "physics"
-        ],
-        "timestamp": "2025-10-16T18:26:33.554189",
-        "expert_decision": {
-            "input_text": "People still got cancer before we knew about radiation it was causing harm but we didn\u2019t know about radiation so didn\u2019t know what was causing it.",
-            "timestamp": "2025-10-16T18:26:33.555196",
+            "input_text": "I remember doing a review for Ideonella Saikainesis? Its the bacteria that was discovered in Japan that can use PHET plastics as a sole carbon source for metabolism but it does the process very long so its not feasible to just use them for breaking down those types of plastics. Could be about that since ocean plastics are big on the news.\\n\\nAnother is antibiotic resistance in microbes that can affect us plus agriculture. Lots of stuff",
+            "timestamp": "2025-10-18T00:30:39.328173",
             "expert_analyses": {
-                "physics": {
-                    "input_text": "People still got cancer before we knew about radiation it was causing harm but we didn\u2019t know about ...",
-                    "domain": "physics",
-                    "timestamp": "2025-10-16T18:26:33.557194",
+                "medical": {
+                    "input_text": "I remember doing a review for Ideonella Saikainesis? Its the bacteria that was discovered in Japan t...",
+                    "domain": "medical",
+                    "timestamp": "2025-10-18T00:30:39.331174",
                     "systems_analysis": {
                         "k_medoids": {
-                            "similarity_score": 0.1078498363494873,
+                            "similarity_score": 0.1959911435842514,
                             "num_medoids": 10,
                             "primary_medoid_text": "Organisms that reproduce sexually by joining gamet..."
                         },
                         "calibration": {
                             "enabled": true,
-                            "prediction": 0,
-                            "confidence_score": 0.6713320544321243,
-                            "raw_confidence": 0.8658522963523865,
-                            "calibration_quality": 0.5506849315068493
+                            "prediction": 1,
+                            "confidence_score": 0.6890036702156067,
+                            "raw_confidence": 0.9125876426696777,
+                            "calibration_quality": 0.51
                         },
                         "ood_detection": {
                             "enabled": true,
                             "is_ood": false,
                             "ood_confidence": 0.3333333333333333,
                             "ood_scores": {
-                                "svm_distance": 0.9691212773323059,
-                                "nn_distance": 0.6684907078742981,
-                                "isolation_score": 0.00786983264714658
+                                "svm_distance": 1.1484943628311157,
+                                "nn_distance": 0.7084900736808777,
+                                "isolation_score": -0.03201057612056757
                             },
                             "reason": "1/3 methods flagged as OOD"
                         }
                     },
                     "unified_scores": {
-                        "base_similarity": 0.1078498363494873,
-                        "base_confidence": 0.6713320544321243,
+                        "base_similarity": 0.1959911435842514,
+                        "base_confidence": 0.6890036702156067,
                         "ood_penalty": 0.06666666666666667,
-                        "adjusted_similarity": 0.10569283962249755,
-                        "adjusted_confidence": 0.6265765841366493,
-                        "composite_score": 0.4228545740249494,
+                        "adjusted_similarity": 0.19207132071256638,
+                        "adjusted_confidence": 0.6430700922012329,
+                        "composite_score": 0.46914696914454307,
                         "quality_score": 0.7,
                         "systems_enabled": {
                             "k_medoids": true,
@@ -80,9 +55,9 @@
                     },
                     "recommendation": {
                         "decision": "use_existing_expert",
-                        "confidence_in_decision": 0.29599820181746456,
+                        "confidence_in_decision": 0.32840287840118015,
                         "reasoning": [
-                            "High composite score (0.423) with acceptable OOD risk",
+                            "High composite score (0.469) with acceptable OOD risk",
                             "Low similarity to existing medoids"
                         ],
                         "thresholds_used": {
@@ -94,13 +69,13 @@
                 }
             },
             "unified_decision": {
-                "selected_domain": "physics",
+                "selected_domain": "medical",
                 "decision_flag": "use_existing_expert",
-                "confidence_in_decision": 0.29599820181746456,
-                "composite_score": 0.4228545740249494,
+                "confidence_in_decision": 0.32840287840118015,
+                "composite_score": 0.46914696914454307,
                 "quality_score": 0.7,
                 "reasoning": [
-                    "High composite score (0.423) with acceptable OOD risk",
+                    "High composite score (0.469) with acceptable OOD risk",
                     "Low similarity to existing medoids"
                 ],
                 "ood_analysis": {
@@ -108,12 +83,12 @@
                     "ood_confidence": 0.3333333333333333
                 },
                 "similarity_analysis": {
-                    "similarity_score": 0.1078498363494873,
-                    "adjusted_similarity": 0.10569283962249755
+                    "similarity_score": 0.1959911435842514,
+                    "adjusted_similarity": 0.19207132071256638
                 },
                 "confidence_analysis": {
-                    "calibrated_confidence": 0.6713320544321243,
-                    "adjusted_confidence": 0.6265765841366493
+                    "calibrated_confidence": 0.6890036702156067,
+                    "adjusted_confidence": 0.6430700922012329
                 }
             },
             "system_summary": {
@@ -126,25 +101,713 @@
             }
         },
         "expert_flag": "use_existing_expert",
-        "selected_domain": "physics",
-        "decision_confidence": 0.29599820181746456
+        "selected_domain": "medical",
+        "decision_confidence": 0.32840287840118015
+    },
+    {
+        "sentence": "People still got cancer before we knew about radiation it was causing harm but we didn\u2019t know about radiation so didn\u2019t know what was causing it.",
+        "tags": [
+            "biology",
+            "chemistry"
+        ],
+        "timestamp": "2025-10-18T00:30:48.342777",
+        "expert_decision": {
+            "input_text": "People still got cancer before we knew about radiation it was causing harm but we didn\u2019t know about radiation so didn\u2019t know what was causing it.",
+            "timestamp": "2025-10-18T00:30:48.351785",
+            "expert_analyses": {
+                "medical": {
+                    "input_text": "People still got cancer before we knew about radiation it was causing harm but we didn\u2019t know about ...",
+                    "domain": "medical",
+                    "timestamp": "2025-10-18T00:30:48.351785",
+                    "systems_analysis": {
+                        "k_medoids": {
+                            "similarity_score": 0.1078498363494873,
+                            "num_medoids": 10,
+                            "primary_medoid_text": "Organisms that reproduce sexually by joining gamet..."
+                        },
+                        "calibration": {
+                            "enabled": true,
+                            "prediction": 1,
+                            "confidence_score": 0.4995163205265999,
+                            "raw_confidence": 0.661611020565033,
+                            "calibration_quality": 0.51
+                        },
+                        "ood_detection": {
+                            "enabled": true,
+                            "is_ood": false,
+                            "ood_confidence": 0.3333333333333333,
+                            "ood_scores": {
+                                "svm_distance": 0.37663835287094116,
+                                "nn_distance": 0.6554219722747803,
+                                "isolation_score": 0.010496247488508914
+                            },
+                            "reason": "1/3 methods flagged as OOD"
+                        }
+                    },
+                    "unified_scores": {
+                        "base_similarity": 0.1078498363494873,
+                        "base_confidence": 0.4995163205265999,
+                        "ood_penalty": 0.06666666666666667,
+                        "adjusted_similarity": 0.10569283962249755,
+                        "adjusted_confidence": 0.4662152324914932,
+                        "composite_score": 0.3506919657846292,
+                        "quality_score": 0.7,
+                        "systems_enabled": {
+                            "k_medoids": true,
+                            "calibration": true,
+                            "ood_detection": true
+                        }
+                    },
+                    "recommendation": {
+                        "decision": "use_existing_expert",
+                        "confidence_in_decision": 0.24548437604924042,
+                        "reasoning": [
+                            "High composite score (0.351) with acceptable OOD risk",
+                            "Low similarity to existing medoids",
+                            "Low calibrated confidence"
+                        ],
+                        "thresholds_used": {
+                            "high_threshold": 0.35,
+                            "medium_threshold": 0.175,
+                            "ood_rejection_threshold": 0.6
+                        }
+                    }
+                },
+                "chemistry": {
+                    "input_text": "People still got cancer before we knew about radiation it was causing harm but we didn\u2019t know about ...",
+                    "domain": "chemistry",
+                    "timestamp": "2025-10-18T00:30:55.268580",
+                    "systems_analysis": {
+                        "k_medoids": {
+                            "similarity_score": 0.1078498363494873,
+                            "num_medoids": 10,
+                            "primary_medoid_text": "Organisms that reproduce sexually by joining gamet..."
+                        },
+                        "calibration": {
+                            "enabled": true,
+                            "prediction": 1,
+                            "confidence_score": 0.4742535686314996,
+                            "raw_confidence": 0.6833330988883972,
+                            "calibration_quality": 0.3880597014925373
+                        },
+                        "ood_detection": {
+                            "enabled": true,
+                            "is_ood": false,
+                            "ood_confidence": 0.3333333333333333,
+                            "ood_scores": {
+                                "svm_distance": 0.31970182061195374,
+                                "nn_distance": 0.6757937073707581,
+                                "isolation_score": 0.007889060348264476
+                            },
+                            "reason": "1/3 methods flagged as OOD"
+                        }
+                    },
+                    "unified_scores": {
+                        "base_similarity": 0.1078498363494873,
+                        "base_confidence": 0.4742535686314996,
+                        "ood_penalty": 0.06666666666666667,
+                        "adjusted_similarity": 0.10569283962249755,
+                        "adjusted_confidence": 0.4426366640560663,
+                        "composite_score": 0.34008160998868703,
+                        "quality_score": 0.7,
+                        "systems_enabled": {
+                            "k_medoids": true,
+                            "calibration": true,
+                            "ood_detection": true
+                        }
+                    },
+                    "recommendation": {
+                        "decision": "create_new_patch",
+                        "confidence_in_decision": 0.19044570159366472,
+                        "reasoning": [
+                            "Medium composite score (0.340) suitable for patch creation",
+                            "Low similarity to existing medoids",
+                            "Low calibrated confidence"
+                        ],
+                        "thresholds_used": {
+                            "high_threshold": 0.35,
+                            "medium_threshold": 0.175,
+                            "ood_rejection_threshold": 0.6
+                        }
+                    }
+                }
+            },
+            "unified_decision": {
+                "selected_domain": "medical",
+                "decision_flag": "use_existing_expert",
+                "confidence_in_decision": 0.24548437604924042,
+                "composite_score": 0.3506919657846292,
+                "quality_score": 0.7,
+                "reasoning": [
+                    "High composite score (0.351) with acceptable OOD risk",
+                    "Low similarity to existing medoids",
+                    "Low calibrated confidence"
+                ],
+                "ood_analysis": {
+                    "is_ood": false,
+                    "ood_confidence": 0.3333333333333333
+                },
+                "similarity_analysis": {
+                    "similarity_score": 0.1078498363494873,
+                    "adjusted_similarity": 0.10569283962249755
+                },
+                "confidence_analysis": {
+                    "calibrated_confidence": 0.4995163205265999,
+                    "adjusted_confidence": 0.4662152324914932
+                }
+            },
+            "system_summary": {
+                "experts_analyzed": 2,
+                "systems_enabled": {
+                    "k_medoids": true,
+                    "calibration": true,
+                    "ood_detection": true
+                }
+            }
+        },
+        "expert_flag": "use_existing_expert",
+        "selected_domain": "medical",
+        "decision_confidence": 0.24548437604924042
+    },
+    {
+        "sentence": "Cells immunoreactive for neuropeptide in human thymomas. The presence of opioid peptides, bombesin, and substance P was investigated by immunohistochemistry in tissue sections from six human thymomas. The number of immunoreactive cells seemed to vary from one case to another. Ultrastructural investigation, showing the presence of desmosomes in labelled cells, allowed these cells to be classified as epithelial lineage cells. The occurrence of cells containing neuropeptide in thymomas suggest that peptide molecules could have modulated the behaviour of this tumour, given the reported influence of these molecules on immune functions and their growth promoting activity on several cell types, including mesenchymal and epithelial cells. ",
+        "tags": [
+            "biology",
+            "chemistry"
+        ],
+        "timestamp": "2025-10-18T00:31:04.265933",
+        "expert_decision": {
+            "input_text": "Cells immunoreactive for neuropeptide in human thymomas. The presence of opioid peptides, bombesin, and substance P was investigated by immunohistochemistry in tissue sections from six human thymomas. The number of immunoreactive cells seemed to vary from one case to another. Ultrastructural investigation, showing the presence of desmosomes in labelled cells, allowed these cells to be classified as epithelial lineage cells. The occurrence of cells containing neuropeptide in thymomas suggest that peptide molecules could have modulated the behaviour of this tumour, given the reported influence of these molecules on immune functions and their growth promoting activity on several cell types, including mesenchymal and epithelial cells. ",
+            "timestamp": "2025-10-18T00:31:04.265933",
+            "expert_analyses": {
+                "medical": {
+                    "input_text": "Cells immunoreactive for neuropeptide in human thymomas. The presence of opioid peptides, bombesin, ...",
+                    "domain": "medical",
+                    "timestamp": "2025-10-18T00:31:04.265933",
+                    "systems_analysis": {
+                        "k_medoids": {
+                            "similarity_score": 0.21176278591156006,
+                            "num_medoids": 10,
+                            "primary_medoid_text": "Organisms that reproduce sexually by joining gamet..."
+                        },
+                        "calibration": {
+                            "enabled": true,
+                            "prediction": 0,
+                            "confidence_score": 0.7549735391139984,
+                            "raw_confidence": 0.9999649524688721,
+                            "calibration_quality": 0.51
+                        },
+                        "ood_detection": {
+                            "enabled": true,
+                            "is_ood": false,
+                            "ood_confidence": 0.0,
+                            "ood_scores": {
+                                "svm_distance": 4.749632835388184,
+                                "nn_distance": 0.6382037997245789,
+                                "isolation_score": 0.022802869637975343
+                            },
+                            "reason": "0/3 methods flagged as OOD"
+                        }
+                    },
+                    "unified_scores": {
+                        "base_similarity": 0.21176278591156006,
+                        "base_confidence": 0.7549735391139984,
+                        "ood_penalty": 0.0,
+                        "adjusted_similarity": 0.21176278591156006,
+                        "adjusted_confidence": 0.7549735391139984,
+                        "composite_score": 0.5350313462615014,
+                        "quality_score": 0.7,
+                        "systems_enabled": {
+                            "k_medoids": true,
+                            "calibration": true,
+                            "ood_detection": true
+                        }
+                    },
+                    "recommendation": {
+                        "decision": "use_existing_expert",
+                        "confidence_in_decision": 0.374521942383051,
+                        "reasoning": [
+                            "High composite score (0.535) with acceptable OOD risk"
+                        ],
+                        "thresholds_used": {
+                            "high_threshold": 0.35,
+                            "medium_threshold": 0.175,
+                            "ood_rejection_threshold": 0.6
+                        }
+                    }
+                },
+                "chemistry": {
+                    "input_text": "Cells immunoreactive for neuropeptide in human thymomas. The presence of opioid peptides, bombesin, ...",
+                    "domain": "chemistry",
+                    "timestamp": "2025-10-18T00:31:11.315195",
+                    "systems_analysis": {
+                        "k_medoids": {
+                            "similarity_score": 0.21176278591156006,
+                            "num_medoids": 10,
+                            "primary_medoid_text": "Organisms that reproduce sexually by joining gamet..."
+                        },
+                        "calibration": {
+                            "enabled": true,
+                            "prediction": 0,
+                            "confidence_score": 0.6894950319581957,
+                            "raw_confidence": 0.9934659600257874,
+                            "calibration_quality": 0.3880597014925373
+                        },
+                        "ood_detection": {
+                            "enabled": true,
+                            "is_ood": false,
+                            "ood_confidence": 0.3333333333333333,
+                            "ood_scores": {
+                                "svm_distance": 2.327200412750244,
+                                "nn_distance": 0.702544629573822,
+                                "isolation_score": 0.002282164098876105
+                            },
+                            "reason": "1/3 methods flagged as OOD"
+                        }
+                    },
+                    "unified_scores": {
+                        "base_similarity": 0.21176278591156006,
+                        "base_confidence": 0.6894950319581957,
+                        "ood_penalty": 0.06666666666666667,
+                        "adjusted_similarity": 0.20752753019332884,
+                        "adjusted_confidence": 0.643528696494316,
+                        "composite_score": 0.4763086353427735,
+                        "quality_score": 0.7,
+                        "systems_enabled": {
+                            "k_medoids": true,
+                            "calibration": true,
+                            "ood_detection": true
+                        }
+                    },
+                    "recommendation": {
+                        "decision": "use_existing_expert",
+                        "confidence_in_decision": 0.33341604473994146,
+                        "reasoning": [
+                            "High composite score (0.476) with acceptable OOD risk"
+                        ],
+                        "thresholds_used": {
+                            "high_threshold": 0.35,
+                            "medium_threshold": 0.175,
+                            "ood_rejection_threshold": 0.6
+                        }
+                    }
+                }
+            },
+            "unified_decision": {
+                "selected_domain": "medical",
+                "decision_flag": "use_existing_expert",
+                "confidence_in_decision": 0.374521942383051,
+                "composite_score": 0.5350313462615014,
+                "quality_score": 0.7,
+                "reasoning": [
+                    "High composite score (0.535) with acceptable OOD risk"
+                ],
+                "ood_analysis": {
+                    "is_ood": false,
+                    "ood_confidence": 0.0
+                },
+                "similarity_analysis": {
+                    "similarity_score": 0.21176278591156006,
+                    "adjusted_similarity": 0.21176278591156006
+                },
+                "confidence_analysis": {
+                    "calibrated_confidence": 0.7549735391139984,
+                    "adjusted_confidence": 0.7549735391139984
+                }
+            },
+            "system_summary": {
+                "experts_analyzed": 2,
+                "systems_enabled": {
+                    "k_medoids": true,
+                    "calibration": true,
+                    "ood_detection": true
+                }
+            }
+        },
+        "expert_flag": "use_existing_expert",
+        "selected_domain": "medical",
+        "decision_confidence": 0.374521942383051
+    },
+    {
+        "sentence": "Hello, old friend\r\nI know it's been a while\r\nI'm here again\r\nAnd it won't be the last time\r\nI fall apart\r\nBut You won't let me get too far\r\nYou're speaking to my heart\r\nIt's good to know\r\nIt's good to feel the arms of grace\r\nTo know that my mistakes are covered by Your love\r\nIt's good to know\r\nIt's good to see that You won't change\r\nWhen it's said and done\r\nYou'll always be enough\r\nTo know that I can always come back home\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nGoodbye, old me\r\nYeah there's so much more that I\r\nKnow I could be\r\nSo take my worries with\r\nYou when you leave\r\nThere's hope that I am counting on\r\n'Cause I'm never too far gone\r\nIt's good to know\r\nIt's good to feel the arms of grace\r\nTo know that my mistakes are covered by Your love\r\nIt's good to know\r\nIt's good to see that You won't change\r\nWhen it's said and done\r\nYou'll always be enough\r\nTo know that I can always come back home\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\nThat there's a second chance\r\nKnow that it's all in Your hands\r\nEven if I just don't understand\r\n'Cause I know that I will be alright\r\nI finally see the other side\r\nIt takes the darkness to open up your eyes\r\nSometimes\r\nIt's good to know\r\nIt's good to know\r\nI'm covered by Your love\r\nOh, oh, it's good to know\r\nIt's good to see that You won't change\r\nWhen it's said and done You'll always be enough\r\nTo know that I can always come back home\r\nTo know that You will never let me go\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\nIt's good to know\r\noh, oh, oh, oh",
+        "tags": [
+            "none",
+            "music"
+        ],
+        "timestamp": "2025-10-18T00:31:19.030297",
+        "expert_decision": {
+            "input_text": "Hello, old friend\r\nI know it's been a while\r\nI'm here again\r\nAnd it won't be the last time\r\nI fall apart\r\nBut You won't let me get too far\r\nYou're speaking to my heart\r\nIt's good to know\r\nIt's good to feel the arms of grace\r\nTo know that my mistakes are covered by Your love\r\nIt's good to know\r\nIt's good to see that You won't change\r\nWhen it's said and done\r\nYou'll always be enough\r\nTo know that I can always come back home\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nGoodbye, old me\r\nYeah there's so much more that I\r\nKnow I could be\r\nSo take my worries with\r\nYou when you leave\r\nThere's hope that I am counting on\r\n'Cause I'm never too far gone\r\nIt's good to know\r\nIt's good to feel the arms of grace\r\nTo know that my mistakes are covered by Your love\r\nIt's good to know\r\nIt's good to see that You won't change\r\nWhen it's said and done\r\nYou'll always be enough\r\nTo know that I can always come back home\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\nThat there's a second chance\r\nKnow that it's all in Your hands\r\nEven if I just don't understand\r\n'Cause I know that I will be alright\r\nI finally see the other side\r\nIt takes the darkness to open up your eyes\r\nSometimes\r\nIt's good to know\r\nIt's good to know\r\nI'm covered by Your love\r\nOh, oh, it's good to know\r\nIt's good to see that You won't change\r\nWhen it's said and done You'll always be enough\r\nTo know that I can always come back home\r\nTo know that You will never let me go\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\nIt's good to know\r\noh, oh, oh, oh",
+            "timestamp": "2025-10-18T00:31:19.047307",
+            "expert_analyses": {
+                "music": {
+                    "input_text": "Hello, old friend\r\nI know it's been a while\r\nI'm here again\r\nAnd it won't be the last time\r\nI fall a...",
+                    "domain": "music",
+                    "timestamp": "2025-10-18T00:31:19.047307",
+                    "systems_analysis": {
+                        "k_medoids": {
+                            "similarity_score": 0.654512882232666,
+                            "num_medoids": 10,
+                            "primary_medoid_text": "Now darling, you should know\r\nThat I'm really, rea..."
+                        },
+                        "calibration": {
+                            "enabled": true,
+                            "prediction": "No",
+                            "confidence_score": 0.7430915371329879,
+                            "raw_confidence": 1.0,
+                            "calibration_quality": 0.48618307426597585
+                        },
+                        "ood_detection": {
+                            "enabled": true,
+                            "is_ood": false,
+                            "ood_confidence": 0.0,
+                            "ood_scores": {
+                                "svm_distance": 4.33452487964631,
+                                "nn_distance": 0.3678005635738373,
+                                "isolation_score": 0.04705985647471017
+                            },
+                            "reason": "0/3 methods flagged as OOD"
+                        }
+                    },
+                    "unified_scores": {
+                        "base_similarity": 0.654512882232666,
+                        "base_confidence": 0.7430915371329879,
+                        "ood_penalty": 0.0,
+                        "adjusted_similarity": 0.654512882232666,
+                        "adjusted_confidence": 0.7430915371329879,
+                        "composite_score": 0.7289219887145443,
+                        "quality_score": 0.7,
+                        "systems_enabled": {
+                            "k_medoids": true,
+                            "calibration": true,
+                            "ood_detection": true
+                        }
+                    },
+                    "recommendation": {
+                        "decision": "use_existing_expert",
+                        "confidence_in_decision": 0.5102453921001809,
+                        "reasoning": [
+                            "High composite score (0.729) with acceptable OOD risk"
+                        ],
+                        "thresholds_used": {
+                            "high_threshold": 0.35,
+                            "medium_threshold": 0.175,
+                            "ood_rejection_threshold": 0.6
+                        }
+                    }
+                }
+            },
+            "unified_decision": {
+                "selected_domain": "music",
+                "decision_flag": "use_existing_expert",
+                "confidence_in_decision": 0.5102453921001809,
+                "composite_score": 0.7289219887145443,
+                "quality_score": 0.7,
+                "reasoning": [
+                    "High composite score (0.729) with acceptable OOD risk"
+                ],
+                "ood_analysis": {
+                    "is_ood": false,
+                    "ood_confidence": 0.0
+                },
+                "similarity_analysis": {
+                    "similarity_score": 0.654512882232666,
+                    "adjusted_similarity": 0.654512882232666
+                },
+                "confidence_analysis": {
+                    "calibrated_confidence": 0.7430915371329879,
+                    "adjusted_confidence": 0.7430915371329879
+                }
+            },
+            "system_summary": {
+                "experts_analyzed": 1,
+                "systems_enabled": {
+                    "k_medoids": true,
+                    "calibration": true,
+                    "ood_detection": true
+                }
+            }
+        },
+        "expert_flag": "use_existing_expert",
+        "selected_domain": "music",
+        "decision_confidence": 0.5102453921001809
+    },
+    {
+        "sentence": "Immigrants In Major Cities See No Sign Of Mass ICE Raids Yet",
+        "tags": [
+            "politics"
+        ],
+        "timestamp": "2025-10-18T00:31:26.286299",
+        "expert_decision": {
+            "unified_decision": {
+                "decision_flag": "create_new_expert",
+                "selected_domain": "unknown",
+                "confidence_in_decision": 0.9,
+                "reasoning": [
+                    "No expert available for tags: ['politics']"
+                ]
+            },
+            "expert_analyses": {},
+            "system_summary": {
+                "experts_analyzed": 0
+            }
+        },
+        "expert_flag": "create_new_expert",
+        "selected_domain": "unknown",
+        "decision_confidence": 0.9
+    },
+    {
+        "sentence": "First Lady Jill Biden To Meet Ukrainian Refugees During Border Visit",
+        "tags": [
+            "politics",
+            "history"
+        ],
+        "timestamp": "2025-10-18T00:31:26.604446",
+        "expert_decision": {
+            "unified_decision": {
+                "decision_flag": "create_new_expert",
+                "selected_domain": "unknown",
+                "confidence_in_decision": 0.9,
+                "reasoning": [
+                    "No expert available for tags: ['politics', 'history']"
+                ]
+            },
+            "expert_analyses": {},
+            "system_summary": {
+                "experts_analyzed": 0
+            }
+        },
+        "expert_flag": "create_new_expert",
+        "selected_domain": "unknown",
+        "decision_confidence": 0.9
+    },
+    {
+        "sentence": "The part where they ask \"what is this called when a shadow has multiple shadows \"layered\" behind each other\".\\n\\nPenumbra is a continuous spectrum of shadows, which you could argue are infinitely layered over each other, but they don't appear as *separate* layers, so I interpret that as not what OP is asking for.\\n\\nThey specifically are asking about layers.",
+        "tags": [
+            "AI",
+            "technology",
+            "maths"
+        ],
+        "timestamp": "2025-10-18T00:31:27.005963",
+        "expert_decision": {
+            "unified_decision": {
+                "decision_flag": "create_new_expert",
+                "selected_domain": "unknown",
+                "confidence_in_decision": 0.9,
+                "reasoning": [
+                    "No experts available"
+                ]
+            },
+            "expert_analyses": {},
+            "system_summary": {
+                "experts_analyzed": 0
+            }
+        },
+        "expert_flag": "create_new_expert",
+        "selected_domain": "unknown",
+        "decision_confidence": 0.9
+    },
+    {
+        "sentence": "Late relapse with nodular lymphoma after treatment for diffuse non-Hodgkin's lymphoma. Histologic conversion from a low-grade non-Hodgkin's lymphoma (NHL) into a more aggressive histologic pattern is a common, well-documented event in NHL. The converse phenomenon, appearance of a low-grade, follicular NHL after treatment for diffuse, intermediate, or high-grade NHL, has only recently been recognized. The clinical, morphologic, and immunologic features of a patient in whom relapse with an indolent nodular lymphoma was noticed after combination chemotherapy for diffuse lymphoma are presented. Immunologic markers at presentation and relapse were similar. Other previously reported cases are reviewed. Implications for diagnosis and therapy as well as the pathogenesis of this unique form of conversion are discussed. ",
+        "tags": [
+            "biology",
+            "medicine",
+            "chemistry"
+        ],
+        "timestamp": "2025-10-18T00:31:27.509150",
+        "expert_decision": {
+            "input_text": "Late relapse with nodular lymphoma after treatment for diffuse non-Hodgkin's lymphoma. Histologic conversion from a low-grade non-Hodgkin's lymphoma (NHL) into a more aggressive histologic pattern is a common, well-documented event in NHL. The converse phenomenon, appearance of a low-grade, follicular NHL after treatment for diffuse, intermediate, or high-grade NHL, has only recently been recognized. The clinical, morphologic, and immunologic features of a patient in whom relapse with an indolent nodular lymphoma was noticed after combination chemotherapy for diffuse lymphoma are presented. Immunologic markers at presentation and relapse were similar. Other previously reported cases are reviewed. Implications for diagnosis and therapy as well as the pathogenesis of this unique form of conversion are discussed. ",
+            "timestamp": "2025-10-18T00:31:27.509150",
+            "expert_analyses": {
+                "medical": {
+                    "input_text": "Late relapse with nodular lymphoma after treatment for diffuse non-Hodgkin's lymphoma. Histologic co...",
+                    "domain": "medical",
+                    "timestamp": "2025-10-18T00:31:27.509150",
+                    "systems_analysis": {
+                        "k_medoids": {
+                            "similarity_score": 0.15811875462532043,
+                            "num_medoids": 10,
+                            "primary_medoid_text": "Organisms that reproduce sexually by joining gamet..."
+                        },
+                        "calibration": {
+                            "enabled": true,
+                            "prediction": 0,
+                            "confidence_score": 0.7549702090024948,
+                            "raw_confidence": 0.9999605417251587,
+                            "calibration_quality": 0.51
+                        },
+                        "ood_detection": {
+                            "enabled": true,
+                            "is_ood": false,
+                            "ood_confidence": 0.0,
+                            "ood_scores": {
+                                "svm_distance": 4.775166034698486,
+                                "nn_distance": 0.6110079884529114,
+                                "isolation_score": 0.005068901922616775
+                            },
+                            "reason": "0/3 methods flagged as OOD"
+                        }
+                    },
+                    "unified_scores": {
+                        "base_similarity": 0.15811875462532043,
+                        "base_confidence": 0.7549702090024948,
+                        "ood_penalty": 0.0,
+                        "adjusted_similarity": 0.15811875462532043,
+                        "adjusted_confidence": 0.7549702090024948,
+                        "composite_score": 0.5108900336325168,
+                        "quality_score": 0.7,
+                        "systems_enabled": {
+                            "k_medoids": true,
+                            "calibration": true,
+                            "ood_detection": true
+                        }
+                    },
+                    "recommendation": {
+                        "decision": "use_existing_expert",
+                        "confidence_in_decision": 0.35762302354276176,
+                        "reasoning": [
+                            "High composite score (0.511) with acceptable OOD risk",
+                            "Low similarity to existing medoids"
+                        ],
+                        "thresholds_used": {
+                            "high_threshold": 0.35,
+                            "medium_threshold": 0.175,
+                            "ood_rejection_threshold": 0.6
+                        }
+                    }
+                },
+                "chemistry": {
+                    "input_text": "Late relapse with nodular lymphoma after treatment for diffuse non-Hodgkin's lymphoma. Histologic co...",
+                    "domain": "chemistry",
+                    "timestamp": "2025-10-18T00:31:34.204244",
+                    "systems_analysis": {
+                        "k_medoids": {
+                            "similarity_score": 0.15811875462532043,
+                            "num_medoids": 10,
+                            "primary_medoid_text": "Organisms that reproduce sexually by joining gamet..."
+                        },
+                        "calibration": {
+                            "enabled": true,
+                            "prediction": 1,
+                            "confidence_score": 0.6356516756228546,
+                            "raw_confidence": 0.9158852100372314,
+                            "calibration_quality": 0.3880597014925373
+                        },
+                        "ood_detection": {
+                            "enabled": true,
+                            "is_ood": false,
+                            "ood_confidence": 0.3333333333333333,
+                            "ood_scores": {
+                                "svm_distance": 1.1078871488571167,
+                                "nn_distance": 0.7947165369987488,
+                                "isolation_score": -0.018215357106008856
+                            },
+                            "reason": "1/3 methods flagged as OOD"
+                        }
+                    },
+                    "unified_scores": {
+                        "base_similarity": 0.15811875462532043,
+                        "base_confidence": 0.6356516756228546,
+                        "ood_penalty": 0.06666666666666667,
+                        "adjusted_similarity": 0.15495637953281402,
+                        "adjusted_confidence": 0.5932748972479976,
+                        "composite_score": 0.4300374078846986,
+                        "quality_score": 0.7,
+                        "systems_enabled": {
+                            "k_medoids": true,
+                            "calibration": true,
+                            "ood_detection": true
+                        }
+                    },
+                    "recommendation": {
+                        "decision": "use_existing_expert",
+                        "confidence_in_decision": 0.301026185519289,
+                        "reasoning": [
+                            "High composite score (0.430) with acceptable OOD risk",
+                            "Low similarity to existing medoids"
+                        ],
+                        "thresholds_used": {
+                            "high_threshold": 0.35,
+                            "medium_threshold": 0.175,
+                            "ood_rejection_threshold": 0.6
+                        }
+                    }
+                }
+            },
+            "unified_decision": {
+                "selected_domain": "medical",
+                "decision_flag": "use_existing_expert",
+                "confidence_in_decision": 0.35762302354276176,
+                "composite_score": 0.5108900336325168,
+                "quality_score": 0.7,
+                "reasoning": [
+                    "High composite score (0.511) with acceptable OOD risk",
+                    "Low similarity to existing medoids"
+                ],
+                "ood_analysis": {
+                    "is_ood": false,
+                    "ood_confidence": 0.0
+                },
+                "similarity_analysis": {
+                    "similarity_score": 0.15811875462532043,
+                    "adjusted_similarity": 0.15811875462532043
+                },
+                "confidence_analysis": {
+                    "calibrated_confidence": 0.7549702090024948,
+                    "adjusted_confidence": 0.7549702090024948
+                }
+            },
+            "system_summary": {
+                "experts_analyzed": 2,
+                "systems_enabled": {
+                    "k_medoids": true,
+                    "calibration": true,
+                    "ood_detection": true
+                }
+            }
+        },
+        "expert_flag": "use_existing_expert",
+        "selected_domain": "medical",
+        "decision_confidence": 0.35762302354276176
+    },
+    {
+        "sentence": "Herman Cain Tweets 2 Weeks After Death, Slams Joe Biden And Kamala Harris",
+        "tags": [
+            "politics"
+        ],
+        "timestamp": "2025-10-18T00:31:41.672905",
+        "expert_decision": {
+            "unified_decision": {
+                "decision_flag": "create_new_expert",
+                "selected_domain": "unknown",
+                "confidence_in_decision": 0.9,
+                "reasoning": [
+                    "No expert available for tags: ['politics']"
+                ]
+            },
+            "expert_analyses": {},
+            "system_summary": {
+                "experts_analyzed": 0
+            }
+        },
+        "expert_flag": "create_new_expert",
+        "selected_domain": "unknown",
+        "decision_confidence": 0.9
     },
     {
         "sentence": "He also explains later why that doesn't work (in [another video](https://www.youtube.com/watch?v=SDtAh9IwG-I)). Basically temporal coherence is a bitch and overlooked easily, you attenuate the wave instead of shooting wave packets. Making true single photons is difficult, you need either SPDC or a clever quantum dot system. We actually still suck at making single photons (though progress is being rapidly made!).",
         "tags": [
-            "AI",
             "physics",
-            "maths"
+            "technology"
         ],
-        "timestamp": "2025-10-16T18:26:43.255077",
+        "timestamp": "2025-10-18T00:31:42.013312",
         "expert_decision": {
             "input_text": "He also explains later why that doesn't work (in [another video](https://www.youtube.com/watch?v=SDtAh9IwG-I)). Basically temporal coherence is a bitch and overlooked easily, you attenuate the wave instead of shooting wave packets. Making true single photons is difficult, you need either SPDC or a clever quantum dot system. We actually still suck at making single photons (though progress is being rapidly made!).",
-            "timestamp": "2025-10-16T18:26:43.255077",
+            "timestamp": "2025-10-18T00:31:42.022329",
             "expert_analyses": {
                 "physics": {
                     "input_text": "He also explains later why that doesn't work (in [another video](https://www.youtube.com/watch?v=SDt...",
                     "domain": "physics",
-                    "timestamp": "2025-10-16T18:26:43.255077",
+                    "timestamp": "2025-10-18T00:31:42.022329",
                     "systems_analysis": {
                         "k_medoids": {
                             "similarity_score": 0.10404571145772934,
@@ -164,8 +827,8 @@
                             "ood_confidence": 0.3333333333333333,
                             "ood_scores": {
                                 "svm_distance": 2.264285087585449,
-                                "nn_distance": 0.7846112847328186,
-                                "isolation_score": -0.008066719889988139
+                                "nn_distance": 0.7497327923774719,
+                                "isolation_score": 0.005707083272187885
                             },
                             "reason": "1/3 methods flagged as OOD"
                         }
@@ -234,411 +897,5 @@
         "expert_flag": "use_existing_expert",
         "selected_domain": "physics",
         "decision_confidence": 0.3240235581400426
-    },
-    {
-        "sentence": "Immigrants In Major Cities See No Sign Of Mass ICE Raids Yet",
-        "tags": [
-            "politics"
-        ],
-        "timestamp": "2025-10-16T18:26:50.408223",
-        "expert_decision": {
-            "unified_decision": {
-                "decision_flag": "create_new_expert",
-                "selected_domain": "unknown",
-                "confidence_in_decision": 0.9,
-                "reasoning": [
-                    "No expert available for tags: ['politics']"
-                ]
-            },
-            "expert_analyses": {},
-            "system_summary": {
-                "experts_analyzed": 0
-            }
-        },
-        "expert_flag": "create_new_expert",
-        "selected_domain": "unknown",
-        "decision_confidence": 0.9
-    },
-    {
-        "sentence": "First Lady Jill Biden To Meet Ukrainian Refugees During Border Visit",
-        "tags": [
-            "politics",
-            "history"
-        ],
-        "timestamp": "2025-10-16T18:26:50.647753",
-        "expert_decision": {
-            "unified_decision": {
-                "decision_flag": "create_new_expert",
-                "selected_domain": "unknown",
-                "confidence_in_decision": 0.9,
-                "reasoning": [
-                    "No expert available for tags: ['politics', 'history']"
-                ]
-            },
-            "expert_analyses": {},
-            "system_summary": {
-                "experts_analyzed": 0
-            }
-        },
-        "expert_flag": "create_new_expert",
-        "selected_domain": "unknown",
-        "decision_confidence": 0.9
-    },
-    {
-        "sentence": "The part where they ask \"what is this called when a shadow has multiple shadows \"layered\" behind each other\".\\n\\nPenumbra is a continuous spectrum of shadows, which you could argue are infinitely layered over each other, but they don't appear as *separate* layers, so I interpret that as not what OP is asking for.\\n\\nThey specifically are asking about layers.",
-        "tags": [
-            "physics",
-            "maths"
-        ],
-        "timestamp": "2025-10-16T18:26:50.887201",
-        "expert_decision": {
-            "input_text": "The part where they ask \"what is this called when a shadow has multiple shadows \"layered\" behind each other\".\\n\\nPenumbra is a continuous spectrum of shadows, which you could argue are infinitely layered over each other, but they don't appear as *separate* layers, so I interpret that as not what OP is asking for.\\n\\nThey specifically are asking about layers.",
-            "timestamp": "2025-10-16T18:26:50.887201",
-            "expert_analyses": {
-                "physics": {
-                    "input_text": "The part where they ask \"what is this called when a shadow has multiple shadows \"layered\" behind eac...",
-                    "domain": "physics",
-                    "timestamp": "2025-10-16T18:26:50.887201",
-                    "systems_analysis": {
-                        "k_medoids": {
-                            "similarity_score": 0.2090950608253479,
-                            "num_medoids": 10,
-                            "primary_medoid_text": "Organisms that reproduce sexually by joining gamet..."
-                        },
-                        "calibration": {
-                            "enabled": true,
-                            "prediction": 0,
-                            "confidence_score": 0.7623549418906643,
-                            "raw_confidence": 0.983249306678772,
-                            "calibration_quality": 0.5506849315068493
-                        },
-                        "ood_detection": {
-                            "enabled": true,
-                            "is_ood": false,
-                            "ood_confidence": 0.3333333333333333,
-                            "ood_scores": {
-                                "svm_distance": 2.1938812732696533,
-                                "nn_distance": 0.6693746447563171,
-                                "isolation_score": 0.014380712084409775
-                            },
-                            "reason": "1/3 methods flagged as OOD"
-                        }
-                    },
-                    "unified_scores": {
-                        "base_similarity": 0.2090950608253479,
-                        "base_confidence": 0.7623549418906643,
-                        "ood_penalty": 0.06666666666666667,
-                        "adjusted_similarity": 0.20491315960884093,
-                        "adjusted_confidence": 0.7115312790979534,
-                        "composite_score": 0.5057333307513908,
-                        "quality_score": 0.7,
-                        "systems_enabled": {
-                            "k_medoids": true,
-                            "calibration": true,
-                            "ood_detection": true
-                        }
-                    },
-                    "recommendation": {
-                        "decision": "use_existing_expert",
-                        "confidence_in_decision": 0.35401333152597353,
-                        "reasoning": [
-                            "High composite score (0.506) with acceptable OOD risk"
-                        ],
-                        "thresholds_used": {
-                            "high_threshold": 0.35,
-                            "medium_threshold": 0.175,
-                            "ood_rejection_threshold": 0.6
-                        }
-                    }
-                }
-            },
-            "unified_decision": {
-                "selected_domain": "physics",
-                "decision_flag": "use_existing_expert",
-                "confidence_in_decision": 0.35401333152597353,
-                "composite_score": 0.5057333307513908,
-                "quality_score": 0.7,
-                "reasoning": [
-                    "High composite score (0.506) with acceptable OOD risk"
-                ],
-                "ood_analysis": {
-                    "is_ood": false,
-                    "ood_confidence": 0.3333333333333333
-                },
-                "similarity_analysis": {
-                    "similarity_score": 0.2090950608253479,
-                    "adjusted_similarity": 0.20491315960884093
-                },
-                "confidence_analysis": {
-                    "calibrated_confidence": 0.7623549418906643,
-                    "adjusted_confidence": 0.7115312790979534
-                }
-            },
-            "system_summary": {
-                "experts_analyzed": 1,
-                "systems_enabled": {
-                    "k_medoids": true,
-                    "calibration": true,
-                    "ood_detection": true
-                }
-            }
-        },
-        "expert_flag": "use_existing_expert",
-        "selected_domain": "physics",
-        "decision_confidence": 0.35401333152597353
-    },
-    {
-        "sentence": "Cells immunoreactive for neuropeptide in human thymomas. The presence of opioid peptides, bombesin, and substance P was investigated by immunohistochemistry in tissue sections from six human thymomas. The number of immunoreactive cells seemed to vary from one case to another. Ultrastructural investigation, showing the presence of desmosomes in labelled cells, allowed these cells to be classified as epithelial lineage cells. The occurrence of cells containing neuropeptide in thymomas suggest that peptide molecules could have modulated the behaviour of this tumour, given the reported influence of these molecules on immune functions and their growth promoting activity on several cell types, including mesenchymal and epithelial cells. ",
-        "tags": [
-            "biology",
-            "chemistry"
-        ],
-        "timestamp": "2025-10-16T18:26:58.085470",
-        "expert_decision": {
-            "input_text": "Cells immunoreactive for neuropeptide in human thymomas. The presence of opioid peptides, bombesin, and substance P was investigated by immunohistochemistry in tissue sections from six human thymomas. The number of immunoreactive cells seemed to vary from one case to another. Ultrastructural investigation, showing the presence of desmosomes in labelled cells, allowed these cells to be classified as epithelial lineage cells. The occurrence of cells containing neuropeptide in thymomas suggest that peptide molecules could have modulated the behaviour of this tumour, given the reported influence of these molecules on immune functions and their growth promoting activity on several cell types, including mesenchymal and epithelial cells. ",
-            "timestamp": "2025-10-16T18:26:58.085470",
-            "expert_analyses": {
-                "chemistry": {
-                    "input_text": "Cells immunoreactive for neuropeptide in human thymomas. The presence of opioid peptides, bombesin, ...",
-                    "domain": "chemistry",
-                    "timestamp": "2025-10-16T18:26:58.085470",
-                    "systems_analysis": {
-                        "k_medoids": {
-                            "similarity_score": 0.21176278591156006,
-                            "num_medoids": 10,
-                            "primary_medoid_text": "Organisms that reproduce sexually by joining gamet..."
-                        },
-                        "calibration": {
-                            "enabled": true,
-                            "prediction": 0,
-                            "confidence_score": 0.6894950319581957,
-                            "raw_confidence": 0.9934659600257874,
-                            "calibration_quality": 0.3880597014925373
-                        },
-                        "ood_detection": {
-                            "enabled": true,
-                            "is_ood": false,
-                            "ood_confidence": 0.3333333333333333,
-                            "ood_scores": {
-                                "svm_distance": 2.327200412750244,
-                                "nn_distance": 0.7018572688102722,
-                                "isolation_score": -0.00688573801447917
-                            },
-                            "reason": "1/3 methods flagged as OOD"
-                        }
-                    },
-                    "unified_scores": {
-                        "base_similarity": 0.21176278591156006,
-                        "base_confidence": 0.6894950319581957,
-                        "ood_penalty": 0.06666666666666667,
-                        "adjusted_similarity": 0.20752753019332884,
-                        "adjusted_confidence": 0.643528696494316,
-                        "composite_score": 0.4763086353427735,
-                        "quality_score": 0.7,
-                        "systems_enabled": {
-                            "k_medoids": true,
-                            "calibration": true,
-                            "ood_detection": true
-                        }
-                    },
-                    "recommendation": {
-                        "decision": "use_existing_expert",
-                        "confidence_in_decision": 0.33341604473994146,
-                        "reasoning": [
-                            "High composite score (0.476) with acceptable OOD risk"
-                        ],
-                        "thresholds_used": {
-                            "high_threshold": 0.35,
-                            "medium_threshold": 0.175,
-                            "ood_rejection_threshold": 0.6
-                        }
-                    }
-                }
-            },
-            "unified_decision": {
-                "selected_domain": "chemistry",
-                "decision_flag": "use_existing_expert",
-                "confidence_in_decision": 0.33341604473994146,
-                "composite_score": 0.4763086353427735,
-                "quality_score": 0.7,
-                "reasoning": [
-                    "High composite score (0.476) with acceptable OOD risk"
-                ],
-                "ood_analysis": {
-                    "is_ood": false,
-                    "ood_confidence": 0.3333333333333333
-                },
-                "similarity_analysis": {
-                    "similarity_score": 0.21176278591156006,
-                    "adjusted_similarity": 0.20752753019332884
-                },
-                "confidence_analysis": {
-                    "calibrated_confidence": 0.6894950319581957,
-                    "adjusted_confidence": 0.643528696494316
-                }
-            },
-            "system_summary": {
-                "experts_analyzed": 1,
-                "systems_enabled": {
-                    "k_medoids": true,
-                    "calibration": true,
-                    "ood_detection": true
-                }
-            }
-        },
-        "expert_flag": "use_existing_expert",
-        "selected_domain": "chemistry",
-        "decision_confidence": 0.33341604473994146
-    },
-    {
-        "sentence": "Herman Cain Tweets 2 Weeks After Death, Slams Joe Biden And Kamala Harris",
-        "tags": [
-            "politics"
-        ],
-        "timestamp": "2025-10-16T18:27:07.003313",
-        "expert_decision": {
-            "unified_decision": {
-                "decision_flag": "create_new_expert",
-                "selected_domain": "unknown",
-                "confidence_in_decision": 0.9,
-                "reasoning": [
-                    "No expert available for tags: ['politics']"
-                ]
-            },
-            "expert_analyses": {},
-            "system_summary": {
-                "experts_analyzed": 0
-            }
-        },
-        "expert_flag": "create_new_expert",
-        "selected_domain": "unknown",
-        "decision_confidence": 0.9
-    },
-    {
-        "sentence": "Hello, old friend\r\nI know it's been a while\r\nI'm here again\r\nAnd it won't be the last time\r\nI fall apart\r\nBut You won't let me get too far\r\nYou're speaking to my heart\r\nIt's good to know\r\nIt's good to feel the arms of grace\r\nTo know that my mistakes are covered by Your love\r\nIt's good to know\r\nIt's good to see that You won't change\r\nWhen it's said and done\r\nYou'll always be enough\r\nTo know that I can always come back home\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nGoodbye, old me\r\nYeah there's so much more that I\r\nKnow I could be\r\nSo take my worries with\r\nYou when you leave\r\nThere's hope that I am counting on\r\n'Cause I'm never too far gone\r\nIt's good to know\r\nIt's good to feel the arms of grace\r\nTo know that my mistakes are covered by Your love\r\nIt's good to know\r\nIt's good to see that You won't change\r\nWhen it's said and done\r\nYou'll always be enough\r\nTo know that I can always come back home\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\nThat there's a second chance\r\nKnow that it's all in Your hands\r\nEven if I just don't understand\r\n'Cause I know that I will be alright\r\nI finally see the other side\r\nIt takes the darkness to open up your eyes\r\nSometimes\r\nIt's good to know\r\nIt's good to know\r\nI'm covered by Your love\r\nOh, oh, it's good to know\r\nIt's good to see that You won't change\r\nWhen it's said and done You'll always be enough\r\nTo know that I can always come back home\r\nTo know that You will never let me go\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\nIt's good to know\r\noh, oh, oh, oh",
-        "tags": [
-            "none"
-        ],
-        "timestamp": "2025-10-16T18:27:07.436756",
-        "expert_decision": {
-            "unified_decision": {
-                "decision_flag": "create_new_expert",
-                "selected_domain": "unknown",
-                "confidence_in_decision": 0.9,
-                "reasoning": [
-                    "No expert available for tags: ['none']"
-                ]
-            },
-            "expert_analyses": {},
-            "system_summary": {
-                "experts_analyzed": 0
-            }
-        },
-        "expert_flag": "create_new_expert",
-        "selected_domain": "unknown",
-        "decision_confidence": 0.9
-    },
-    {
-        "sentence": "Late relapse with nodular lymphoma after treatment for diffuse non-Hodgkin's lymphoma. Histologic conversion from a low-grade non-Hodgkin's lymphoma (NHL) into a more aggressive histologic pattern is a common, well-documented event in NHL. The converse phenomenon, appearance of a low-grade, follicular NHL after treatment for diffuse, intermediate, or high-grade NHL, has only recently been recognized. The clinical, morphologic, and immunologic features of a patient in whom relapse with an indolent nodular lymphoma was noticed after combination chemotherapy for diffuse lymphoma are presented. Immunologic markers at presentation and relapse were similar. Other previously reported cases are reviewed. Implications for diagnosis and therapy as well as the pathogenesis of this unique form of conversion are discussed. ",
-        "tags": [
-            "biology",
-            "medicine"
-        ],
-        "timestamp": "2025-10-16T18:27:07.724881",
-        "expert_decision": {
-            "input_text": "Late relapse with nodular lymphoma after treatment for diffuse non-Hodgkin's lymphoma. Histologic conversion from a low-grade non-Hodgkin's lymphoma (NHL) into a more aggressive histologic pattern is a common, well-documented event in NHL. The converse phenomenon, appearance of a low-grade, follicular NHL after treatment for diffuse, intermediate, or high-grade NHL, has only recently been recognized. The clinical, morphologic, and immunologic features of a patient in whom relapse with an indolent nodular lymphoma was noticed after combination chemotherapy for diffuse lymphoma are presented. Immunologic markers at presentation and relapse were similar. Other previously reported cases are reviewed. Implications for diagnosis and therapy as well as the pathogenesis of this unique form of conversion are discussed. ",
-            "timestamp": "2025-10-16T18:27:07.725886",
-            "expert_analyses": {
-                "medical": {
-                    "input_text": "Late relapse with nodular lymphoma after treatment for diffuse non-Hodgkin's lymphoma. Histologic co...",
-                    "domain": "medical",
-                    "timestamp": "2025-10-16T18:27:07.725886",
-                    "systems_analysis": {
-                        "k_medoids": {
-                            "similarity_score": 0.4258490204811096,
-                            "num_medoids": 10,
-                            "primary_medoid_text": "Dapsone is an effective therapy for the skin lesio..."
-                        },
-                        "calibration": {
-                            "enabled": true,
-                            "prediction": "No",
-                            "confidence_score": 0.7999169205206313,
-                            "raw_confidence": 1.0,
-                            "calibration_quality": 0.5998338410412628
-                        },
-                        "ood_detection": {
-                            "enabled": true,
-                            "is_ood": false,
-                            "ood_confidence": 0.0,
-                            "ood_scores": {
-                                "svm_distance": 1.475077045445184,
-                                "nn_distance": 0.5675151348114014,
-                                "isolation_score": 0.02440374624543873
-                            },
-                            "reason": "0/3 methods flagged as OOD"
-                        }
-                    },
-                    "unified_scores": {
-                        "base_similarity": 0.4258490204811096,
-                        "base_confidence": 0.7999169205206313,
-                        "ood_penalty": 0.0,
-                        "adjusted_similarity": 0.4258490204811096,
-                        "adjusted_confidence": 0.7999169205206313,
-                        "composite_score": 0.6515946734507835,
-                        "quality_score": 0.7,
-                        "systems_enabled": {
-                            "k_medoids": true,
-                            "calibration": true,
-                            "ood_detection": true
-                        }
-                    },
-                    "recommendation": {
-                        "decision": "use_existing_expert",
-                        "confidence_in_decision": 0.4561162714155484,
-                        "reasoning": [
-                            "High composite score (0.652) with acceptable OOD risk"
-                        ],
-                        "thresholds_used": {
-                            "high_threshold": 0.35,
-                            "medium_threshold": 0.175,
-                            "ood_rejection_threshold": 0.6
-                        }
-                    }
-                }
-            },
-            "unified_decision": {
-                "selected_domain": "medical",
-                "decision_flag": "use_existing_expert",
-                "confidence_in_decision": 0.4561162714155484,
-                "composite_score": 0.6515946734507835,
-                "quality_score": 0.7,
-                "reasoning": [
-                    "High composite score (0.652) with acceptable OOD risk"
-                ],
-                "ood_analysis": {
-                    "is_ood": false,
-                    "ood_confidence": 0.0
-                },
-                "similarity_analysis": {
-                    "similarity_score": 0.4258490204811096,
-                    "adjusted_similarity": 0.4258490204811096
-                },
-                "confidence_analysis": {
-                    "calibrated_confidence": 0.7999169205206313,
-                    "adjusted_confidence": 0.7999169205206313
-                }
-            },
-            "system_summary": {
-                "experts_analyzed": 1,
-                "systems_enabled": {
-                    "k_medoids": true,
-                    "calibration": true,
-                    "ood_detection": true
-                }
-            }
-        },
-        "expert_flag": "use_existing_expert",
-        "selected_domain": "medical",
-        "decision_confidence": 0.4561162714155484
     }
 ]

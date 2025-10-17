@@ -1,0 +1,150 @@
+{
+    "timestamp": "2025-10-18T00:23:31.785918",
+    "test_samples": 10,
+    "precheck_accuracy": 0.4,
+    "inference_accuracy": 1.0,
+    "endtoend_accuracy": 0.4,
+    "detailed_results": [
+        {
+            "text": "Apo-pseudoazurin is a single domain cupredoxin. We have engineered a mutant in which a unique trypto",
+            "true_label": "Biology",
+            "tags": [
+                "biology",
+                "chemistry",
+                "physics"
+            ],
+            "precheck_decision": "use_existing_expert",
+            "precheck_domain": "medical",
+            "precheck_confidence": 0.36982851032018665,
+            "precheck_correct": true,
+            "predicted_class": "Biology",
+            "model_confidence": 0.99996018409729,
+            "inference_correct": true,
+            "final_correct": true
+        },
+        {
+            "text": "OBJECTIVES: Gut-directed hypnotherapy has been found to be effective in irritable bowel syndrome (IB",
+            "true_label": "Biology",
+            "tags": [
+                "healthcare",
+                "medicine"
+            ],
+            "precheck_decision": "use_existing_expert",
+            "precheck_domain": "medical",
+            "precheck_confidence": 0.3022386035545667,
+            "precheck_correct": true,
+            "predicted_class": "Biology",
+            "model_confidence": 0.9999634027481079,
+            "inference_correct": true,
+            "final_correct": true
+        },
+        {
+            "text": "Obesity is associated with lipid abnormalities leading to an increased morbidity and mortality from ",
+            "true_label": "Biology",
+            "tags": [
+                "AI",
+                "healthcare",
+                "biology",
+                "chemistry"
+            ],
+            "precheck_decision": "use_existing_expert",
+            "precheck_domain": "medical",
+            "precheck_confidence": 0.35885400129556655,
+            "precheck_correct": true,
+            "predicted_class": "Biology",
+            "model_confidence": 0.9999678134918213,
+            "inference_correct": true,
+            "final_correct": true
+        },
+        {
+            "text": "BACKGROUND: Increasingly, patients are receiving implantable cardioverter defibrillators (ICDs) for ",
+            "true_label": "Biology",
+            "tags": [
+                "healthcare",
+                "medicine"
+            ],
+            "precheck_decision": "use_existing_expert",
+            "precheck_domain": "medical",
+            "precheck_confidence": 0.3355981593817472,
+            "precheck_correct": true,
+            "predicted_class": "Biology",
+            "model_confidence": 0.9999532699584961,
+            "inference_correct": true,
+            "final_correct": true
+        },
+        {
+            "text": "Novel oxathiane spiroketal donors have been synthesised and activated via an umpolung S-arylation st",
+            "true_label": "Biology",
+            "tags": [
+                "AI",
+                "chemistry"
+            ],
+            "precheck_decision": "create_new_expert",
+            "precheck_correct": false,
+            "inference_result": null,
+            "final_correct": false
+        },
+        {
+            "text": "Some of the worst, least natural acting performances I've ever seen. Which is perhaps not surprising",
+            "true_label": "Non-Biology",
+            "tags": [
+                "AI",
+                "technology"
+            ],
+            "precheck_decision": "create_new_expert",
+            "precheck_correct": false,
+            "inference_result": null,
+            "final_correct": false
+        },
+        {
+            "text": "Fay, the sister of the notorious Nobel prize-winning smut poet Simon Grim, still loves Henry Fool. T",
+            "true_label": "Non-Biology",
+            "tags": [
+                "AI",
+                "technology",
+                "literature"
+            ],
+            "precheck_decision": "create_new_expert",
+            "precheck_correct": false,
+            "inference_result": null,
+            "final_correct": false
+        },
+        {
+            "text": "One of the first OVA's (\"original video animation\") I ever bought, this still has to be one of my fa",
+            "true_label": "Non-Biology",
+            "tags": [
+                "AI",
+                "technology",
+                "music"
+            ],
+            "precheck_decision": "create_new_expert",
+            "precheck_correct": false,
+            "inference_result": null,
+            "final_correct": false
+        },
+        {
+            "text": "This four-hour miniseries production is about two hours longer than necessary, primarily because the",
+            "true_label": "Non-Biology",
+            "tags": [
+                "AI",
+                "technology"
+            ],
+            "precheck_decision": "create_new_expert",
+            "precheck_correct": false,
+            "inference_result": null,
+            "final_correct": false
+        },
+        {
+            "text": "Could anyone please stop John Carpenter from continuously and deliberately ruining his reputation? H",
+            "true_label": "Non-Biology",
+            "tags": [
+                "AI",
+                "technology"
+            ],
+            "precheck_decision": "create_new_expert",
+            "precheck_correct": false,
+            "inference_result": null,
+            "final_correct": false
+        }
+    ]
+}
