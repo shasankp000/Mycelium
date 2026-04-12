@@ -494,7 +494,7 @@ class DomainTagExtractor:
         self._init_clusterer()
 
     def _init_clusterer(self) -> None:
-        """Try to initialise the auto semantic clusterer."""
+        """Try to initialize the auto semantic clusterer."""
         if not self._config.use_auto_clustering:
             return
         try:
@@ -523,7 +523,7 @@ class DomainTagExtractor:
             )
             self._clusterer.initialize()
             self._clusterer_available = True
-            logger.info("Auto semantic clusterer initialised")
+            logger.info("Auto semantic clusterer initialized")
         except Exception as exc:
             logger.warning(
                 "Auto semantic clusterer unavailable (%s); "
@@ -629,7 +629,7 @@ class DomainTagExtractor:
         """Check if auto semantic clusterer integration is active.
 
         Returns:
-            ``True`` if the clusterer is initialised and ready.
+            ``True`` if the clusterer is initialized and ready.
         """
         return self._clusterer_available
 
