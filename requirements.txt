@@ -1,0 +1,5 @@
+langdetect>=1.0.9
+ftfy>=6.1.1
+bleach>=6.0.0
+nltk>=3.8.1
+PyYAML>=6.0
