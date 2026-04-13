@@ -27,8 +27,6 @@ import math
 import time
 from typing import Dict, List, Optional, Tuple
 
-import numpy as np
-
 from phase2_validation.config.phase2_config import Phase2Config
 from phase2_validation.utils.semantic_types import (
     ExpertSelectionResult,
