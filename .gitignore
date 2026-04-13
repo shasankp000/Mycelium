@@ -5,4 +5,7 @@ reports/unified_expert_system_report.md
 *.safetensors
 *.pt
 *.bin
+.pytest_cache/
+htmlcov/
+.coverage
 
