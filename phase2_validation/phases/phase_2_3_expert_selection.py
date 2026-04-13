@@ -481,6 +481,7 @@ class ExpertSelectionPipeline:
         start = time.perf_counter()
         warnings: List[str] = []
         cold_start = False
+        ranked: List[RankedExpert] = []
 
         try:
             # Step 1: rank
@@ -548,7 +549,7 @@ class ExpertSelectionPipeline:
 
         expert_scores = {
             e.name: e.match_score for e in ranked
-        } if 'ranked' in dir() else {}
+        }
 
         confidence = self._compute_selection_confidence(
             selected_pool

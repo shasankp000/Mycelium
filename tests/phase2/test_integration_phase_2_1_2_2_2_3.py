@@ -289,13 +289,10 @@ class TestEdgeCases:
         assert isinstance(result, ExpertSelectionResult)
 
     def test_no_suitable_expert_detection(
-        self, sem_pipeline, expert_pipeline
+        self, norm_pipeline, sem_pipeline, expert_pipeline
     ):
-        from types import SimpleNamespace
-        norm = SimpleNamespace(
-            cleaned_text="zzzzz random gibberish text zzzz",
-            original_text="zzzzz random gibberish text zzzz",
-            extracted_tags=[],
+        norm = norm_pipeline.normalize(
+            "zzzzz random gibberish text zzzz words here"
         )
         sem = sem_pipeline.understand(norm, ALL_DOMAINS)
         result = expert_pipeline.select_experts(
