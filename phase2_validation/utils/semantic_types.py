@@ -197,3 +197,48 @@ class ExpertSelectionResult:
     processing_time_ms: float = 0.0
     cold_start_fallback_used: bool = False
     warnings: List[str] = field(default_factory=list)
+
+
+# ------------------------------------------------------------------
+# Phase 2.4 data classes
+# ------------------------------------------------------------------
+
+
+@dataclass
+class ExpertPrediction:
+    """Single expert's prediction.
+
+    Attributes:
+        expert_name: Identifier for the expert.
+        prediction: The prediction value or label.
+        confidence: Confidence in ``[0, 1]``.
+        latency_ms: Inference latency in milliseconds.
+        metadata: Additional metadata about the prediction.
+    """
+
+    expert_name: str = ""
+    prediction: object = None
+    confidence: float = 0.0
+    latency_ms: float = 0.0
+    metadata: Dict[str, object] = field(default_factory=dict)
+
+
+@dataclass
+class PredictionStatistics:
+    """Statistics across predictions.
+
+    Attributes:
+        mean: Mean of prediction confidence values.
+        std: Standard deviation.
+        min: Minimum confidence.
+        max: Maximum confidence.
+        median: Median confidence.
+        iqr: Interquartile range.
+    """
+
+    mean: float = 0.0
+    std: float = 0.0
+    min: float = 0.0
+    max: float = 0.0
+    median: float = 0.0
+    iqr: float = 0.0
