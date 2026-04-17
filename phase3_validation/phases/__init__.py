@@ -1,1 +1,1 @@
-"""Phase modules for action execution and feedback pipeline."""
+"""Phase modules for validation, action execution and feedback pipeline."""
