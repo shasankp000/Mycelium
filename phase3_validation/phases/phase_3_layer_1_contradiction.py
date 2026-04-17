@@ -175,7 +175,7 @@ class EmbeddingGenerator:
         # Use 2-gram and 3-gram character overlaps
         for n in (2, 3):
             for i in range(len(text_lower) - n + 1):
-                ngram = text_lower[i: i + n]
+                ngram = text_lower[i:i + n]
                 idx = hash(ngram) % dim
                 vec[idx] += 1.0
 

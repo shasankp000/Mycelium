@@ -8,7 +8,7 @@ Covers:
     * Integration tests (10 tests)
     * Edge case tests (2 tests)
 
-Total: 31+ tests.
+Total: 49 tests.
 """
 
 from __future__ import annotations
@@ -695,8 +695,11 @@ class TestCompleteFailureHandler:
 
         # Should escalate rather than re-run again
         assert result.action == "escalate"
-        assert "max_retries" in result.failure_info.failure_reason.lower() or \
-               result.failure_info.recommended_action == "escalate_to_human_review"
+        assert (
+            "max_retries" in result.failure_info.failure_reason.lower()
+            or result.failure_info.recommended_action
+            == "escalate_to_human_review"
+        )
 
     def test_handler_clears_cache_on_rerun(self):
         """Handler must pass skip_cache=True when re-running."""

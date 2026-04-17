@@ -30,8 +30,8 @@ def _env_float(key: str, default: float) -> float:
         return float(val)
     except ValueError:
         raise ValueError(
-            f"Environment variable {key} must be a float, "
-            f"got: {val!r}"
+            f"Environment variable {key} must be a float; "
+            f"invalid value: {val}"
         )
 
 
@@ -44,8 +44,8 @@ def _env_int(key: str, default: int) -> int:
         return int(val)
     except ValueError:
         raise ValueError(
-            f"Environment variable {key} must be an integer, "
-            f"got: {val!r}"
+            f"Environment variable {key} must be an integer; "
+            f"invalid value: {val}"
         )
 
 
