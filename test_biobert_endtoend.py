@@ -4,8 +4,10 @@ Uses actual samples from BioBERT's test.csv to validate the complete workflow
 """
 
 import json
-import pandas as pd
 import datetime
+
+import pandas as pd
+import pytest
 from unified_expert_system import UnifiedExpertSystem
 from expert_filter import ExpertFilter
 from layer_1_prototype import extract_tags_llama, normalize_tags
@@ -20,7 +22,18 @@ def test_with_biobert_samples():
     
     # Load BioBERT test data
     print("\n📂 Loading BioBERT test data...")
-    test_df = pd.read_csv('dummy_models/Medical_BERT/test.csv')
+    test_csv_path = "dummy_models/Medical_BERT/test.csv"
+
+    with open(test_csv_path, "r", encoding="utf-8") as test_file:
+        first_line = test_file.readline().strip()
+        if first_line.startswith("version https://git-lfs.github.com/spec/v1"):
+            pytest.skip(
+                "BioBERT test.csv is a Git LFS pointer; fetch LFS content to run this test."
+            )
+
+    test_df = pd.read_csv(test_csv_path)
+    if "Type" not in test_df.columns or "Text" not in test_df.columns:
+        pytest.skip("BioBERT test.csv missing expected columns (Type, Text).")
     print(f"   Loaded {len(test_df)} test samples")
     
     # Get balanced sample: 5 Biology, 5 Non-Biology

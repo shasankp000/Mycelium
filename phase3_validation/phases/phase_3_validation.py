@@ -143,7 +143,9 @@ class ValidationResultClassifier:
         failure_info = CompleteFailureInfo(
             original_decision=original_decision,
             failure_reason=layer1_result.reason,
-            affected_layers=list(range(1, 7)),  # Layers 1–6
+            affected_layers=list(
+                range(1, self.config.total_reasoning_layers + 1)
+            ),
             recommended_action="rerun_full_pipeline",
             retry_count=0,
             max_retries=self.config.max_retries,

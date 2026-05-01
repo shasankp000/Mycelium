@@ -55,6 +55,15 @@ def _env_bool(key: str, default: bool) -> bool:
     return val.lower() in ("true", "1", "yes")
 
 
+def _env_csv_list(key: str, default: List[str]) -> List[str]:
+    """Read a comma-separated list from environment."""
+    val = os.environ.get(key)
+    if val is None:
+        return list(default)
+    parsed = [item.strip() for item in val.split(",") if item.strip()]
+    return parsed or list(default)
+
+
 @dataclass
 class Phase3Config:
     """Configuration for the Phase 3-5 pipeline.
@@ -155,6 +164,19 @@ class Phase3Config:
         )
     )
 
+    # --- Validation gate behavior ---
+    enforce_validation_gate: bool = field(
+        default_factory=lambda: _env_bool(
+            "P3_ENFORCE_VALIDATION_GATE", True
+        )
+    )
+    action_allowed_result_classes: List[str] = field(
+        default_factory=lambda: _env_csv_list(
+            "P3_ACTION_ALLOWED_RESULT_CLASSES",
+            ["all_pass"],
+        )
+    )
+
     def validate(self) -> List[str]:
         """Validate all configuration values.
 
@@ -190,6 +212,10 @@ class Phase3Config:
         if self.min_retraining_samples < 1:
             errors.append(
                 "min_retraining_samples must be >= 1"
+            )
+        if not self.action_allowed_result_classes:
+            errors.append(
+                "action_allowed_result_classes must contain at least one class"
             )
 
         if errors:

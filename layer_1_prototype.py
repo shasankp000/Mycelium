@@ -692,10 +692,10 @@ if __name__ == "__main__":
     test_layer1_multilens()
     print("\nAll Layer 1 multi-lens tests completed.")
 
-print("\nQuick manual test:")
-while True:
-    text = input("Enter text (or 'exit'): ")
-    if text.lower() == "exit":
-        break
-    res = multi_lens_route(text)
-    print(json.dumps(res, indent=2))
+    print("\nQuick manual test:")
+    while True:
+        text = input("Enter text (or 'exit'): ")
+        if text.lower() == "exit":
+            break
+        res = multi_lens_route(text)
+        print(json.dumps(res, indent=2))

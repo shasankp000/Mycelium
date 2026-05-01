@@ -112,6 +112,9 @@ class ValidationConfig:
     max_retries: int = field(
         default_factory=lambda: _env_int("VAL_MAX_RETRIES", 3)
     )
+    total_reasoning_layers: int = field(
+        default_factory=lambda: _env_int("VAL_TOTAL_LAYERS", 6)
+    )
 
     # Embedding settings
     embedding_dim: int = field(
@@ -155,6 +158,8 @@ class ValidationConfig:
             )
         if self.max_retries < 1:
             errors.append("max_retries must be >= 1")
+        if self.total_reasoning_layers < 1:
+            errors.append("total_reasoning_layers must be >= 1")
         if self.embedding_dim < 8:
             errors.append("embedding_dim must be >= 8")
         if errors:

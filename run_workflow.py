@@ -1,10 +1,14 @@
 import json
 import datetime
+from dataclasses import asdict, is_dataclass
 import numpy as np
 from layer_1_prototype import (
     extract_tags_llama, normalize_tags, embed_tags_transformer, cluster_tags_transformer,
     TemporalLocalityLayer, analyze_spatial_locality, assign_domain_patch
 )
+from multi_lens_router import MultiLensRouter
+from phase2_validation.pipeline import Phase2Pipeline
+from phase3_validation.pipeline import Phase3To5Pipeline
 from layer_2_prototype import get_expert_model
 import layer_2_prototype
 from unified_expert_system import UnifiedExpertSystem
@@ -23,7 +27,25 @@ class NumpyEncoder(json.JSONEncoder):
             return bool(obj)
         return super().default(obj)
 
+
+def _to_jsonable(obj):
+    if is_dataclass(obj):
+        return asdict(obj)
+    if isinstance(obj, dict):
+        return {k: _to_jsonable(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_to_jsonable(v) for v in obj]
+    if isinstance(obj, tuple):
+        return [_to_jsonable(v) for v in obj]
+    if hasattr(obj, "__dict__") and not isinstance(obj, (str, bytes)):
+        return _to_jsonable(vars(obj))
+    return obj
+
 def run_mycelium_workflow(sentences):
+    phase2_pipeline = Phase2Pipeline()
+    phase3_pipeline = Phase3To5Pipeline()
+    router = MultiLensRouter()
+
     # Step 0: Initialize unified expert system
     print("Initializing unified expert system (K-Medoids + Calibration + OOD Detection)...")
     expert_system = UnifiedExpertSystem()
@@ -49,6 +71,14 @@ def run_mycelium_workflow(sentences):
         normalized_tags = normalize_tags(tags)
         timestamp = datetime.datetime.now().isoformat()
         temporal_layer.add_statement(text, normalized_tags, timestamp)
+
+        routing_context = router.route(text)
+        phase2_result = phase2_pipeline.run(
+            text, routing_context=routing_context
+        )
+        phase3_result = phase3_pipeline.run_complete_pipeline(
+            phase2_result
+        )
         
         # Filter experts by tags using semantic clustering
         relevant_domains = []
@@ -83,6 +113,9 @@ def run_mycelium_workflow(sentences):
             "sentence": text,
             "tags": normalized_tags,
             "timestamp": timestamp,
+            "routing_context": routing_context,
+            "phase2_result": _to_jsonable(phase2_result),
+            "phase3_result": _to_jsonable(phase3_result),
             "expert_decision": expert_decision,
             "expert_flag": flag,
             "selected_domain": selected_domain,
@@ -143,19 +176,55 @@ def run_mycelium_workflow(sentences):
 import pandas as pd
 import random
 
+def _is_lfs_pointer(csv_path: str) -> bool:
+    with open(csv_path, "r", encoding="utf-8") as csv_file:
+        first_line = csv_file.readline().strip()
+        return first_line.startswith("version https://git-lfs.github.com/spec/v1")
+
+
+def _sample_column(df: pd.DataFrame, column: str, count: int, seed: int) -> list:
+    if column not in df.columns:
+        return []
+    return df[column].dropna().sample(count, random_state=seed).tolist()
+
+
 def get_random_samples():
-    base_dir = __file__
     # Medical
-    med_df = pd.read_csv("dummy_models/Medical/medical_dataset.csv")
-    med_samples = med_df['sentence'].dropna().sample(3, random_state=42).tolist()
+    med_path = "dummy_models/Medical/medical_dataset.csv"
+    med_samples = []
+    if not _is_lfs_pointer(med_path):
+        med_df = pd.read_csv(med_path)
+        med_samples = _sample_column(med_df, "sentence", 3, 42)
+
     # Music
-    music_df = pd.read_csv("dummy_models/Music/music_classification_dataset.csv")
-    music_samples = music_df['sentence'].dropna().sample(3, random_state=43).tolist()
+    music_path = "dummy_models/Music/music_classification_dataset.csv"
+    music_samples = []
+    if not _is_lfs_pointer(music_path):
+        music_df = pd.read_csv(music_path)
+        music_samples = _sample_column(music_df, "sentence", 3, 43)
+
     # Physics
-    phys_df = pd.read_csv("dummy_models/Physics/physics_data.csv")
-    phys_samples = phys_df['Comment'].dropna().sample(4, random_state=44).tolist()
-    # Mix and shuffle
+    phys_path = "dummy_models/Physics/physics_data.csv"
+    phys_samples = []
+    if not _is_lfs_pointer(phys_path):
+        phys_df = pd.read_csv(phys_path)
+        phys_samples = _sample_column(phys_df, "Comment", 4, 44)
+
     all_samples = med_samples + music_samples + phys_samples
+    if not all_samples:
+        all_samples = [
+            "Metastatic carcinoma requires systemic chemotherapy.",
+            "Quantum entanglement occurs when particles remain correlated.",
+            "Covalent bonds form when atoms share electrons.",
+            "The stock market crashed in 1929.",
+            "Photosynthesis occurs in plants.",
+            "Red car with 700cc engine.",
+            "High torque low noise.",
+            "Earth orbits the Sun.",
+            "Glossy metallic red finish.",
+            "Stellar evolution theory.",
+        ]
+
     random.shuffle(all_samples)
     return all_samples
 

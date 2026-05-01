@@ -407,3 +407,43 @@ class TestExpertSelectionPipeline:
         experts = _make_experts("medical")
         result = self.pipeline.select_experts(sem, experts)
         assert 0.0 <= result.confidence_in_selection <= 1.0
+
+    def test_pipeline_routing_single_domain(self):
+        sem = _make_semantic_result(
+            domain_scores={"medical": 0.2, "physics": 0.9},
+        )
+        experts = _make_experts("medical", "physics")
+        routing_context = {
+            "classification": "SINGLE_DOMAIN",
+            "primary_domain": "medical",
+        }
+        result = self.pipeline.select_experts(
+            sem, experts, routing_context=routing_context
+        )
+        selected_domains = {e.domain for e in result.selected_experts}
+        assert "medical" in selected_domains
+
+    def test_pipeline_routing_multi_domain(self):
+        sem = _make_semantic_result(
+            domain_scores={"medical": 0.9, "physics": 0.8},
+        )
+        experts = _make_experts("medical", "physics", "chemistry")
+        routing_context = {
+            "classification": "MULTI_DOMAIN",
+            "candidate_domains": ["physics", "medical"],
+        }
+        result = self.pipeline.select_experts(
+            sem, experts, routing_context=routing_context
+        )
+        selected_domains = {e.domain for e in result.selected_experts}
+        assert selected_domains.issubset({"medical", "physics"})
+
+    def test_pipeline_routing_no_expert(self):
+        sem = _make_semantic_result(domain_scores={"medical": 0.9})
+        experts = _make_experts("medical")
+        routing_context = {"classification": "NO_EXPERT_AVAILABLE"}
+        result = self.pipeline.select_experts(
+            sem, experts, routing_context=routing_context
+        )
+        assert result.total_selected == 0
+        assert result.cold_start_fallback_used

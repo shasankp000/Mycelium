@@ -12,6 +12,9 @@ from phase3_validation.config.phase3_config import Phase3Config
 from phase3_validation.phases.phase_3_1_action_executor import (
     ActionExecutionPipeline,
 )
+from phase3_validation.phases.phase_3_validation import (
+    ValidationOrchestrator,
+)
 from phase3_validation.phases.phase_4_1_feedback_collector import (
     FeedbackCollectionPipeline,
 )
@@ -64,7 +67,16 @@ class Phase3To5Pipeline:
         """
         self.config = config or Phase3Config()
 
+        def _phase2_rerun(text: str, skip_cache: bool = False):
+            from phase2_validation.pipeline import Phase2Pipeline
+
+            pipeline = Phase2Pipeline()
+            return pipeline.run(text, skip_cache=skip_cache)
+
         self._action_pipeline = ActionExecutionPipeline(self.config)
+        self._validator = ValidationOrchestrator(
+            pipeline_fn=_phase2_rerun
+        )
         self._feedback_pipeline = FeedbackCollectionPipeline(self.config)
         self._analysis_pipeline = PerformanceAnalysisPipeline(self.config)
         self._integration_pipeline = FeedbackIntegrationPipeline(
@@ -82,6 +94,18 @@ class Phase3To5Pipeline:
             "Phase3To5Pipeline initialised with min_samples=%d",
             self.config.min_samples_for_analysis,
         )
+
+    def _should_block_action(self, result_class: str) -> bool:
+        if not self.config.enforce_validation_gate:
+            return False
+        allowed = {
+            str(item).strip().lower()
+            for item in self.config.action_allowed_result_classes
+            if str(item).strip()
+        }
+        if not allowed:
+            allowed = {"all_pass"}
+        return str(result_class).lower() not in allowed
 
     # ------------------------------------------------------------------
     # Public API
@@ -112,6 +136,46 @@ class Phase3To5Pipeline:
         improvement_plan: Optional[ImprovementPlan] = None
 
         try:
+            # ---- Phase 3 Validation Gate ----
+            phase_start = time.perf_counter()
+            validation_decision = self._validator.validate(
+                final_decision_result
+            )
+
+            if (
+                validation_decision.result_class == "complete_failure"
+                and validation_decision.failure_info
+                and validation_decision.failure_info.original_decision
+            ):
+                final_decision_result = (
+                    validation_decision.failure_info.original_decision
+                )
+            phase_latencies["phase_3_validation"] = (
+                (time.perf_counter() - phase_start) * 1000.0
+            )
+
+            if self._should_block_action(validation_decision.result_class):
+                total_latency_ms = (
+                    (time.perf_counter() - pipeline_start) * 1000.0
+                )
+                error_msg = (
+                    "Validation gate blocked action execution: "
+                    f"{validation_decision.result_class}"
+                )
+                logger.warning(error_msg)
+                return SystemExecutionResult(
+                    original_input=getattr(
+                        final_decision_result, "decision", ""
+                    ),
+                    decision_result=final_decision_result,
+                    action_result=None,
+                    feedback_data=None,
+                    total_latency_ms=total_latency_ms,
+                    phase_latencies=phase_latencies,
+                    success=False,
+                    error_message=error_msg,
+                )
+
             # ---- Phase 3.1: Action Execution ----
             phase_start = time.perf_counter()
             action_result: ActionResult = self._action_pipeline.execute(

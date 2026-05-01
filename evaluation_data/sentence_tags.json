@@ -1,549 +1,254 @@
 [
     {
-        "sentence": "I remember doing a review for Ideonella Saikainesis? Its the bacteria that was discovered in Japan that can use PHET plastics as a sole carbon source for metabolism but it does the process very long so its not feasible to just use them for breaking down those types of plastics. Could be about that since ocean plastics are big on the news.\\n\\nAnother is antibiotic resistance in microbes that can affect us plus agriculture. Lots of stuff",
-        "tags": [
-            "biology",
-            "technology"
-        ],
-        "timestamp": "2025-10-18T00:30:35.553344",
-        "expert_decision": {
-            "input_text": "I remember doing a review for Ideonella Saikainesis? Its the bacteria that was discovered in Japan that can use PHET plastics as a sole carbon source for metabolism but it does the process very long so its not feasible to just use them for breaking down those types of plastics. Could be about that since ocean plastics are big on the news.\\n\\nAnother is antibiotic resistance in microbes that can affect us plus agriculture. Lots of stuff",
-            "timestamp": "2025-10-18T00:30:39.328173",
-            "expert_analyses": {
-                "medical": {
-                    "input_text": "I remember doing a review for Ideonella Saikainesis? Its the bacteria that was discovered in Japan t...",
-                    "domain": "medical",
-                    "timestamp": "2025-10-18T00:30:39.331174",
-                    "systems_analysis": {
-                        "k_medoids": {
-                            "similarity_score": 0.1959911435842514,
-                            "num_medoids": 10,
-                            "primary_medoid_text": "Organisms that reproduce sexually by joining gamet..."
-                        },
-                        "calibration": {
-                            "enabled": true,
-                            "prediction": 1,
-                            "confidence_score": 0.6890036702156067,
-                            "raw_confidence": 0.9125876426696777,
-                            "calibration_quality": 0.51
-                        },
-                        "ood_detection": {
-                            "enabled": true,
-                            "is_ood": false,
-                            "ood_confidence": 0.3333333333333333,
-                            "ood_scores": {
-                                "svm_distance": 1.1484943628311157,
-                                "nn_distance": 0.7084900736808777,
-                                "isolation_score": -0.03201057612056757
-                            },
-                            "reason": "1/3 methods flagged as OOD"
-                        }
-                    },
-                    "unified_scores": {
-                        "base_similarity": 0.1959911435842514,
-                        "base_confidence": 0.6890036702156067,
-                        "ood_penalty": 0.06666666666666667,
-                        "adjusted_similarity": 0.19207132071256638,
-                        "adjusted_confidence": 0.6430700922012329,
-                        "composite_score": 0.46914696914454307,
-                        "quality_score": 0.7,
-                        "systems_enabled": {
-                            "k_medoids": true,
-                            "calibration": true,
-                            "ood_detection": true
-                        }
-                    },
-                    "recommendation": {
-                        "decision": "use_existing_expert",
-                        "confidence_in_decision": 0.32840287840118015,
-                        "reasoning": [
-                            "High composite score (0.469) with acceptable OOD risk",
-                            "Low similarity to existing medoids"
-                        ],
-                        "thresholds_used": {
-                            "high_threshold": 0.35,
-                            "medium_threshold": 0.175,
-                            "ood_rejection_threshold": 0.6
-                        }
-                    }
+        "sentence": "High torque low noise.",
+        "tags": [],
+        "timestamp": "2026-05-01T20:32:52.152839",
+        "routing_context": {
+            "primary_domain": "astronomy",
+            "selected_experts": [
+                "astronomy",
+                "automobile",
+                "engine_spec"
+            ],
+            "candidate_domains": [
+                "astronomy",
+                "automobile",
+                "engine_spec"
+            ],
+            "classification": "AMBIGUOUS",
+            "coverage_met": false,
+            "create_new_expert": true,
+            "lens_scores": {
+                "semantic": {
+                    "engine_spec": 0.39656469821929935,
+                    "automobile": 0.15587244033813477,
+                    "aesthetics": 0.08732611536979676
+                },
+                "spectral": {
+                    "astronomy": 0.49954502408288803,
+                    "automobile": 0.4988487277381456
+                },
+                "confidence": {
+                    "engine_spec": 0.5,
+                    "automobile": 0.5,
+                    "aesthetics": 0.5
                 }
             },
-            "unified_decision": {
-                "selected_domain": "medical",
-                "decision_flag": "use_existing_expert",
-                "confidence_in_decision": 0.32840287840118015,
-                "composite_score": 0.46914696914454307,
-                "quality_score": 0.7,
-                "reasoning": [
-                    "High composite score (0.469) with acceptable OOD risk",
-                    "Low similarity to existing medoids"
-                ],
-                "ood_analysis": {
-                    "is_ood": false,
-                    "ood_confidence": 0.3333333333333333
-                },
-                "similarity_analysis": {
-                    "similarity_score": 0.1959911435842514,
-                    "adjusted_similarity": 0.19207132071256638
-                },
-                "confidence_analysis": {
-                    "calibrated_confidence": 0.6890036702156067,
-                    "adjusted_confidence": 0.6430700922012329
-                }
+            "fused_scores": {
+                "aesthetics": 0.139297,
+                "astronomy": 0.174841,
+                "automobile": 0.34474,
+                "engine_spec": 0.278454
             },
-            "system_summary": {
-                "experts_analyzed": 1,
-                "systems_enabled": {
-                    "k_medoids": true,
-                    "calibration": true,
-                    "ood_detection": true
-                }
-            }
+            "variance": 0.006677,
+            "explanation": "Base routing: Attribute-heavy input detected; no core object domain evidence. Ambiguous input; multiple domains with similar relevance: astronomy, automobile, engine_spec. Coverage threshold not met; new expert may be required."
         },
-        "expert_flag": "use_existing_expert",
-        "selected_domain": "medical",
-        "decision_confidence": 0.32840287840118015
-    },
-    {
-        "sentence": "People still got cancer before we knew about radiation it was causing harm but we didn\u2019t know about radiation so didn\u2019t know what was causing it.",
-        "tags": [
-            "biology",
-            "chemistry"
-        ],
-        "timestamp": "2025-10-18T00:30:48.342777",
-        "expert_decision": {
-            "input_text": "People still got cancer before we knew about radiation it was causing harm but we didn\u2019t know about radiation so didn\u2019t know what was causing it.",
-            "timestamp": "2025-10-18T00:30:48.351785",
-            "expert_analyses": {
-                "medical": {
-                    "input_text": "People still got cancer before we knew about radiation it was causing harm but we didn\u2019t know about ...",
-                    "domain": "medical",
-                    "timestamp": "2025-10-18T00:30:48.351785",
-                    "systems_analysis": {
-                        "k_medoids": {
-                            "similarity_score": 0.1078498363494873,
-                            "num_medoids": 10,
-                            "primary_medoid_text": "Organisms that reproduce sexually by joining gamet..."
-                        },
-                        "calibration": {
-                            "enabled": true,
-                            "prediction": 1,
-                            "confidence_score": 0.4995163205265999,
-                            "raw_confidence": 0.661611020565033,
-                            "calibration_quality": 0.51
-                        },
-                        "ood_detection": {
-                            "enabled": true,
-                            "is_ood": false,
-                            "ood_confidence": 0.3333333333333333,
-                            "ood_scores": {
-                                "svm_distance": 0.37663835287094116,
-                                "nn_distance": 0.6554219722747803,
-                                "isolation_score": 0.010496247488508914
-                            },
-                            "reason": "1/3 methods flagged as OOD"
-                        }
-                    },
-                    "unified_scores": {
-                        "base_similarity": 0.1078498363494873,
-                        "base_confidence": 0.4995163205265999,
-                        "ood_penalty": 0.06666666666666667,
-                        "adjusted_similarity": 0.10569283962249755,
-                        "adjusted_confidence": 0.4662152324914932,
-                        "composite_score": 0.3506919657846292,
-                        "quality_score": 0.7,
-                        "systems_enabled": {
-                            "k_medoids": true,
-                            "calibration": true,
-                            "ood_detection": true
-                        }
-                    },
-                    "recommendation": {
-                        "decision": "use_existing_expert",
-                        "confidence_in_decision": 0.24548437604924042,
-                        "reasoning": [
-                            "High composite score (0.351) with acceptable OOD risk",
-                            "Low similarity to existing medoids",
-                            "Low calibrated confidence"
-                        ],
-                        "thresholds_used": {
-                            "high_threshold": 0.35,
-                            "medium_threshold": 0.175,
-                            "ood_rejection_threshold": 0.6
-                        }
+        "phase2_result": {
+            "original_text": "High torque low noise.",
+            "final_decision": "create_new_expert",
+            "decision_confidence": 0.2,
+            "confidence_factors": {
+                "semantic_confidence": 0.125746,
+                "selection_confidence": 0.0,
+                "ensemble_confidence": 0.0,
+                "mean_calibrated_confidence": 0.0
+            },
+            "reasoning_chain": [
+                {
+                    "step": 1,
+                    "phase": "2.1",
+                    "name": "Input Normalization",
+                    "description": "Cleaned and validated input text",
+                    "details": {
+                        "is_valid": true,
+                        "language": "fr",
+                        "tags_extracted": 0
                     }
                 },
-                "chemistry": {
-                    "input_text": "People still got cancer before we knew about radiation it was causing harm but we didn\u2019t know about ...",
-                    "domain": "chemistry",
-                    "timestamp": "2025-10-18T00:30:55.268580",
-                    "systems_analysis": {
-                        "k_medoids": {
-                            "similarity_score": 0.1078498363494873,
-                            "num_medoids": 10,
-                            "primary_medoid_text": "Organisms that reproduce sexually by joining gamet..."
-                        },
-                        "calibration": {
-                            "enabled": true,
-                            "prediction": 1,
-                            "confidence_score": 0.4742535686314996,
-                            "raw_confidence": 0.6833330988883972,
-                            "calibration_quality": 0.3880597014925373
-                        },
-                        "ood_detection": {
-                            "enabled": true,
-                            "is_ood": false,
-                            "ood_confidence": 0.3333333333333333,
-                            "ood_scores": {
-                                "svm_distance": 0.31970182061195374,
-                                "nn_distance": 0.6757937073707581,
-                                "isolation_score": 0.007889060348264476
-                            },
-                            "reason": "1/3 methods flagged as OOD"
-                        }
-                    },
-                    "unified_scores": {
-                        "base_similarity": 0.1078498363494873,
-                        "base_confidence": 0.4742535686314996,
-                        "ood_penalty": 0.06666666666666667,
-                        "adjusted_similarity": 0.10569283962249755,
-                        "adjusted_confidence": 0.4426366640560663,
-                        "composite_score": 0.34008160998868703,
-                        "quality_score": 0.7,
-                        "systems_enabled": {
-                            "k_medoids": true,
-                            "calibration": true,
-                            "ood_detection": true
-                        }
-                    },
-                    "recommendation": {
-                        "decision": "create_new_patch",
-                        "confidence_in_decision": 0.19044570159366472,
-                        "reasoning": [
-                            "Medium composite score (0.340) suitable for patch creation",
-                            "Low similarity to existing medoids",
-                            "Low calibrated confidence"
-                        ],
-                        "thresholds_used": {
-                            "high_threshold": 0.35,
-                            "medium_threshold": 0.175,
-                            "ood_rejection_threshold": 0.6
-                        }
+                {
+                    "step": 2,
+                    "phase": "2.2",
+                    "name": "Semantic Understanding",
+                    "description": "Analyzed text semantics and domain relevance",
+                    "details": {
+                        "top_domain": "unknown",
+                        "entities_found": 0,
+                        "concepts_found": 4,
+                        "confidence": 0.125746
+                    }
+                },
+                {
+                    "step": 3,
+                    "phase": "2.3",
+                    "name": "Expert Selection",
+                    "description": "Selected 0 experts from 0 candidates",
+                    "details": {
+                        "strategy": "greedy",
+                        "selected": [],
+                        "confidence": 0.0
+                    }
+                },
+                {
+                    "step": 4,
+                    "phase": "2.4",
+                    "name": "Multi-Expert Inference",
+                    "description": "Collected predictions from selected experts",
+                    "details": {
+                        "ensemble_confidence": 0.0,
+                        "disagreement": 0.0,
+                        "outliers": 0
+                    }
+                },
+                {
+                    "step": 5,
+                    "phase": "2.5",
+                    "name": "Confidence Calibration",
+                    "description": "Calibrated predictions and quantified uncertainty",
+                    "details": {
+                        "method": "temperature_scaling",
+                        "temperature": 1.0,
+                        "total_uncertainty": 0.0
                     }
                 }
+            ],
+            "reasoning_text": "Reasoning Chain:\n  Step 1 (Phase 2.1): Input Normalization\n    \u2192 Cleaned and validated input text\n    \u2022 is_valid: True\n    \u2022 language: fr\n    \u2022 tags_extracted: 0\n  Step 2 (Phase 2.2): Semantic Understanding\n    \u2192 Analyzed text semantics and domain relevance\n    \u2022 top_domain: unknown\n    \u2022 entities_found: 0\n    \u2022 concepts_found: 4\n    \u2022 confidence: 0.125746\n  Step 3 (Phase 2.3): Expert Selection\n    \u2192 Selected 0 experts from 0 candidates\n    \u2022 strategy: greedy\n    \u2022 selected: []\n    \u2022 confidence: 0.0\n  Step 4 (Phase 2.4): Multi-Expert Inference\n    \u2192 Collected predictions from selected experts\n    \u2022 ensemble_confidence: 0.0\n    \u2022 disagreement: 0.0\n    \u2022 outliers: 0\n  Step 5 (Phase 2.5): Confidence Calibration\n    \u2192 Calibrated predictions and quantified uncertainty\n    \u2022 method: temperature_scaling\n    \u2022 temperature: 1.0\n    \u2022 total_uncertainty: 0.0",
+            "recommended_action": "create_new_expert",
+            "action_details": {
+                "action": "create_new_expert",
+                "suggested_domain": "general",
+                "confidence": 0.0,
+                "domains_analyzed": []
             },
-            "unified_decision": {
-                "selected_domain": "medical",
-                "decision_flag": "use_existing_expert",
-                "confidence_in_decision": 0.24548437604924042,
-                "composite_score": 0.3506919657846292,
-                "quality_score": 0.7,
-                "reasoning": [
-                    "High composite score (0.351) with acceptable OOD risk",
-                    "Low similarity to existing medoids",
-                    "Low calibrated confidence"
-                ],
-                "ood_analysis": {
-                    "is_ood": false,
-                    "ood_confidence": 0.3333333333333333
-                },
-                "similarity_analysis": {
-                    "similarity_score": 0.1078498363494873,
-                    "adjusted_similarity": 0.10569283962249755
-                },
-                "confidence_analysis": {
-                    "calibrated_confidence": 0.4995163205265999,
-                    "adjusted_confidence": 0.4662152324914932
-                }
-            },
-            "system_summary": {
-                "experts_analyzed": 2,
-                "systems_enabled": {
-                    "k_medoids": true,
-                    "calibration": true,
-                    "ood_detection": true
-                }
-            }
+            "selected_experts": [],
+            "primary_expert": null,
+            "expert_scores": {},
+            "expert_predictions": {},
+            "aggregated_prediction": null,
+            "total_uncertainty": 0.0,
+            "uncertainty_intervals": {},
+            "processing_time_ms": 0.08691399852978066,
+            "phases_executed": [
+                "2.1",
+                "2.2",
+                "2.3",
+                "2.4",
+                "2.5",
+                "2.6"
+            ],
+            "warnings": []
         },
-        "expert_flag": "use_existing_expert",
-        "selected_domain": "medical",
-        "decision_confidence": 0.24548437604924042
-    },
-    {
-        "sentence": "Cells immunoreactive for neuropeptide in human thymomas. The presence of opioid peptides, bombesin, and substance P was investigated by immunohistochemistry in tissue sections from six human thymomas. The number of immunoreactive cells seemed to vary from one case to another. Ultrastructural investigation, showing the presence of desmosomes in labelled cells, allowed these cells to be classified as epithelial lineage cells. The occurrence of cells containing neuropeptide in thymomas suggest that peptide molecules could have modulated the behaviour of this tumour, given the reported influence of these molecules on immune functions and their growth promoting activity on several cell types, including mesenchymal and epithelial cells. ",
-        "tags": [
-            "biology",
-            "chemistry"
-        ],
-        "timestamp": "2025-10-18T00:31:04.265933",
-        "expert_decision": {
-            "input_text": "Cells immunoreactive for neuropeptide in human thymomas. The presence of opioid peptides, bombesin, and substance P was investigated by immunohistochemistry in tissue sections from six human thymomas. The number of immunoreactive cells seemed to vary from one case to another. Ultrastructural investigation, showing the presence of desmosomes in labelled cells, allowed these cells to be classified as epithelial lineage cells. The occurrence of cells containing neuropeptide in thymomas suggest that peptide molecules could have modulated the behaviour of this tumour, given the reported influence of these molecules on immune functions and their growth promoting activity on several cell types, including mesenchymal and epithelial cells. ",
-            "timestamp": "2025-10-18T00:31:04.265933",
-            "expert_analyses": {
-                "medical": {
-                    "input_text": "Cells immunoreactive for neuropeptide in human thymomas. The presence of opioid peptides, bombesin, ...",
-                    "domain": "medical",
-                    "timestamp": "2025-10-18T00:31:04.265933",
-                    "systems_analysis": {
-                        "k_medoids": {
-                            "similarity_score": 0.21176278591156006,
-                            "num_medoids": 10,
-                            "primary_medoid_text": "Organisms that reproduce sexually by joining gamet..."
-                        },
-                        "calibration": {
-                            "enabled": true,
-                            "prediction": 0,
-                            "confidence_score": 0.7549735391139984,
-                            "raw_confidence": 0.9999649524688721,
-                            "calibration_quality": 0.51
-                        },
-                        "ood_detection": {
-                            "enabled": true,
-                            "is_ood": false,
-                            "ood_confidence": 0.0,
-                            "ood_scores": {
-                                "svm_distance": 4.749632835388184,
-                                "nn_distance": 0.6382037997245789,
-                                "isolation_score": 0.022802869637975343
-                            },
-                            "reason": "0/3 methods flagged as OOD"
-                        }
-                    },
-                    "unified_scores": {
-                        "base_similarity": 0.21176278591156006,
-                        "base_confidence": 0.7549735391139984,
-                        "ood_penalty": 0.0,
-                        "adjusted_similarity": 0.21176278591156006,
-                        "adjusted_confidence": 0.7549735391139984,
-                        "composite_score": 0.5350313462615014,
-                        "quality_score": 0.7,
-                        "systems_enabled": {
-                            "k_medoids": true,
-                            "calibration": true,
-                            "ood_detection": true
-                        }
-                    },
-                    "recommendation": {
-                        "decision": "use_existing_expert",
-                        "confidence_in_decision": 0.374521942383051,
-                        "reasoning": [
-                            "High composite score (0.535) with acceptable OOD risk"
-                        ],
-                        "thresholds_used": {
-                            "high_threshold": 0.35,
-                            "medium_threshold": 0.175,
-                            "ood_rejection_threshold": 0.6
-                        }
-                    }
+        "phase3_result": {
+            "original_input": "",
+            "decision_result": {
+                "original_text": "High torque low noise.",
+                "final_decision": "create_new_expert",
+                "decision_confidence": 0.2,
+                "confidence_factors": {
+                    "semantic_confidence": 0.125746,
+                    "selection_confidence": 0.0,
+                    "ensemble_confidence": 0.0,
+                    "mean_calibrated_confidence": 0.0
                 },
-                "chemistry": {
-                    "input_text": "Cells immunoreactive for neuropeptide in human thymomas. The presence of opioid peptides, bombesin, ...",
-                    "domain": "chemistry",
-                    "timestamp": "2025-10-18T00:31:11.315195",
-                    "systems_analysis": {
-                        "k_medoids": {
-                            "similarity_score": 0.21176278591156006,
-                            "num_medoids": 10,
-                            "primary_medoid_text": "Organisms that reproduce sexually by joining gamet..."
-                        },
-                        "calibration": {
-                            "enabled": true,
-                            "prediction": 0,
-                            "confidence_score": 0.6894950319581957,
-                            "raw_confidence": 0.9934659600257874,
-                            "calibration_quality": 0.3880597014925373
-                        },
-                        "ood_detection": {
-                            "enabled": true,
-                            "is_ood": false,
-                            "ood_confidence": 0.3333333333333333,
-                            "ood_scores": {
-                                "svm_distance": 2.327200412750244,
-                                "nn_distance": 0.702544629573822,
-                                "isolation_score": 0.002282164098876105
-                            },
-                            "reason": "1/3 methods flagged as OOD"
+                "reasoning_chain": [
+                    {
+                        "step": 1,
+                        "phase": "2.1",
+                        "name": "Input Normalization",
+                        "description": "Cleaned and validated input text",
+                        "details": {
+                            "is_valid": true,
+                            "language": "fr",
+                            "tags_extracted": 0
                         }
                     },
-                    "unified_scores": {
-                        "base_similarity": 0.21176278591156006,
-                        "base_confidence": 0.6894950319581957,
-                        "ood_penalty": 0.06666666666666667,
-                        "adjusted_similarity": 0.20752753019332884,
-                        "adjusted_confidence": 0.643528696494316,
-                        "composite_score": 0.4763086353427735,
-                        "quality_score": 0.7,
-                        "systems_enabled": {
-                            "k_medoids": true,
-                            "calibration": true,
-                            "ood_detection": true
+                    {
+                        "step": 2,
+                        "phase": "2.2",
+                        "name": "Semantic Understanding",
+                        "description": "Analyzed text semantics and domain relevance",
+                        "details": {
+                            "top_domain": "unknown",
+                            "entities_found": 0,
+                            "concepts_found": 4,
+                            "confidence": 0.125746
                         }
                     },
-                    "recommendation": {
-                        "decision": "use_existing_expert",
-                        "confidence_in_decision": 0.33341604473994146,
-                        "reasoning": [
-                            "High composite score (0.476) with acceptable OOD risk"
-                        ],
-                        "thresholds_used": {
-                            "high_threshold": 0.35,
-                            "medium_threshold": 0.175,
-                            "ood_rejection_threshold": 0.6
+                    {
+                        "step": 3,
+                        "phase": "2.3",
+                        "name": "Expert Selection",
+                        "description": "Selected 0 experts from 0 candidates",
+                        "details": {
+                            "strategy": "greedy",
+                            "selected": [],
+                            "confidence": 0.0
+                        }
+                    },
+                    {
+                        "step": 4,
+                        "phase": "2.4",
+                        "name": "Multi-Expert Inference",
+                        "description": "Collected predictions from selected experts",
+                        "details": {
+                            "ensemble_confidence": 0.0,
+                            "disagreement": 0.0,
+                            "outliers": 0
+                        }
+                    },
+                    {
+                        "step": 5,
+                        "phase": "2.5",
+                        "name": "Confidence Calibration",
+                        "description": "Calibrated predictions and quantified uncertainty",
+                        "details": {
+                            "method": "temperature_scaling",
+                            "temperature": 1.0,
+                            "total_uncertainty": 0.0
                         }
                     }
-                }
-            },
-            "unified_decision": {
-                "selected_domain": "medical",
-                "decision_flag": "use_existing_expert",
-                "confidence_in_decision": 0.374521942383051,
-                "composite_score": 0.5350313462615014,
-                "quality_score": 0.7,
-                "reasoning": [
-                    "High composite score (0.535) with acceptable OOD risk"
                 ],
-                "ood_analysis": {
-                    "is_ood": false,
-                    "ood_confidence": 0.0
+                "reasoning_text": "Reasoning Chain:\n  Step 1 (Phase 2.1): Input Normalization\n    \u2192 Cleaned and validated input text\n    \u2022 is_valid: True\n    \u2022 language: fr\n    \u2022 tags_extracted: 0\n  Step 2 (Phase 2.2): Semantic Understanding\n    \u2192 Analyzed text semantics and domain relevance\n    \u2022 top_domain: unknown\n    \u2022 entities_found: 0\n    \u2022 concepts_found: 4\n    \u2022 confidence: 0.125746\n  Step 3 (Phase 2.3): Expert Selection\n    \u2192 Selected 0 experts from 0 candidates\n    \u2022 strategy: greedy\n    \u2022 selected: []\n    \u2022 confidence: 0.0\n  Step 4 (Phase 2.4): Multi-Expert Inference\n    \u2192 Collected predictions from selected experts\n    \u2022 ensemble_confidence: 0.0\n    \u2022 disagreement: 0.0\n    \u2022 outliers: 0\n  Step 5 (Phase 2.5): Confidence Calibration\n    \u2192 Calibrated predictions and quantified uncertainty\n    \u2022 method: temperature_scaling\n    \u2022 temperature: 1.0\n    \u2022 total_uncertainty: 0.0",
+                "recommended_action": "create_new_expert",
+                "action_details": {
+                    "action": "create_new_expert",
+                    "suggested_domain": "general",
+                    "confidence": 0.0,
+                    "domains_analyzed": []
                 },
-                "similarity_analysis": {
-                    "similarity_score": 0.21176278591156006,
-                    "adjusted_similarity": 0.21176278591156006
-                },
-                "confidence_analysis": {
-                    "calibrated_confidence": 0.7549735391139984,
-                    "adjusted_confidence": 0.7549735391139984
-                }
-            },
-            "system_summary": {
-                "experts_analyzed": 2,
-                "systems_enabled": {
-                    "k_medoids": true,
-                    "calibration": true,
-                    "ood_detection": true
-                }
-            }
-        },
-        "expert_flag": "use_existing_expert",
-        "selected_domain": "medical",
-        "decision_confidence": 0.374521942383051
-    },
-    {
-        "sentence": "Hello, old friend\r\nI know it's been a while\r\nI'm here again\r\nAnd it won't be the last time\r\nI fall apart\r\nBut You won't let me get too far\r\nYou're speaking to my heart\r\nIt's good to know\r\nIt's good to feel the arms of grace\r\nTo know that my mistakes are covered by Your love\r\nIt's good to know\r\nIt's good to see that You won't change\r\nWhen it's said and done\r\nYou'll always be enough\r\nTo know that I can always come back home\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nGoodbye, old me\r\nYeah there's so much more that I\r\nKnow I could be\r\nSo take my worries with\r\nYou when you leave\r\nThere's hope that I am counting on\r\n'Cause I'm never too far gone\r\nIt's good to know\r\nIt's good to feel the arms of grace\r\nTo know that my mistakes are covered by Your love\r\nIt's good to know\r\nIt's good to see that You won't change\r\nWhen it's said and done\r\nYou'll always be enough\r\nTo know that I can always come back home\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\nThat there's a second chance\r\nKnow that it's all in Your hands\r\nEven if I just don't understand\r\n'Cause I know that I will be alright\r\nI finally see the other side\r\nIt takes the darkness to open up your eyes\r\nSometimes\r\nIt's good to know\r\nIt's good to know\r\nI'm covered by Your love\r\nOh, oh, it's good to know\r\nIt's good to see that You won't change\r\nWhen it's said and done You'll always be enough\r\nTo know that I can always come back home\r\nTo know that You will never let me go\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\nIt's good to know\r\noh, oh, oh, oh",
-        "tags": [
-            "none",
-            "music"
-        ],
-        "timestamp": "2025-10-18T00:31:19.030297",
-        "expert_decision": {
-            "input_text": "Hello, old friend\r\nI know it's been a while\r\nI'm here again\r\nAnd it won't be the last time\r\nI fall apart\r\nBut You won't let me get too far\r\nYou're speaking to my heart\r\nIt's good to know\r\nIt's good to feel the arms of grace\r\nTo know that my mistakes are covered by Your love\r\nIt's good to know\r\nIt's good to see that You won't change\r\nWhen it's said and done\r\nYou'll always be enough\r\nTo know that I can always come back home\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nGoodbye, old me\r\nYeah there's so much more that I\r\nKnow I could be\r\nSo take my worries with\r\nYou when you leave\r\nThere's hope that I am counting on\r\n'Cause I'm never too far gone\r\nIt's good to know\r\nIt's good to feel the arms of grace\r\nTo know that my mistakes are covered by Your love\r\nIt's good to know\r\nIt's good to see that You won't change\r\nWhen it's said and done\r\nYou'll always be enough\r\nTo know that I can always come back home\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\nThat there's a second chance\r\nKnow that it's all in Your hands\r\nEven if I just don't understand\r\n'Cause I know that I will be alright\r\nI finally see the other side\r\nIt takes the darkness to open up your eyes\r\nSometimes\r\nIt's good to know\r\nIt's good to know\r\nI'm covered by Your love\r\nOh, oh, it's good to know\r\nIt's good to see that You won't change\r\nWhen it's said and done You'll always be enough\r\nTo know that I can always come back home\r\nTo know that You will never let me go\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\noh, oh, oh, oh, oh\r\nIt's good to know\r\nIt's good to know\r\noh, oh, oh, oh",
-            "timestamp": "2025-10-18T00:31:19.047307",
-            "expert_analyses": {
-                "music": {
-                    "input_text": "Hello, old friend\r\nI know it's been a while\r\nI'm here again\r\nAnd it won't be the last time\r\nI fall a...",
-                    "domain": "music",
-                    "timestamp": "2025-10-18T00:31:19.047307",
-                    "systems_analysis": {
-                        "k_medoids": {
-                            "similarity_score": 0.654512882232666,
-                            "num_medoids": 10,
-                            "primary_medoid_text": "Now darling, you should know\r\nThat I'm really, rea..."
-                        },
-                        "calibration": {
-                            "enabled": true,
-                            "prediction": "No",
-                            "confidence_score": 0.7430915371329879,
-                            "raw_confidence": 1.0,
-                            "calibration_quality": 0.48618307426597585
-                        },
-                        "ood_detection": {
-                            "enabled": true,
-                            "is_ood": false,
-                            "ood_confidence": 0.0,
-                            "ood_scores": {
-                                "svm_distance": 4.33452487964631,
-                                "nn_distance": 0.3678005635738373,
-                                "isolation_score": 0.04705985647471017
-                            },
-                            "reason": "0/3 methods flagged as OOD"
-                        }
-                    },
-                    "unified_scores": {
-                        "base_similarity": 0.654512882232666,
-                        "base_confidence": 0.7430915371329879,
-                        "ood_penalty": 0.0,
-                        "adjusted_similarity": 0.654512882232666,
-                        "adjusted_confidence": 0.7430915371329879,
-                        "composite_score": 0.7289219887145443,
-                        "quality_score": 0.7,
-                        "systems_enabled": {
-                            "k_medoids": true,
-                            "calibration": true,
-                            "ood_detection": true
-                        }
-                    },
-                    "recommendation": {
-                        "decision": "use_existing_expert",
-                        "confidence_in_decision": 0.5102453921001809,
-                        "reasoning": [
-                            "High composite score (0.729) with acceptable OOD risk"
-                        ],
-                        "thresholds_used": {
-                            "high_threshold": 0.35,
-                            "medium_threshold": 0.175,
-                            "ood_rejection_threshold": 0.6
-                        }
-                    }
-                }
-            },
-            "unified_decision": {
-                "selected_domain": "music",
-                "decision_flag": "use_existing_expert",
-                "confidence_in_decision": 0.5102453921001809,
-                "composite_score": 0.7289219887145443,
-                "quality_score": 0.7,
-                "reasoning": [
-                    "High composite score (0.729) with acceptable OOD risk"
+                "selected_experts": [],
+                "primary_expert": null,
+                "expert_scores": {},
+                "expert_predictions": {},
+                "aggregated_prediction": null,
+                "total_uncertainty": 0.0,
+                "uncertainty_intervals": {},
+                "processing_time_ms": 0.08691399852978066,
+                "phases_executed": [
+                    "2.1",
+                    "2.2",
+                    "2.3",
+                    "2.4",
+                    "2.5",
+                    "2.6"
                 ],
-                "ood_analysis": {
-                    "is_ood": false,
-                    "ood_confidence": 0.0
-                },
-                "similarity_analysis": {
-                    "similarity_score": 0.654512882232666,
-                    "adjusted_similarity": 0.654512882232666
-                },
-                "confidence_analysis": {
-                    "calibrated_confidence": 0.7430915371329879,
-                    "adjusted_confidence": 0.7430915371329879
-                }
+                "warnings": []
             },
-            "system_summary": {
-                "experts_analyzed": 1,
-                "systems_enabled": {
-                    "k_medoids": true,
-                    "calibration": true,
-                    "ood_detection": true
-                }
-            }
+            "action_result": null,
+            "feedback_data": null,
+            "total_latency_ms": 7436.880201999884,
+            "phase_latencies": {
+                "phase_3_validation": 7436.8795409973245
+            },
+            "success": false,
+            "error_message": "Validation gate blocked action execution: complete_failure"
         },
-        "expert_flag": "use_existing_expert",
-        "selected_domain": "music",
-        "decision_confidence": 0.5102453921001809
-    },
-    {
-        "sentence": "Immigrants In Major Cities See No Sign Of Mass ICE Raids Yet",
-        "tags": [
-            "politics"
-        ],
-        "timestamp": "2025-10-18T00:31:26.286299",
         "expert_decision": {
             "unified_decision": {
                 "decision_flag": "create_new_expert",
                 "selected_domain": "unknown",
                 "confidence_in_decision": 0.9,
                 "reasoning": [
-                    "No expert available for tags: ['politics']"
+                    "No expert available for tags: []"
                 ]
             },
             "expert_analyses": {},
@@ -556,232 +261,255 @@
         "decision_confidence": 0.9
     },
     {
-        "sentence": "First Lady Jill Biden To Meet Ukrainian Refugees During Border Visit",
-        "tags": [
-            "politics",
-            "history"
-        ],
-        "timestamp": "2025-10-18T00:31:26.604446",
-        "expert_decision": {
-            "unified_decision": {
-                "decision_flag": "create_new_expert",
-                "selected_domain": "unknown",
-                "confidence_in_decision": 0.9,
-                "reasoning": [
-                    "No expert available for tags: ['politics', 'history']"
-                ]
-            },
-            "expert_analyses": {},
-            "system_summary": {
-                "experts_analyzed": 0
-            }
-        },
-        "expert_flag": "create_new_expert",
-        "selected_domain": "unknown",
-        "decision_confidence": 0.9
-    },
-    {
-        "sentence": "The part where they ask \"what is this called when a shadow has multiple shadows \"layered\" behind each other\".\\n\\nPenumbra is a continuous spectrum of shadows, which you could argue are infinitely layered over each other, but they don't appear as *separate* layers, so I interpret that as not what OP is asking for.\\n\\nThey specifically are asking about layers.",
-        "tags": [
-            "AI",
-            "technology",
-            "maths"
-        ],
-        "timestamp": "2025-10-18T00:31:27.005963",
-        "expert_decision": {
-            "unified_decision": {
-                "decision_flag": "create_new_expert",
-                "selected_domain": "unknown",
-                "confidence_in_decision": 0.9,
-                "reasoning": [
-                    "No experts available"
-                ]
-            },
-            "expert_analyses": {},
-            "system_summary": {
-                "experts_analyzed": 0
-            }
-        },
-        "expert_flag": "create_new_expert",
-        "selected_domain": "unknown",
-        "decision_confidence": 0.9
-    },
-    {
-        "sentence": "Late relapse with nodular lymphoma after treatment for diffuse non-Hodgkin's lymphoma. Histologic conversion from a low-grade non-Hodgkin's lymphoma (NHL) into a more aggressive histologic pattern is a common, well-documented event in NHL. The converse phenomenon, appearance of a low-grade, follicular NHL after treatment for diffuse, intermediate, or high-grade NHL, has only recently been recognized. The clinical, morphologic, and immunologic features of a patient in whom relapse with an indolent nodular lymphoma was noticed after combination chemotherapy for diffuse lymphoma are presented. Immunologic markers at presentation and relapse were similar. Other previously reported cases are reviewed. Implications for diagnosis and therapy as well as the pathogenesis of this unique form of conversion are discussed. ",
-        "tags": [
-            "biology",
-            "medicine",
-            "chemistry"
-        ],
-        "timestamp": "2025-10-18T00:31:27.509150",
-        "expert_decision": {
-            "input_text": "Late relapse with nodular lymphoma after treatment for diffuse non-Hodgkin's lymphoma. Histologic conversion from a low-grade non-Hodgkin's lymphoma (NHL) into a more aggressive histologic pattern is a common, well-documented event in NHL. The converse phenomenon, appearance of a low-grade, follicular NHL after treatment for diffuse, intermediate, or high-grade NHL, has only recently been recognized. The clinical, morphologic, and immunologic features of a patient in whom relapse with an indolent nodular lymphoma was noticed after combination chemotherapy for diffuse lymphoma are presented. Immunologic markers at presentation and relapse were similar. Other previously reported cases are reviewed. Implications for diagnosis and therapy as well as the pathogenesis of this unique form of conversion are discussed. ",
-            "timestamp": "2025-10-18T00:31:27.509150",
-            "expert_analyses": {
-                "medical": {
-                    "input_text": "Late relapse with nodular lymphoma after treatment for diffuse non-Hodgkin's lymphoma. Histologic co...",
-                    "domain": "medical",
-                    "timestamp": "2025-10-18T00:31:27.509150",
-                    "systems_analysis": {
-                        "k_medoids": {
-                            "similarity_score": 0.15811875462532043,
-                            "num_medoids": 10,
-                            "primary_medoid_text": "Organisms that reproduce sexually by joining gamet..."
-                        },
-                        "calibration": {
-                            "enabled": true,
-                            "prediction": 0,
-                            "confidence_score": 0.7549702090024948,
-                            "raw_confidence": 0.9999605417251587,
-                            "calibration_quality": 0.51
-                        },
-                        "ood_detection": {
-                            "enabled": true,
-                            "is_ood": false,
-                            "ood_confidence": 0.0,
-                            "ood_scores": {
-                                "svm_distance": 4.775166034698486,
-                                "nn_distance": 0.6110079884529114,
-                                "isolation_score": 0.005068901922616775
-                            },
-                            "reason": "0/3 methods flagged as OOD"
-                        }
-                    },
-                    "unified_scores": {
-                        "base_similarity": 0.15811875462532043,
-                        "base_confidence": 0.7549702090024948,
-                        "ood_penalty": 0.0,
-                        "adjusted_similarity": 0.15811875462532043,
-                        "adjusted_confidence": 0.7549702090024948,
-                        "composite_score": 0.5108900336325168,
-                        "quality_score": 0.7,
-                        "systems_enabled": {
-                            "k_medoids": true,
-                            "calibration": true,
-                            "ood_detection": true
-                        }
-                    },
-                    "recommendation": {
-                        "decision": "use_existing_expert",
-                        "confidence_in_decision": 0.35762302354276176,
-                        "reasoning": [
-                            "High composite score (0.511) with acceptable OOD risk",
-                            "Low similarity to existing medoids"
-                        ],
-                        "thresholds_used": {
-                            "high_threshold": 0.35,
-                            "medium_threshold": 0.175,
-                            "ood_rejection_threshold": 0.6
-                        }
-                    }
+        "sentence": "Red car with 700cc engine.",
+        "tags": [],
+        "timestamp": "2026-05-01T20:33:13.917460",
+        "routing_context": {
+            "primary_domain": "astronomy",
+            "selected_experts": [
+                "astronomy",
+                "automobile",
+                "engine_spec"
+            ],
+            "candidate_domains": [
+                "astronomy",
+                "automobile",
+                "engine_spec"
+            ],
+            "classification": "AMBIGUOUS",
+            "coverage_met": false,
+            "create_new_expert": true,
+            "lens_scores": {
+                "semantic": {
+                    "engine_spec": 0.39209180355072026,
+                    "automobile": 0.24033875942230226,
+                    "aesthetics": 0.17673969507217407
                 },
-                "chemistry": {
-                    "input_text": "Late relapse with nodular lymphoma after treatment for diffuse non-Hodgkin's lymphoma. Histologic co...",
-                    "domain": "chemistry",
-                    "timestamp": "2025-10-18T00:31:34.204244",
-                    "systems_analysis": {
-                        "k_medoids": {
-                            "similarity_score": 0.15811875462532043,
-                            "num_medoids": 10,
-                            "primary_medoid_text": "Organisms that reproduce sexually by joining gamet..."
-                        },
-                        "calibration": {
-                            "enabled": true,
-                            "prediction": 1,
-                            "confidence_score": 0.6356516756228546,
-                            "raw_confidence": 0.9158852100372314,
-                            "calibration_quality": 0.3880597014925373
-                        },
-                        "ood_detection": {
-                            "enabled": true,
-                            "is_ood": false,
-                            "ood_confidence": 0.3333333333333333,
-                            "ood_scores": {
-                                "svm_distance": 1.1078871488571167,
-                                "nn_distance": 0.7947165369987488,
-                                "isolation_score": -0.018215357106008856
-                            },
-                            "reason": "1/3 methods flagged as OOD"
-                        }
-                    },
-                    "unified_scores": {
-                        "base_similarity": 0.15811875462532043,
-                        "base_confidence": 0.6356516756228546,
-                        "ood_penalty": 0.06666666666666667,
-                        "adjusted_similarity": 0.15495637953281402,
-                        "adjusted_confidence": 0.5932748972479976,
-                        "composite_score": 0.4300374078846986,
-                        "quality_score": 0.7,
-                        "systems_enabled": {
-                            "k_medoids": true,
-                            "calibration": true,
-                            "ood_detection": true
-                        }
-                    },
-                    "recommendation": {
-                        "decision": "use_existing_expert",
-                        "confidence_in_decision": 0.301026185519289,
-                        "reasoning": [
-                            "High composite score (0.430) with acceptable OOD risk",
-                            "Low similarity to existing medoids"
-                        ],
-                        "thresholds_used": {
-                            "high_threshold": 0.35,
-                            "medium_threshold": 0.175,
-                            "ood_rejection_threshold": 0.6
-                        }
-                    }
+                "spectral": {
+                    "astronomy": 0.5457152330856732,
+                    "automobile": 0.5461253965510584
+                },
+                "confidence": {
+                    "engine_spec": 0.5,
+                    "automobile": 0.5,
+                    "aesthetics": 0.5
                 }
             },
-            "unified_decision": {
-                "selected_domain": "medical",
-                "decision_flag": "use_existing_expert",
-                "confidence_in_decision": 0.35762302354276176,
-                "composite_score": 0.5108900336325168,
-                "quality_score": 0.7,
-                "reasoning": [
-                    "High composite score (0.511) with acceptable OOD risk",
-                    "Low similarity to existing medoids"
+            "fused_scores": {
+                "aesthetics": 0.179533,
+                "astronomy": 0.191,
+                "automobile": 0.399296,
+                "engine_spec": 0.276441
+            },
+            "variance": 0.007725,
+            "explanation": "Base routing: Selected automobile due to core features: car. Attributes seen: engine. Secondary signals detected: aesthetics (w=0.4). Ambiguous input; multiple domains with similar relevance: astronomy, automobile, engine_spec. Coverage threshold not met; new expert may be required."
+        },
+        "phase2_result": {
+            "original_text": "Red car with 700cc engine.",
+            "final_decision": "create_new_expert",
+            "decision_confidence": 0.2,
+            "confidence_factors": {
+                "semantic_confidence": 0.186113,
+                "selection_confidence": 0.0,
+                "ensemble_confidence": 0.0,
+                "mean_calibrated_confidence": 0.0
+            },
+            "reasoning_chain": [
+                {
+                    "step": 1,
+                    "phase": "2.1",
+                    "name": "Input Normalization",
+                    "description": "Cleaned and validated input text",
+                    "details": {
+                        "is_valid": true,
+                        "language": "en",
+                        "tags_extracted": 0
+                    }
+                },
+                {
+                    "step": 2,
+                    "phase": "2.2",
+                    "name": "Semantic Understanding",
+                    "description": "Analyzed text semantics and domain relevance",
+                    "details": {
+                        "top_domain": "unknown",
+                        "entities_found": 0,
+                        "concepts_found": 3,
+                        "confidence": 0.186113
+                    }
+                },
+                {
+                    "step": 3,
+                    "phase": "2.3",
+                    "name": "Expert Selection",
+                    "description": "Selected 0 experts from 0 candidates",
+                    "details": {
+                        "strategy": "greedy",
+                        "selected": [],
+                        "confidence": 0.0
+                    }
+                },
+                {
+                    "step": 4,
+                    "phase": "2.4",
+                    "name": "Multi-Expert Inference",
+                    "description": "Collected predictions from selected experts",
+                    "details": {
+                        "ensemble_confidence": 0.0,
+                        "disagreement": 0.0,
+                        "outliers": 0
+                    }
+                },
+                {
+                    "step": 5,
+                    "phase": "2.5",
+                    "name": "Confidence Calibration",
+                    "description": "Calibrated predictions and quantified uncertainty",
+                    "details": {
+                        "method": "temperature_scaling",
+                        "temperature": 1.0,
+                        "total_uncertainty": 0.0
+                    }
+                }
+            ],
+            "reasoning_text": "Reasoning Chain:\n  Step 1 (Phase 2.1): Input Normalization\n    \u2192 Cleaned and validated input text\n    \u2022 is_valid: True\n    \u2022 language: en\n    \u2022 tags_extracted: 0\n  Step 2 (Phase 2.2): Semantic Understanding\n    \u2192 Analyzed text semantics and domain relevance\n    \u2022 top_domain: unknown\n    \u2022 entities_found: 0\n    \u2022 concepts_found: 3\n    \u2022 confidence: 0.186113\n  Step 3 (Phase 2.3): Expert Selection\n    \u2192 Selected 0 experts from 0 candidates\n    \u2022 strategy: greedy\n    \u2022 selected: []\n    \u2022 confidence: 0.0\n  Step 4 (Phase 2.4): Multi-Expert Inference\n    \u2192 Collected predictions from selected experts\n    \u2022 ensemble_confidence: 0.0\n    \u2022 disagreement: 0.0\n    \u2022 outliers: 0\n  Step 5 (Phase 2.5): Confidence Calibration\n    \u2192 Calibrated predictions and quantified uncertainty\n    \u2022 method: temperature_scaling\n    \u2022 temperature: 1.0\n    \u2022 total_uncertainty: 0.0",
+            "recommended_action": "create_new_expert",
+            "action_details": {
+                "action": "create_new_expert",
+                "suggested_domain": "general",
+                "confidence": 0.0,
+                "domains_analyzed": []
+            },
+            "selected_experts": [],
+            "primary_expert": null,
+            "expert_scores": {},
+            "expert_predictions": {},
+            "aggregated_prediction": null,
+            "total_uncertainty": 0.0,
+            "uncertainty_intervals": {},
+            "processing_time_ms": 0.06569399920408614,
+            "phases_executed": [
+                "2.1",
+                "2.2",
+                "2.3",
+                "2.4",
+                "2.5",
+                "2.6"
+            ],
+            "warnings": []
+        },
+        "phase3_result": {
+            "original_input": "",
+            "decision_result": {
+                "original_text": "Red car with 700cc engine.",
+                "final_decision": "create_new_expert",
+                "decision_confidence": 0.2,
+                "confidence_factors": {
+                    "semantic_confidence": 0.186113,
+                    "selection_confidence": 0.0,
+                    "ensemble_confidence": 0.0,
+                    "mean_calibrated_confidence": 0.0
+                },
+                "reasoning_chain": [
+                    {
+                        "step": 1,
+                        "phase": "2.1",
+                        "name": "Input Normalization",
+                        "description": "Cleaned and validated input text",
+                        "details": {
+                            "is_valid": true,
+                            "language": "en",
+                            "tags_extracted": 0
+                        }
+                    },
+                    {
+                        "step": 2,
+                        "phase": "2.2",
+                        "name": "Semantic Understanding",
+                        "description": "Analyzed text semantics and domain relevance",
+                        "details": {
+                            "top_domain": "unknown",
+                            "entities_found": 0,
+                            "concepts_found": 3,
+                            "confidence": 0.186113
+                        }
+                    },
+                    {
+                        "step": 3,
+                        "phase": "2.3",
+                        "name": "Expert Selection",
+                        "description": "Selected 0 experts from 0 candidates",
+                        "details": {
+                            "strategy": "greedy",
+                            "selected": [],
+                            "confidence": 0.0
+                        }
+                    },
+                    {
+                        "step": 4,
+                        "phase": "2.4",
+                        "name": "Multi-Expert Inference",
+                        "description": "Collected predictions from selected experts",
+                        "details": {
+                            "ensemble_confidence": 0.0,
+                            "disagreement": 0.0,
+                            "outliers": 0
+                        }
+                    },
+                    {
+                        "step": 5,
+                        "phase": "2.5",
+                        "name": "Confidence Calibration",
+                        "description": "Calibrated predictions and quantified uncertainty",
+                        "details": {
+                            "method": "temperature_scaling",
+                            "temperature": 1.0,
+                            "total_uncertainty": 0.0
+                        }
+                    }
                 ],
-                "ood_analysis": {
-                    "is_ood": false,
-                    "ood_confidence": 0.0
+                "reasoning_text": "Reasoning Chain:\n  Step 1 (Phase 2.1): Input Normalization\n    \u2192 Cleaned and validated input text\n    \u2022 is_valid: True\n    \u2022 language: en\n    \u2022 tags_extracted: 0\n  Step 2 (Phase 2.2): Semantic Understanding\n    \u2192 Analyzed text semantics and domain relevance\n    \u2022 top_domain: unknown\n    \u2022 entities_found: 0\n    \u2022 concepts_found: 3\n    \u2022 confidence: 0.186113\n  Step 3 (Phase 2.3): Expert Selection\n    \u2192 Selected 0 experts from 0 candidates\n    \u2022 strategy: greedy\n    \u2022 selected: []\n    \u2022 confidence: 0.0\n  Step 4 (Phase 2.4): Multi-Expert Inference\n    \u2192 Collected predictions from selected experts\n    \u2022 ensemble_confidence: 0.0\n    \u2022 disagreement: 0.0\n    \u2022 outliers: 0\n  Step 5 (Phase 2.5): Confidence Calibration\n    \u2192 Calibrated predictions and quantified uncertainty\n    \u2022 method: temperature_scaling\n    \u2022 temperature: 1.0\n    \u2022 total_uncertainty: 0.0",
+                "recommended_action": "create_new_expert",
+                "action_details": {
+                    "action": "create_new_expert",
+                    "suggested_domain": "general",
+                    "confidence": 0.0,
+                    "domains_analyzed": []
                 },
-                "similarity_analysis": {
-                    "similarity_score": 0.15811875462532043,
-                    "adjusted_similarity": 0.15811875462532043
-                },
-                "confidence_analysis": {
-                    "calibrated_confidence": 0.7549702090024948,
-                    "adjusted_confidence": 0.7549702090024948
-                }
+                "selected_experts": [],
+                "primary_expert": null,
+                "expert_scores": {},
+                "expert_predictions": {},
+                "aggregated_prediction": null,
+                "total_uncertainty": 0.0,
+                "uncertainty_intervals": {},
+                "processing_time_ms": 0.06569399920408614,
+                "phases_executed": [
+                    "2.1",
+                    "2.2",
+                    "2.3",
+                    "2.4",
+                    "2.5",
+                    "2.6"
+                ],
+                "warnings": []
             },
-            "system_summary": {
-                "experts_analyzed": 2,
-                "systems_enabled": {
-                    "k_medoids": true,
-                    "calibration": true,
-                    "ood_detection": true
-                }
-            }
+            "action_result": null,
+            "feedback_data": null,
+            "total_latency_ms": 7229.87816100067,
+            "phase_latencies": {
+                "phase_3_validation": 7229.87736000141
+            },
+            "success": false,
+            "error_message": "Validation gate blocked action execution: complete_failure"
         },
-        "expert_flag": "use_existing_expert",
-        "selected_domain": "medical",
-        "decision_confidence": 0.35762302354276176
-    },
-    {
-        "sentence": "Herman Cain Tweets 2 Weeks After Death, Slams Joe Biden And Kamala Harris",
-        "tags": [
-            "politics"
-        ],
-        "timestamp": "2025-10-18T00:31:41.672905",
         "expert_decision": {
             "unified_decision": {
                 "decision_flag": "create_new_expert",
                 "selected_domain": "unknown",
                 "confidence_in_decision": 0.9,
                 "reasoning": [
-                    "No expert available for tags: ['politics']"
+                    "No expert available for tags: []"
                 ]
             },
             "expert_analyses": {},
@@ -794,108 +522,2134 @@
         "decision_confidence": 0.9
     },
     {
-        "sentence": "He also explains later why that doesn't work (in [another video](https://www.youtube.com/watch?v=SDtAh9IwG-I)). Basically temporal coherence is a bitch and overlooked easily, you attenuate the wave instead of shooting wave packets. Making true single photons is difficult, you need either SPDC or a clever quantum dot system. We actually still suck at making single photons (though progress is being rapidly made!).",
-        "tags": [
-            "physics",
-            "technology"
-        ],
-        "timestamp": "2025-10-18T00:31:42.013312",
+        "sentence": "Metastatic carcinoma requires systemic chemotherapy.",
+        "tags": [],
+        "timestamp": "2026-05-01T20:33:28.458563",
+        "routing_context": {
+            "primary_domain": null,
+            "selected_experts": [],
+            "candidate_domains": [],
+            "classification": "ATTRIBUTE_ONLY",
+            "coverage_met": true,
+            "create_new_expert": false,
+            "lens_scores": {
+                "semantic": {
+                    "astronomy": 0.07340570688247681,
+                    "automobile": 0.042229449748992925,
+                    "engine_spec": 0.02921580970287323
+                },
+                "spectral": {},
+                "confidence": {}
+            },
+            "fused_scores": {},
+            "variance": 0.0,
+            "explanation": "Attribute-heavy input detected; no core object domain evidence."
+        },
+        "phase2_result": {
+            "original_text": "Metastatic carcinoma requires systemic chemotherapy.",
+            "final_decision": "create_patch",
+            "decision_confidence": 0.3651339401595289,
+            "confidence_factors": {
+                "semantic_confidence": 0.250137,
+                "selection_confidence": 0.088845,
+                "ensemble_confidence": 0.3008578,
+                "mean_calibrated_confidence": 0.3008578
+            },
+            "reasoning_chain": [
+                {
+                    "step": 1,
+                    "phase": "2.1",
+                    "name": "Input Normalization",
+                    "description": "Cleaned and validated input text",
+                    "details": {
+                        "is_valid": true,
+                        "language": "en",
+                        "tags_extracted": 1
+                    }
+                },
+                {
+                    "step": 2,
+                    "phase": "2.2",
+                    "name": "Semantic Understanding",
+                    "description": "Analyzed text semantics and domain relevance",
+                    "details": {
+                        "top_domain": "medical",
+                        "entities_found": 2,
+                        "concepts_found": 5,
+                        "confidence": 0.250137
+                    }
+                },
+                {
+                    "step": 3,
+                    "phase": "2.3",
+                    "name": "Expert Selection",
+                    "description": "Selected 1 experts from 1 candidates",
+                    "details": {
+                        "strategy": "greedy",
+                        "selected": [
+                            "expert_medical"
+                        ],
+                        "confidence": 0.088845
+                    }
+                },
+                {
+                    "step": 4,
+                    "phase": "2.4",
+                    "name": "Multi-Expert Inference",
+                    "description": "Collected predictions from selected experts",
+                    "details": {
+                        "ensemble_confidence": 0.3008578,
+                        "disagreement": 0.0,
+                        "outliers": 0
+                    }
+                },
+                {
+                    "step": 5,
+                    "phase": "2.5",
+                    "name": "Confidence Calibration",
+                    "description": "Calibrated predictions and quantified uncertainty",
+                    "details": {
+                        "method": "temperature_scaling",
+                        "temperature": 1.0,
+                        "total_uncertainty": 0.6115893631575282
+                    }
+                }
+            ],
+            "reasoning_text": "Reasoning Chain:\n  Step 1 (Phase 2.1): Input Normalization\n    \u2192 Cleaned and validated input text\n    \u2022 is_valid: True\n    \u2022 language: en\n    \u2022 tags_extracted: 1\n  Step 2 (Phase 2.2): Semantic Understanding\n    \u2192 Analyzed text semantics and domain relevance\n    \u2022 top_domain: medical\n    \u2022 entities_found: 2\n    \u2022 concepts_found: 5\n    \u2022 confidence: 0.250137\n  Step 3 (Phase 2.3): Expert Selection\n    \u2192 Selected 1 experts from 1 candidates\n    \u2022 strategy: greedy\n    \u2022 selected: ['expert_medical']\n    \u2022 confidence: 0.088845\n  Step 4 (Phase 2.4): Multi-Expert Inference\n    \u2192 Collected predictions from selected experts\n    \u2022 ensemble_confidence: 0.3008578\n    \u2022 disagreement: 0.0\n    \u2022 outliers: 0\n  Step 5 (Phase 2.5): Confidence Calibration\n    \u2192 Calibrated predictions and quantified uncertainty\n    \u2022 method: temperature_scaling\n    \u2022 temperature: 1.0\n    \u2022 total_uncertainty: 0.6115893631575282",
+            "recommended_action": "create_patch",
+            "action_details": {
+                "action": "create_patch",
+                "target_expert": "expert_medical",
+                "domain": "medical",
+                "confidence": 0.3008578,
+                "domains_to_cover": [
+                    "medical"
+                ]
+            },
+            "selected_experts": [
+                "expert_medical"
+            ],
+            "primary_expert": "expert_medical",
+            "expert_scores": {
+                "expert_medical": 0.088845
+            },
+            "expert_predictions": {
+                "expert_medical": {
+                    "prediction": {
+                        "recommended_action": "create_new_expert",
+                        "domain": "medical",
+                        "relevance_score": 0.3008578,
+                        "hash_signature": "75b98f2503ad0225",
+                        "prediction_id": 5077
+                    },
+                    "confidence": 0.3008578,
+                    "metadata": {
+                        "expert_name": "expert_medical",
+                        "domain": "medical",
+                        "match_score": 0.088845,
+                        "latency_ms": 0.09126199802267365
+                    },
+                    "latency_ms": 0.09126199802267365
+                }
+            },
+            "aggregated_prediction": {
+                "recommended_action": "create_new_expert",
+                "vote_counts": {
+                    "create_new_expert": 1
+                },
+                "aggregation_method": "ensemble_voting",
+                "consensus_confidence": 0.3008578
+            },
+            "total_uncertainty": 0.6115893631575282,
+            "uncertainty_intervals": {
+                "expert_medical": [
+                    0.2009,
+                    0.4009
+                ]
+            },
+            "processing_time_ms": 0.0997280003502965,
+            "phases_executed": [
+                "2.1",
+                "2.2",
+                "2.3",
+                "2.4",
+                "2.5",
+                "2.6"
+            ],
+            "warnings": [
+                "Decision is near a confidence boundary"
+            ]
+        },
+        "phase3_result": {
+            "original_input": "",
+            "decision_result": {
+                "original_text": "Metastatic carcinoma requires systemic chemotherapy.",
+                "final_decision": "create_patch",
+                "decision_confidence": 0.3651339401595289,
+                "confidence_factors": {
+                    "semantic_confidence": 0.250137,
+                    "selection_confidence": 0.088845,
+                    "ensemble_confidence": 0.3008578,
+                    "mean_calibrated_confidence": 0.3008578
+                },
+                "reasoning_chain": [
+                    {
+                        "step": 1,
+                        "phase": "2.1",
+                        "name": "Input Normalization",
+                        "description": "Cleaned and validated input text",
+                        "details": {
+                            "is_valid": true,
+                            "language": "en",
+                            "tags_extracted": 1
+                        }
+                    },
+                    {
+                        "step": 2,
+                        "phase": "2.2",
+                        "name": "Semantic Understanding",
+                        "description": "Analyzed text semantics and domain relevance",
+                        "details": {
+                            "top_domain": "medical",
+                            "entities_found": 2,
+                            "concepts_found": 5,
+                            "confidence": 0.250137
+                        }
+                    },
+                    {
+                        "step": 3,
+                        "phase": "2.3",
+                        "name": "Expert Selection",
+                        "description": "Selected 1 experts from 1 candidates",
+                        "details": {
+                            "strategy": "greedy",
+                            "selected": [
+                                "expert_medical"
+                            ],
+                            "confidence": 0.088845
+                        }
+                    },
+                    {
+                        "step": 4,
+                        "phase": "2.4",
+                        "name": "Multi-Expert Inference",
+                        "description": "Collected predictions from selected experts",
+                        "details": {
+                            "ensemble_confidence": 0.3008578,
+                            "disagreement": 0.0,
+                            "outliers": 0
+                        }
+                    },
+                    {
+                        "step": 5,
+                        "phase": "2.5",
+                        "name": "Confidence Calibration",
+                        "description": "Calibrated predictions and quantified uncertainty",
+                        "details": {
+                            "method": "temperature_scaling",
+                            "temperature": 1.0,
+                            "total_uncertainty": 0.6115893631575282
+                        }
+                    }
+                ],
+                "reasoning_text": "Reasoning Chain:\n  Step 1 (Phase 2.1): Input Normalization\n    \u2192 Cleaned and validated input text\n    \u2022 is_valid: True\n    \u2022 language: en\n    \u2022 tags_extracted: 1\n  Step 2 (Phase 2.2): Semantic Understanding\n    \u2192 Analyzed text semantics and domain relevance\n    \u2022 top_domain: medical\n    \u2022 entities_found: 2\n    \u2022 concepts_found: 5\n    \u2022 confidence: 0.250137\n  Step 3 (Phase 2.3): Expert Selection\n    \u2192 Selected 1 experts from 1 candidates\n    \u2022 strategy: greedy\n    \u2022 selected: ['expert_medical']\n    \u2022 confidence: 0.088845\n  Step 4 (Phase 2.4): Multi-Expert Inference\n    \u2192 Collected predictions from selected experts\n    \u2022 ensemble_confidence: 0.3008578\n    \u2022 disagreement: 0.0\n    \u2022 outliers: 0\n  Step 5 (Phase 2.5): Confidence Calibration\n    \u2192 Calibrated predictions and quantified uncertainty\n    \u2022 method: temperature_scaling\n    \u2022 temperature: 1.0\n    \u2022 total_uncertainty: 0.6115893631575282",
+                "recommended_action": "create_patch",
+                "action_details": {
+                    "action": "create_patch",
+                    "target_expert": "expert_medical",
+                    "domain": "medical",
+                    "confidence": 0.3008578,
+                    "domains_to_cover": [
+                        "medical"
+                    ]
+                },
+                "selected_experts": [
+                    "expert_medical"
+                ],
+                "primary_expert": "expert_medical",
+                "expert_scores": {
+                    "expert_medical": 0.088845
+                },
+                "expert_predictions": {
+                    "expert_medical": {
+                        "prediction": {
+                            "recommended_action": "create_new_expert",
+                            "domain": "medical",
+                            "relevance_score": 0.3008578,
+                            "hash_signature": "75b98f2503ad0225",
+                            "prediction_id": 5077
+                        },
+                        "confidence": 0.3008578,
+                        "metadata": {
+                            "expert_name": "expert_medical",
+                            "domain": "medical",
+                            "match_score": 0.088845,
+                            "latency_ms": 0.09126199802267365
+                        },
+                        "latency_ms": 0.09126199802267365
+                    }
+                },
+                "aggregated_prediction": {
+                    "recommended_action": "create_new_expert",
+                    "vote_counts": {
+                        "create_new_expert": 1
+                    },
+                    "aggregation_method": "ensemble_voting",
+                    "consensus_confidence": 0.3008578
+                },
+                "total_uncertainty": 0.6115893631575282,
+                "uncertainty_intervals": {
+                    "expert_medical": [
+                        0.2009,
+                        0.4009
+                    ]
+                },
+                "processing_time_ms": 0.0997280003502965,
+                "phases_executed": [
+                    "2.1",
+                    "2.2",
+                    "2.3",
+                    "2.4",
+                    "2.5",
+                    "2.6"
+                ],
+                "warnings": [
+                    "Decision is near a confidence boundary"
+                ]
+            },
+            "action_result": null,
+            "feedback_data": null,
+            "total_latency_ms": 7136.097755999799,
+            "phase_latencies": {
+                "phase_3_validation": 7136.097264999989
+            },
+            "success": false,
+            "error_message": "Validation gate blocked action execution: complete_failure"
+        },
         "expert_decision": {
-            "input_text": "He also explains later why that doesn't work (in [another video](https://www.youtube.com/watch?v=SDtAh9IwG-I)). Basically temporal coherence is a bitch and overlooked easily, you attenuate the wave instead of shooting wave packets. Making true single photons is difficult, you need either SPDC or a clever quantum dot system. We actually still suck at making single photons (though progress is being rapidly made!).",
-            "timestamp": "2025-10-18T00:31:42.022329",
-            "expert_analyses": {
-                "physics": {
-                    "input_text": "He also explains later why that doesn't work (in [another video](https://www.youtube.com/watch?v=SDt...",
+            "unified_decision": {
+                "decision_flag": "create_new_expert",
+                "selected_domain": "unknown",
+                "confidence_in_decision": 0.9,
+                "reasoning": [
+                    "No expert available for tags: []"
+                ]
+            },
+            "expert_analyses": {},
+            "system_summary": {
+                "experts_analyzed": 0
+            }
+        },
+        "expert_flag": "create_new_expert",
+        "selected_domain": "unknown",
+        "decision_confidence": 0.9
+    },
+    {
+        "sentence": "The stock market crashed in 1929.",
+        "tags": [],
+        "timestamp": "2026-05-01T20:33:43.008958",
+        "routing_context": {
+            "primary_domain": null,
+            "selected_experts": [],
+            "candidate_domains": [],
+            "classification": "ATTRIBUTE_ONLY",
+            "coverage_met": true,
+            "create_new_expert": false,
+            "lens_scores": {
+                "semantic": {
+                    "engine_spec": 0.04730040729045868,
+                    "aesthetics": 0.0,
+                    "automobile": 0.0
+                },
+                "spectral": {},
+                "confidence": {}
+            },
+            "fused_scores": {},
+            "variance": 0.0,
+            "explanation": "Attribute-heavy input detected; no core object domain evidence."
+        },
+        "phase2_result": {
+            "original_text": "The stock market crashed in 1929.",
+            "final_decision": "create_new_expert",
+            "decision_confidence": 0.2,
+            "confidence_factors": {
+                "semantic_confidence": 0.186665,
+                "selection_confidence": 0.0,
+                "ensemble_confidence": 0.0,
+                "mean_calibrated_confidence": 0.0
+            },
+            "reasoning_chain": [
+                {
+                    "step": 1,
+                    "phase": "2.1",
+                    "name": "Input Normalization",
+                    "description": "Cleaned and validated input text",
+                    "details": {
+                        "is_valid": true,
+                        "language": "en",
+                        "tags_extracted": 0
+                    }
+                },
+                {
+                    "step": 2,
+                    "phase": "2.2",
+                    "name": "Semantic Understanding",
+                    "description": "Analyzed text semantics and domain relevance",
+                    "details": {
+                        "top_domain": "unknown",
+                        "entities_found": 0,
+                        "concepts_found": 3,
+                        "confidence": 0.186665
+                    }
+                },
+                {
+                    "step": 3,
+                    "phase": "2.3",
+                    "name": "Expert Selection",
+                    "description": "Selected 0 experts from 0 candidates",
+                    "details": {
+                        "strategy": "greedy",
+                        "selected": [],
+                        "confidence": 0.0
+                    }
+                },
+                {
+                    "step": 4,
+                    "phase": "2.4",
+                    "name": "Multi-Expert Inference",
+                    "description": "Collected predictions from selected experts",
+                    "details": {
+                        "ensemble_confidence": 0.0,
+                        "disagreement": 0.0,
+                        "outliers": 0
+                    }
+                },
+                {
+                    "step": 5,
+                    "phase": "2.5",
+                    "name": "Confidence Calibration",
+                    "description": "Calibrated predictions and quantified uncertainty",
+                    "details": {
+                        "method": "temperature_scaling",
+                        "temperature": 1.0,
+                        "total_uncertainty": 0.0
+                    }
+                }
+            ],
+            "reasoning_text": "Reasoning Chain:\n  Step 1 (Phase 2.1): Input Normalization\n    \u2192 Cleaned and validated input text\n    \u2022 is_valid: True\n    \u2022 language: en\n    \u2022 tags_extracted: 0\n  Step 2 (Phase 2.2): Semantic Understanding\n    \u2192 Analyzed text semantics and domain relevance\n    \u2022 top_domain: unknown\n    \u2022 entities_found: 0\n    \u2022 concepts_found: 3\n    \u2022 confidence: 0.186665\n  Step 3 (Phase 2.3): Expert Selection\n    \u2192 Selected 0 experts from 0 candidates\n    \u2022 strategy: greedy\n    \u2022 selected: []\n    \u2022 confidence: 0.0\n  Step 4 (Phase 2.4): Multi-Expert Inference\n    \u2192 Collected predictions from selected experts\n    \u2022 ensemble_confidence: 0.0\n    \u2022 disagreement: 0.0\n    \u2022 outliers: 0\n  Step 5 (Phase 2.5): Confidence Calibration\n    \u2192 Calibrated predictions and quantified uncertainty\n    \u2022 method: temperature_scaling\n    \u2022 temperature: 1.0\n    \u2022 total_uncertainty: 0.0",
+            "recommended_action": "create_new_expert",
+            "action_details": {
+                "action": "create_new_expert",
+                "suggested_domain": "general",
+                "confidence": 0.0,
+                "domains_analyzed": []
+            },
+            "selected_experts": [],
+            "primary_expert": null,
+            "expert_scores": {},
+            "expert_predictions": {},
+            "aggregated_prediction": null,
+            "total_uncertainty": 0.0,
+            "uncertainty_intervals": {},
+            "processing_time_ms": 0.12972399781574495,
+            "phases_executed": [
+                "2.1",
+                "2.2",
+                "2.3",
+                "2.4",
+                "2.5",
+                "2.6"
+            ],
+            "warnings": []
+        },
+        "phase3_result": {
+            "original_input": "",
+            "decision_result": {
+                "original_text": "The stock market crashed in 1929.",
+                "final_decision": "create_new_expert",
+                "decision_confidence": 0.2,
+                "confidence_factors": {
+                    "semantic_confidence": 0.186665,
+                    "selection_confidence": 0.0,
+                    "ensemble_confidence": 0.0,
+                    "mean_calibrated_confidence": 0.0
+                },
+                "reasoning_chain": [
+                    {
+                        "step": 1,
+                        "phase": "2.1",
+                        "name": "Input Normalization",
+                        "description": "Cleaned and validated input text",
+                        "details": {
+                            "is_valid": true,
+                            "language": "en",
+                            "tags_extracted": 0
+                        }
+                    },
+                    {
+                        "step": 2,
+                        "phase": "2.2",
+                        "name": "Semantic Understanding",
+                        "description": "Analyzed text semantics and domain relevance",
+                        "details": {
+                            "top_domain": "unknown",
+                            "entities_found": 0,
+                            "concepts_found": 3,
+                            "confidence": 0.186665
+                        }
+                    },
+                    {
+                        "step": 3,
+                        "phase": "2.3",
+                        "name": "Expert Selection",
+                        "description": "Selected 0 experts from 0 candidates",
+                        "details": {
+                            "strategy": "greedy",
+                            "selected": [],
+                            "confidence": 0.0
+                        }
+                    },
+                    {
+                        "step": 4,
+                        "phase": "2.4",
+                        "name": "Multi-Expert Inference",
+                        "description": "Collected predictions from selected experts",
+                        "details": {
+                            "ensemble_confidence": 0.0,
+                            "disagreement": 0.0,
+                            "outliers": 0
+                        }
+                    },
+                    {
+                        "step": 5,
+                        "phase": "2.5",
+                        "name": "Confidence Calibration",
+                        "description": "Calibrated predictions and quantified uncertainty",
+                        "details": {
+                            "method": "temperature_scaling",
+                            "temperature": 1.0,
+                            "total_uncertainty": 0.0
+                        }
+                    }
+                ],
+                "reasoning_text": "Reasoning Chain:\n  Step 1 (Phase 2.1): Input Normalization\n    \u2192 Cleaned and validated input text\n    \u2022 is_valid: True\n    \u2022 language: en\n    \u2022 tags_extracted: 0\n  Step 2 (Phase 2.2): Semantic Understanding\n    \u2192 Analyzed text semantics and domain relevance\n    \u2022 top_domain: unknown\n    \u2022 entities_found: 0\n    \u2022 concepts_found: 3\n    \u2022 confidence: 0.186665\n  Step 3 (Phase 2.3): Expert Selection\n    \u2192 Selected 0 experts from 0 candidates\n    \u2022 strategy: greedy\n    \u2022 selected: []\n    \u2022 confidence: 0.0\n  Step 4 (Phase 2.4): Multi-Expert Inference\n    \u2192 Collected predictions from selected experts\n    \u2022 ensemble_confidence: 0.0\n    \u2022 disagreement: 0.0\n    \u2022 outliers: 0\n  Step 5 (Phase 2.5): Confidence Calibration\n    \u2192 Calibrated predictions and quantified uncertainty\n    \u2022 method: temperature_scaling\n    \u2022 temperature: 1.0\n    \u2022 total_uncertainty: 0.0",
+                "recommended_action": "create_new_expert",
+                "action_details": {
+                    "action": "create_new_expert",
+                    "suggested_domain": "general",
+                    "confidence": 0.0,
+                    "domains_analyzed": []
+                },
+                "selected_experts": [],
+                "primary_expert": null,
+                "expert_scores": {},
+                "expert_predictions": {},
+                "aggregated_prediction": null,
+                "total_uncertainty": 0.0,
+                "uncertainty_intervals": {},
+                "processing_time_ms": 0.12972399781574495,
+                "phases_executed": [
+                    "2.1",
+                    "2.2",
+                    "2.3",
+                    "2.4",
+                    "2.5",
+                    "2.6"
+                ],
+                "warnings": []
+            },
+            "action_result": null,
+            "feedback_data": null,
+            "total_latency_ms": 6518.104975999449,
+            "phase_latencies": {
+                "phase_3_validation": 6518.104416001734
+            },
+            "success": false,
+            "error_message": "Validation gate blocked action execution: complete_failure"
+        },
+        "expert_decision": {
+            "unified_decision": {
+                "decision_flag": "create_new_expert",
+                "selected_domain": "unknown",
+                "confidence_in_decision": 0.9,
+                "reasoning": [
+                    "No expert available for tags: []"
+                ]
+            },
+            "expert_analyses": {},
+            "system_summary": {
+                "experts_analyzed": 0
+            }
+        },
+        "expert_flag": "create_new_expert",
+        "selected_domain": "unknown",
+        "decision_confidence": 0.9
+    },
+    {
+        "sentence": "Stellar evolution theory.",
+        "tags": [],
+        "timestamp": "2026-05-01T20:33:56.106987",
+        "routing_context": {
+            "primary_domain": null,
+            "selected_experts": [],
+            "candidate_domains": [],
+            "classification": "ATTRIBUTE_ONLY",
+            "coverage_met": true,
+            "create_new_expert": false,
+            "lens_scores": {
+                "semantic": {
+                    "astronomy": 0.3212263584136963,
+                    "aesthetics": 0.09202023744583131,
+                    "automobile": 0.010993266105651857
+                },
+                "spectral": {},
+                "confidence": {}
+            },
+            "fused_scores": {},
+            "variance": 0.0,
+            "explanation": "Attribute-heavy input detected; no core object domain evidence."
+        },
+        "phase2_result": {
+            "original_text": "Stellar evolution theory.",
+            "final_decision": "create_new_expert",
+            "decision_confidence": 0.2,
+            "confidence_factors": {
+                "semantic_confidence": 0.172089,
+                "selection_confidence": 0.0,
+                "ensemble_confidence": 0.0,
+                "mean_calibrated_confidence": 0.0
+            },
+            "reasoning_chain": [
+                {
+                    "step": 1,
+                    "phase": "2.1",
+                    "name": "Input Normalization",
+                    "description": "Cleaned and validated input text",
+                    "details": {
+                        "is_valid": true,
+                        "language": "en",
+                        "tags_extracted": 0
+                    }
+                },
+                {
+                    "step": 2,
+                    "phase": "2.2",
+                    "name": "Semantic Understanding",
+                    "description": "Analyzed text semantics and domain relevance",
+                    "details": {
+                        "top_domain": "unknown",
+                        "entities_found": 0,
+                        "concepts_found": 3,
+                        "confidence": 0.172089
+                    }
+                },
+                {
+                    "step": 3,
+                    "phase": "2.3",
+                    "name": "Expert Selection",
+                    "description": "Selected 0 experts from 0 candidates",
+                    "details": {
+                        "strategy": "greedy",
+                        "selected": [],
+                        "confidence": 0.0
+                    }
+                },
+                {
+                    "step": 4,
+                    "phase": "2.4",
+                    "name": "Multi-Expert Inference",
+                    "description": "Collected predictions from selected experts",
+                    "details": {
+                        "ensemble_confidence": 0.0,
+                        "disagreement": 0.0,
+                        "outliers": 0
+                    }
+                },
+                {
+                    "step": 5,
+                    "phase": "2.5",
+                    "name": "Confidence Calibration",
+                    "description": "Calibrated predictions and quantified uncertainty",
+                    "details": {
+                        "method": "temperature_scaling",
+                        "temperature": 1.0,
+                        "total_uncertainty": 0.0
+                    }
+                }
+            ],
+            "reasoning_text": "Reasoning Chain:\n  Step 1 (Phase 2.1): Input Normalization\n    \u2192 Cleaned and validated input text\n    \u2022 is_valid: True\n    \u2022 language: en\n    \u2022 tags_extracted: 0\n  Step 2 (Phase 2.2): Semantic Understanding\n    \u2192 Analyzed text semantics and domain relevance\n    \u2022 top_domain: unknown\n    \u2022 entities_found: 0\n    \u2022 concepts_found: 3\n    \u2022 confidence: 0.172089\n  Step 3 (Phase 2.3): Expert Selection\n    \u2192 Selected 0 experts from 0 candidates\n    \u2022 strategy: greedy\n    \u2022 selected: []\n    \u2022 confidence: 0.0\n  Step 4 (Phase 2.4): Multi-Expert Inference\n    \u2192 Collected predictions from selected experts\n    \u2022 ensemble_confidence: 0.0\n    \u2022 disagreement: 0.0\n    \u2022 outliers: 0\n  Step 5 (Phase 2.5): Confidence Calibration\n    \u2192 Calibrated predictions and quantified uncertainty\n    \u2022 method: temperature_scaling\n    \u2022 temperature: 1.0\n    \u2022 total_uncertainty: 0.0",
+            "recommended_action": "create_new_expert",
+            "action_details": {
+                "action": "create_new_expert",
+                "suggested_domain": "general",
+                "confidence": 0.0,
+                "domains_analyzed": []
+            },
+            "selected_experts": [],
+            "primary_expert": null,
+            "expert_scores": {},
+            "expert_predictions": {},
+            "aggregated_prediction": null,
+            "total_uncertainty": 0.0,
+            "uncertainty_intervals": {},
+            "processing_time_ms": 0.07517099948017858,
+            "phases_executed": [
+                "2.1",
+                "2.2",
+                "2.3",
+                "2.4",
+                "2.5",
+                "2.6"
+            ],
+            "warnings": []
+        },
+        "phase3_result": {
+            "original_input": "",
+            "decision_result": {
+                "original_text": "Stellar evolution theory.",
+                "final_decision": "create_new_expert",
+                "decision_confidence": 0.2,
+                "confidence_factors": {
+                    "semantic_confidence": 0.172089,
+                    "selection_confidence": 0.0,
+                    "ensemble_confidence": 0.0,
+                    "mean_calibrated_confidence": 0.0
+                },
+                "reasoning_chain": [
+                    {
+                        "step": 1,
+                        "phase": "2.1",
+                        "name": "Input Normalization",
+                        "description": "Cleaned and validated input text",
+                        "details": {
+                            "is_valid": true,
+                            "language": "en",
+                            "tags_extracted": 0
+                        }
+                    },
+                    {
+                        "step": 2,
+                        "phase": "2.2",
+                        "name": "Semantic Understanding",
+                        "description": "Analyzed text semantics and domain relevance",
+                        "details": {
+                            "top_domain": "unknown",
+                            "entities_found": 0,
+                            "concepts_found": 3,
+                            "confidence": 0.172089
+                        }
+                    },
+                    {
+                        "step": 3,
+                        "phase": "2.3",
+                        "name": "Expert Selection",
+                        "description": "Selected 0 experts from 0 candidates",
+                        "details": {
+                            "strategy": "greedy",
+                            "selected": [],
+                            "confidence": 0.0
+                        }
+                    },
+                    {
+                        "step": 4,
+                        "phase": "2.4",
+                        "name": "Multi-Expert Inference",
+                        "description": "Collected predictions from selected experts",
+                        "details": {
+                            "ensemble_confidence": 0.0,
+                            "disagreement": 0.0,
+                            "outliers": 0
+                        }
+                    },
+                    {
+                        "step": 5,
+                        "phase": "2.5",
+                        "name": "Confidence Calibration",
+                        "description": "Calibrated predictions and quantified uncertainty",
+                        "details": {
+                            "method": "temperature_scaling",
+                            "temperature": 1.0,
+                            "total_uncertainty": 0.0
+                        }
+                    }
+                ],
+                "reasoning_text": "Reasoning Chain:\n  Step 1 (Phase 2.1): Input Normalization\n    \u2192 Cleaned and validated input text\n    \u2022 is_valid: True\n    \u2022 language: en\n    \u2022 tags_extracted: 0\n  Step 2 (Phase 2.2): Semantic Understanding\n    \u2192 Analyzed text semantics and domain relevance\n    \u2022 top_domain: unknown\n    \u2022 entities_found: 0\n    \u2022 concepts_found: 3\n    \u2022 confidence: 0.172089\n  Step 3 (Phase 2.3): Expert Selection\n    \u2192 Selected 0 experts from 0 candidates\n    \u2022 strategy: greedy\n    \u2022 selected: []\n    \u2022 confidence: 0.0\n  Step 4 (Phase 2.4): Multi-Expert Inference\n    \u2192 Collected predictions from selected experts\n    \u2022 ensemble_confidence: 0.0\n    \u2022 disagreement: 0.0\n    \u2022 outliers: 0\n  Step 5 (Phase 2.5): Confidence Calibration\n    \u2192 Calibrated predictions and quantified uncertainty\n    \u2022 method: temperature_scaling\n    \u2022 temperature: 1.0\n    \u2022 total_uncertainty: 0.0",
+                "recommended_action": "create_new_expert",
+                "action_details": {
+                    "action": "create_new_expert",
+                    "suggested_domain": "general",
+                    "confidence": 0.0,
+                    "domains_analyzed": []
+                },
+                "selected_experts": [],
+                "primary_expert": null,
+                "expert_scores": {},
+                "expert_predictions": {},
+                "aggregated_prediction": null,
+                "total_uncertainty": 0.0,
+                "uncertainty_intervals": {},
+                "processing_time_ms": 0.07517099948017858,
+                "phases_executed": [
+                    "2.1",
+                    "2.2",
+                    "2.3",
+                    "2.4",
+                    "2.5",
+                    "2.6"
+                ],
+                "warnings": []
+            },
+            "action_result": null,
+            "feedback_data": null,
+            "total_latency_ms": 6486.347139001737,
+            "phase_latencies": {
+                "phase_3_validation": 6486.346718000277
+            },
+            "success": false,
+            "error_message": "Validation gate blocked action execution: complete_failure"
+        },
+        "expert_decision": {
+            "unified_decision": {
+                "decision_flag": "create_new_expert",
+                "selected_domain": "unknown",
+                "confidence_in_decision": 0.9,
+                "reasoning": [
+                    "No expert available for tags: []"
+                ]
+            },
+            "expert_analyses": {},
+            "system_summary": {
+                "experts_analyzed": 0
+            }
+        },
+        "expert_flag": "create_new_expert",
+        "selected_domain": "unknown",
+        "decision_confidence": 0.9
+    },
+    {
+        "sentence": "Earth orbits the Sun.",
+        "tags": [],
+        "timestamp": "2026-05-01T20:34:09.071205",
+        "routing_context": {
+            "primary_domain": "aesthetics",
+            "selected_experts": [
+                "aesthetics",
+                "astronomy",
+                "automobile"
+            ],
+            "candidate_domains": [
+                "aesthetics",
+                "astronomy",
+                "automobile"
+            ],
+            "classification": "AMBIGUOUS",
+            "coverage_met": false,
+            "create_new_expert": true,
+            "lens_scores": {
+                "semantic": {
+                    "astronomy": 0.4252621412277222,
+                    "aesthetics": 0.0009944736957550049,
+                    "automobile": 0.0
+                },
+                "spectral": {
+                    "astronomy": 0.5065494811196607,
+                    "automobile": 0.506693766544658
+                },
+                "confidence": {
+                    "astronomy": 0.5,
+                    "aesthetics": 0.5,
+                    "automobile": 0.5
+                }
+            },
+            "fused_scores": {
+                "aesthetics": 0.100448,
+                "astronomy": 0.46866,
+                "automobile": 0.277343
+            },
+            "variance": 0.022608,
+            "explanation": "Base routing: Selected astronomy due to core features: earth, orbits, sun. Ambiguous input; multiple domains with similar relevance: aesthetics, astronomy, automobile. Coverage threshold not met; new expert may be required."
+        },
+        "phase2_result": {
+            "original_text": "Earth orbits the Sun.",
+            "final_decision": "create_new_expert",
+            "decision_confidence": 0.2,
+            "confidence_factors": {
+                "semantic_confidence": 0.184639,
+                "selection_confidence": 0.0,
+                "ensemble_confidence": 0.0,
+                "mean_calibrated_confidence": 0.0
+            },
+            "reasoning_chain": [
+                {
+                    "step": 1,
+                    "phase": "2.1",
+                    "name": "Input Normalization",
+                    "description": "Cleaned and validated input text",
+                    "details": {
+                        "is_valid": true,
+                        "language": "en",
+                        "tags_extracted": 0
+                    }
+                },
+                {
+                    "step": 2,
+                    "phase": "2.2",
+                    "name": "Semantic Understanding",
+                    "description": "Analyzed text semantics and domain relevance",
+                    "details": {
+                        "top_domain": "unknown",
+                        "entities_found": 0,
+                        "concepts_found": 3,
+                        "confidence": 0.184639
+                    }
+                },
+                {
+                    "step": 3,
+                    "phase": "2.3",
+                    "name": "Expert Selection",
+                    "description": "Selected 0 experts from 0 candidates",
+                    "details": {
+                        "strategy": "greedy",
+                        "selected": [],
+                        "confidence": 0.0
+                    }
+                },
+                {
+                    "step": 4,
+                    "phase": "2.4",
+                    "name": "Multi-Expert Inference",
+                    "description": "Collected predictions from selected experts",
+                    "details": {
+                        "ensemble_confidence": 0.0,
+                        "disagreement": 0.0,
+                        "outliers": 0
+                    }
+                },
+                {
+                    "step": 5,
+                    "phase": "2.5",
+                    "name": "Confidence Calibration",
+                    "description": "Calibrated predictions and quantified uncertainty",
+                    "details": {
+                        "method": "temperature_scaling",
+                        "temperature": 1.0,
+                        "total_uncertainty": 0.0
+                    }
+                }
+            ],
+            "reasoning_text": "Reasoning Chain:\n  Step 1 (Phase 2.1): Input Normalization\n    \u2192 Cleaned and validated input text\n    \u2022 is_valid: True\n    \u2022 language: en\n    \u2022 tags_extracted: 0\n  Step 2 (Phase 2.2): Semantic Understanding\n    \u2192 Analyzed text semantics and domain relevance\n    \u2022 top_domain: unknown\n    \u2022 entities_found: 0\n    \u2022 concepts_found: 3\n    \u2022 confidence: 0.184639\n  Step 3 (Phase 2.3): Expert Selection\n    \u2192 Selected 0 experts from 0 candidates\n    \u2022 strategy: greedy\n    \u2022 selected: []\n    \u2022 confidence: 0.0\n  Step 4 (Phase 2.4): Multi-Expert Inference\n    \u2192 Collected predictions from selected experts\n    \u2022 ensemble_confidence: 0.0\n    \u2022 disagreement: 0.0\n    \u2022 outliers: 0\n  Step 5 (Phase 2.5): Confidence Calibration\n    \u2192 Calibrated predictions and quantified uncertainty\n    \u2022 method: temperature_scaling\n    \u2022 temperature: 1.0\n    \u2022 total_uncertainty: 0.0",
+            "recommended_action": "create_new_expert",
+            "action_details": {
+                "action": "create_new_expert",
+                "suggested_domain": "general",
+                "confidence": 0.0,
+                "domains_analyzed": []
+            },
+            "selected_experts": [],
+            "primary_expert": null,
+            "expert_scores": {},
+            "expert_predictions": {},
+            "aggregated_prediction": null,
+            "total_uncertainty": 0.0,
+            "uncertainty_intervals": {},
+            "processing_time_ms": 0.06448199928854592,
+            "phases_executed": [
+                "2.1",
+                "2.2",
+                "2.3",
+                "2.4",
+                "2.5",
+                "2.6"
+            ],
+            "warnings": []
+        },
+        "phase3_result": {
+            "original_input": "",
+            "decision_result": {
+                "original_text": "Earth orbits the Sun.",
+                "final_decision": "create_new_expert",
+                "decision_confidence": 0.2,
+                "confidence_factors": {
+                    "semantic_confidence": 0.184639,
+                    "selection_confidence": 0.0,
+                    "ensemble_confidence": 0.0,
+                    "mean_calibrated_confidence": 0.0
+                },
+                "reasoning_chain": [
+                    {
+                        "step": 1,
+                        "phase": "2.1",
+                        "name": "Input Normalization",
+                        "description": "Cleaned and validated input text",
+                        "details": {
+                            "is_valid": true,
+                            "language": "en",
+                            "tags_extracted": 0
+                        }
+                    },
+                    {
+                        "step": 2,
+                        "phase": "2.2",
+                        "name": "Semantic Understanding",
+                        "description": "Analyzed text semantics and domain relevance",
+                        "details": {
+                            "top_domain": "unknown",
+                            "entities_found": 0,
+                            "concepts_found": 3,
+                            "confidence": 0.184639
+                        }
+                    },
+                    {
+                        "step": 3,
+                        "phase": "2.3",
+                        "name": "Expert Selection",
+                        "description": "Selected 0 experts from 0 candidates",
+                        "details": {
+                            "strategy": "greedy",
+                            "selected": [],
+                            "confidence": 0.0
+                        }
+                    },
+                    {
+                        "step": 4,
+                        "phase": "2.4",
+                        "name": "Multi-Expert Inference",
+                        "description": "Collected predictions from selected experts",
+                        "details": {
+                            "ensemble_confidence": 0.0,
+                            "disagreement": 0.0,
+                            "outliers": 0
+                        }
+                    },
+                    {
+                        "step": 5,
+                        "phase": "2.5",
+                        "name": "Confidence Calibration",
+                        "description": "Calibrated predictions and quantified uncertainty",
+                        "details": {
+                            "method": "temperature_scaling",
+                            "temperature": 1.0,
+                            "total_uncertainty": 0.0
+                        }
+                    }
+                ],
+                "reasoning_text": "Reasoning Chain:\n  Step 1 (Phase 2.1): Input Normalization\n    \u2192 Cleaned and validated input text\n    \u2022 is_valid: True\n    \u2022 language: en\n    \u2022 tags_extracted: 0\n  Step 2 (Phase 2.2): Semantic Understanding\n    \u2192 Analyzed text semantics and domain relevance\n    \u2022 top_domain: unknown\n    \u2022 entities_found: 0\n    \u2022 concepts_found: 3\n    \u2022 confidence: 0.184639\n  Step 3 (Phase 2.3): Expert Selection\n    \u2192 Selected 0 experts from 0 candidates\n    \u2022 strategy: greedy\n    \u2022 selected: []\n    \u2022 confidence: 0.0\n  Step 4 (Phase 2.4): Multi-Expert Inference\n    \u2192 Collected predictions from selected experts\n    \u2022 ensemble_confidence: 0.0\n    \u2022 disagreement: 0.0\n    \u2022 outliers: 0\n  Step 5 (Phase 2.5): Confidence Calibration\n    \u2192 Calibrated predictions and quantified uncertainty\n    \u2022 method: temperature_scaling\n    \u2022 temperature: 1.0\n    \u2022 total_uncertainty: 0.0",
+                "recommended_action": "create_new_expert",
+                "action_details": {
+                    "action": "create_new_expert",
+                    "suggested_domain": "general",
+                    "confidence": 0.0,
+                    "domains_analyzed": []
+                },
+                "selected_experts": [],
+                "primary_expert": null,
+                "expert_scores": {},
+                "expert_predictions": {},
+                "aggregated_prediction": null,
+                "total_uncertainty": 0.0,
+                "uncertainty_intervals": {},
+                "processing_time_ms": 0.06448199928854592,
+                "phases_executed": [
+                    "2.1",
+                    "2.2",
+                    "2.3",
+                    "2.4",
+                    "2.5",
+                    "2.6"
+                ],
+                "warnings": []
+            },
+            "action_result": null,
+            "feedback_data": null,
+            "total_latency_ms": 6429.917147001106,
+            "phase_latencies": {
+                "phase_3_validation": 6429.916625998885
+            },
+            "success": false,
+            "error_message": "Validation gate blocked action execution: complete_failure"
+        },
+        "expert_decision": {
+            "unified_decision": {
+                "decision_flag": "create_new_expert",
+                "selected_domain": "unknown",
+                "confidence_in_decision": 0.9,
+                "reasoning": [
+                    "No expert available for tags: []"
+                ]
+            },
+            "expert_analyses": {},
+            "system_summary": {
+                "experts_analyzed": 0
+            }
+        },
+        "expert_flag": "create_new_expert",
+        "selected_domain": "unknown",
+        "decision_confidence": 0.9
+    },
+    {
+        "sentence": "Quantum entanglement occurs when particles remain correlated.",
+        "tags": [],
+        "timestamp": "2026-05-01T20:34:22.132983",
+        "routing_context": {
+            "primary_domain": null,
+            "selected_experts": [],
+            "candidate_domains": [],
+            "classification": "ATTRIBUTE_ONLY",
+            "coverage_met": true,
+            "create_new_expert": false,
+            "lens_scores": {
+                "semantic": {
+                    "engine_spec": 0.05894438028335572,
+                    "automobile": 0.0,
+                    "astronomy": 0.0
+                },
+                "spectral": {},
+                "confidence": {}
+            },
+            "fused_scores": {},
+            "variance": 0.0,
+            "explanation": "Attribute-heavy input detected; no core object domain evidence."
+        },
+        "phase2_result": {
+            "original_text": "Quantum entanglement occurs when particles remain correlated.",
+            "final_decision": "create_patch",
+            "decision_confidence": 0.3791358818610793,
+            "confidence_factors": {
+                "semantic_confidence": 0.26119,
+                "selection_confidence": 0.102564,
+                "ensemble_confidence": 0.33739640000000004,
+                "mean_calibrated_confidence": 0.33739640000000004
+            },
+            "reasoning_chain": [
+                {
+                    "step": 1,
+                    "phase": "2.1",
+                    "name": "Input Normalization",
+                    "description": "Cleaned and validated input text",
+                    "details": {
+                        "is_valid": true,
+                        "language": "en",
+                        "tags_extracted": 2
+                    }
+                },
+                {
+                    "step": 2,
+                    "phase": "2.2",
+                    "name": "Semantic Understanding",
+                    "description": "Analyzed text semantics and domain relevance",
+                    "details": {
+                        "top_domain": "physics",
+                        "entities_found": 1,
+                        "concepts_found": 5,
+                        "confidence": 0.26119
+                    }
+                },
+                {
+                    "step": 3,
+                    "phase": "2.3",
+                    "name": "Expert Selection",
+                    "description": "Selected 1 experts from 1 candidates",
+                    "details": {
+                        "strategy": "greedy",
+                        "selected": [
+                            "expert_physics"
+                        ],
+                        "confidence": 0.102564
+                    }
+                },
+                {
+                    "step": 4,
+                    "phase": "2.4",
+                    "name": "Multi-Expert Inference",
+                    "description": "Collected predictions from selected experts",
+                    "details": {
+                        "ensemble_confidence": 0.33739640000000004,
+                        "disagreement": 0.0,
+                        "outliers": 0
+                    }
+                },
+                {
+                    "step": 5,
+                    "phase": "2.5",
+                    "name": "Confidence Calibration",
+                    "description": "Calibrated predictions and quantified uncertainty",
+                    "details": {
+                        "method": "temperature_scaling",
+                        "temperature": 1.0,
+                        "total_uncertainty": 0.6392934021239802
+                    }
+                }
+            ],
+            "reasoning_text": "Reasoning Chain:\n  Step 1 (Phase 2.1): Input Normalization\n    \u2192 Cleaned and validated input text\n    \u2022 is_valid: True\n    \u2022 language: en\n    \u2022 tags_extracted: 2\n  Step 2 (Phase 2.2): Semantic Understanding\n    \u2192 Analyzed text semantics and domain relevance\n    \u2022 top_domain: physics\n    \u2022 entities_found: 1\n    \u2022 concepts_found: 5\n    \u2022 confidence: 0.26119\n  Step 3 (Phase 2.3): Expert Selection\n    \u2192 Selected 1 experts from 1 candidates\n    \u2022 strategy: greedy\n    \u2022 selected: ['expert_physics']\n    \u2022 confidence: 0.102564\n  Step 4 (Phase 2.4): Multi-Expert Inference\n    \u2192 Collected predictions from selected experts\n    \u2022 ensemble_confidence: 0.33739640000000004\n    \u2022 disagreement: 0.0\n    \u2022 outliers: 0\n  Step 5 (Phase 2.5): Confidence Calibration\n    \u2192 Calibrated predictions and quantified uncertainty\n    \u2022 method: temperature_scaling\n    \u2022 temperature: 1.0\n    \u2022 total_uncertainty: 0.6392934021239802",
+            "recommended_action": "create_patch",
+            "action_details": {
+                "action": "create_patch",
+                "target_expert": "expert_physics",
+                "domain": "physics",
+                "confidence": 0.33739640000000004,
+                "domains_to_cover": [
+                    "physics"
+                ]
+            },
+            "selected_experts": [
+                "expert_physics"
+            ],
+            "primary_expert": "expert_physics",
+            "expert_scores": {
+                "expert_physics": 0.102564
+            },
+            "expert_predictions": {
+                "expert_physics": {
+                    "prediction": {
+                        "recommended_action": "create_new_expert",
+                        "domain": "physics",
+                        "relevance_score": 0.33739640000000004,
+                        "hash_signature": "0849b5065b8e295e",
+                        "prediction_id": 8198
+                    },
+                    "confidence": 0.33739640000000004,
+                    "metadata": {
+                        "expert_name": "expert_physics",
+                        "domain": "physics",
+                        "match_score": 0.102564,
+                        "latency_ms": 0.07341799937421456
+                    },
+                    "latency_ms": 0.07341799937421456
+                }
+            },
+            "aggregated_prediction": {
+                "recommended_action": "create_new_expert",
+                "vote_counts": {
+                    "create_new_expert": 1
+                },
+                "aggregation_method": "ensemble_voting",
+                "consensus_confidence": 0.33739640000000004
+            },
+            "total_uncertainty": 0.6392934021239802,
+            "uncertainty_intervals": {
+                "expert_physics": [
+                    0.2374,
+                    0.4374
+                ]
+            },
+            "processing_time_ms": 0.0938969969865866,
+            "phases_executed": [
+                "2.1",
+                "2.2",
+                "2.3",
+                "2.4",
+                "2.5",
+                "2.6"
+            ],
+            "warnings": [
+                "Decision is near a confidence boundary"
+            ]
+        },
+        "phase3_result": {
+            "original_input": "",
+            "decision_result": {
+                "original_text": "Quantum entanglement occurs when particles remain correlated.",
+                "final_decision": "create_patch",
+                "decision_confidence": 0.3791358818610793,
+                "confidence_factors": {
+                    "semantic_confidence": 0.26119,
+                    "selection_confidence": 0.102564,
+                    "ensemble_confidence": 0.33739640000000004,
+                    "mean_calibrated_confidence": 0.33739640000000004
+                },
+                "reasoning_chain": [
+                    {
+                        "step": 1,
+                        "phase": "2.1",
+                        "name": "Input Normalization",
+                        "description": "Cleaned and validated input text",
+                        "details": {
+                            "is_valid": true,
+                            "language": "en",
+                            "tags_extracted": 2
+                        }
+                    },
+                    {
+                        "step": 2,
+                        "phase": "2.2",
+                        "name": "Semantic Understanding",
+                        "description": "Analyzed text semantics and domain relevance",
+                        "details": {
+                            "top_domain": "physics",
+                            "entities_found": 1,
+                            "concepts_found": 5,
+                            "confidence": 0.26119
+                        }
+                    },
+                    {
+                        "step": 3,
+                        "phase": "2.3",
+                        "name": "Expert Selection",
+                        "description": "Selected 1 experts from 1 candidates",
+                        "details": {
+                            "strategy": "greedy",
+                            "selected": [
+                                "expert_physics"
+                            ],
+                            "confidence": 0.102564
+                        }
+                    },
+                    {
+                        "step": 4,
+                        "phase": "2.4",
+                        "name": "Multi-Expert Inference",
+                        "description": "Collected predictions from selected experts",
+                        "details": {
+                            "ensemble_confidence": 0.33739640000000004,
+                            "disagreement": 0.0,
+                            "outliers": 0
+                        }
+                    },
+                    {
+                        "step": 5,
+                        "phase": "2.5",
+                        "name": "Confidence Calibration",
+                        "description": "Calibrated predictions and quantified uncertainty",
+                        "details": {
+                            "method": "temperature_scaling",
+                            "temperature": 1.0,
+                            "total_uncertainty": 0.6392934021239802
+                        }
+                    }
+                ],
+                "reasoning_text": "Reasoning Chain:\n  Step 1 (Phase 2.1): Input Normalization\n    \u2192 Cleaned and validated input text\n    \u2022 is_valid: True\n    \u2022 language: en\n    \u2022 tags_extracted: 2\n  Step 2 (Phase 2.2): Semantic Understanding\n    \u2192 Analyzed text semantics and domain relevance\n    \u2022 top_domain: physics\n    \u2022 entities_found: 1\n    \u2022 concepts_found: 5\n    \u2022 confidence: 0.26119\n  Step 3 (Phase 2.3): Expert Selection\n    \u2192 Selected 1 experts from 1 candidates\n    \u2022 strategy: greedy\n    \u2022 selected: ['expert_physics']\n    \u2022 confidence: 0.102564\n  Step 4 (Phase 2.4): Multi-Expert Inference\n    \u2192 Collected predictions from selected experts\n    \u2022 ensemble_confidence: 0.33739640000000004\n    \u2022 disagreement: 0.0\n    \u2022 outliers: 0\n  Step 5 (Phase 2.5): Confidence Calibration\n    \u2192 Calibrated predictions and quantified uncertainty\n    \u2022 method: temperature_scaling\n    \u2022 temperature: 1.0\n    \u2022 total_uncertainty: 0.6392934021239802",
+                "recommended_action": "create_patch",
+                "action_details": {
+                    "action": "create_patch",
+                    "target_expert": "expert_physics",
                     "domain": "physics",
-                    "timestamp": "2025-10-18T00:31:42.022329",
-                    "systems_analysis": {
-                        "k_medoids": {
-                            "similarity_score": 0.10404571145772934,
-                            "num_medoids": 10,
-                            "primary_medoid_text": "Organisms that reproduce sexually by joining gamet..."
-                        },
-                        "calibration": {
-                            "enabled": true,
-                            "prediction": 1,
-                            "confidence_score": 0.7706507268017286,
-                            "raw_confidence": 0.9939488172531128,
-                            "calibration_quality": 0.5506849315068493
-                        },
-                        "ood_detection": {
-                            "enabled": true,
-                            "is_ood": false,
-                            "ood_confidence": 0.3333333333333333,
-                            "ood_scores": {
-                                "svm_distance": 2.264285087585449,
-                                "nn_distance": 0.7497327923774719,
-                                "isolation_score": 0.005707083272187885
-                            },
-                            "reason": "1/3 methods flagged as OOD"
-                        }
-                    },
-                    "unified_scores": {
-                        "base_similarity": 0.10404571145772934,
-                        "base_confidence": 0.7706507268017286,
-                        "ood_penalty": 0.06666666666666667,
-                        "adjusted_similarity": 0.10196479722857475,
-                        "adjusted_confidence": 0.7192740116816134,
-                        "composite_score": 0.462890797342918,
-                        "quality_score": 0.7,
-                        "systems_enabled": {
-                            "k_medoids": true,
-                            "calibration": true,
-                            "ood_detection": true
-                        }
-                    },
-                    "recommendation": {
-                        "decision": "use_existing_expert",
-                        "confidence_in_decision": 0.3240235581400426,
-                        "reasoning": [
-                            "High composite score (0.463) with acceptable OOD risk",
-                            "Low similarity to existing medoids"
-                        ],
-                        "thresholds_used": {
-                            "high_threshold": 0.35,
-                            "medium_threshold": 0.175,
-                            "ood_rejection_threshold": 0.6
-                        }
-                    }
-                }
-            },
-            "unified_decision": {
-                "selected_domain": "physics",
-                "decision_flag": "use_existing_expert",
-                "confidence_in_decision": 0.3240235581400426,
-                "composite_score": 0.462890797342918,
-                "quality_score": 0.7,
-                "reasoning": [
-                    "High composite score (0.463) with acceptable OOD risk",
-                    "Low similarity to existing medoids"
+                    "confidence": 0.33739640000000004,
+                    "domains_to_cover": [
+                        "physics"
+                    ]
+                },
+                "selected_experts": [
+                    "expert_physics"
                 ],
-                "ood_analysis": {
-                    "is_ood": false,
-                    "ood_confidence": 0.3333333333333333
+                "primary_expert": "expert_physics",
+                "expert_scores": {
+                    "expert_physics": 0.102564
                 },
-                "similarity_analysis": {
-                    "similarity_score": 0.10404571145772934,
-                    "adjusted_similarity": 0.10196479722857475
+                "expert_predictions": {
+                    "expert_physics": {
+                        "prediction": {
+                            "recommended_action": "create_new_expert",
+                            "domain": "physics",
+                            "relevance_score": 0.33739640000000004,
+                            "hash_signature": "0849b5065b8e295e",
+                            "prediction_id": 8198
+                        },
+                        "confidence": 0.33739640000000004,
+                        "metadata": {
+                            "expert_name": "expert_physics",
+                            "domain": "physics",
+                            "match_score": 0.102564,
+                            "latency_ms": 0.07341799937421456
+                        },
+                        "latency_ms": 0.07341799937421456
+                    }
                 },
-                "confidence_analysis": {
-                    "calibrated_confidence": 0.7706507268017286,
-                    "adjusted_confidence": 0.7192740116816134
-                }
+                "aggregated_prediction": {
+                    "recommended_action": "create_new_expert",
+                    "vote_counts": {
+                        "create_new_expert": 1
+                    },
+                    "aggregation_method": "ensemble_voting",
+                    "consensus_confidence": 0.33739640000000004
+                },
+                "total_uncertainty": 0.6392934021239802,
+                "uncertainty_intervals": {
+                    "expert_physics": [
+                        0.2374,
+                        0.4374
+                    ]
+                },
+                "processing_time_ms": 0.0938969969865866,
+                "phases_executed": [
+                    "2.1",
+                    "2.2",
+                    "2.3",
+                    "2.4",
+                    "2.5",
+                    "2.6"
+                ],
+                "warnings": [
+                    "Decision is near a confidence boundary"
+                ]
             },
+            "action_result": null,
+            "feedback_data": null,
+            "total_latency_ms": 6647.656913999526,
+            "phase_latencies": {
+                "phase_3_validation": 6647.656212000584
+            },
+            "success": false,
+            "error_message": "Validation gate blocked action execution: complete_failure"
+        },
+        "expert_decision": {
+            "unified_decision": {
+                "decision_flag": "create_new_expert",
+                "selected_domain": "unknown",
+                "confidence_in_decision": 0.9,
+                "reasoning": [
+                    "No expert available for tags: []"
+                ]
+            },
+            "expert_analyses": {},
             "system_summary": {
-                "experts_analyzed": 1,
-                "systems_enabled": {
-                    "k_medoids": true,
-                    "calibration": true,
-                    "ood_detection": true
-                }
+                "experts_analyzed": 0
             }
         },
-        "expert_flag": "use_existing_expert",
-        "selected_domain": "physics",
-        "decision_confidence": 0.3240235581400426
+        "expert_flag": "create_new_expert",
+        "selected_domain": "unknown",
+        "decision_confidence": 0.9
+    },
+    {
+        "sentence": "Covalent bonds form when atoms share electrons.",
+        "tags": [],
+        "timestamp": "2026-05-01T20:34:35.262404",
+        "routing_context": {
+            "primary_domain": null,
+            "selected_experts": [],
+            "candidate_domains": [],
+            "classification": "ATTRIBUTE_ONLY",
+            "coverage_met": true,
+            "create_new_expert": false,
+            "lens_scores": {
+                "semantic": {
+                    "aesthetics": 0.04539428353309632,
+                    "engine_spec": 0.026921972632408142,
+                    "astronomy": 0.021146062016487124
+                },
+                "spectral": {},
+                "confidence": {}
+            },
+            "fused_scores": {},
+            "variance": 0.0,
+            "explanation": "Attribute-heavy input detected; no core object domain evidence."
+        },
+        "phase2_result": {
+            "original_text": "Covalent bonds form when atoms share electrons.",
+            "final_decision": "create_new_expert",
+            "decision_confidence": 0.2,
+            "confidence_factors": {
+                "semantic_confidence": 0.346613,
+                "selection_confidence": 0.0,
+                "ensemble_confidence": 0.0,
+                "mean_calibrated_confidence": 0.0
+            },
+            "reasoning_chain": [
+                {
+                    "step": 1,
+                    "phase": "2.1",
+                    "name": "Input Normalization",
+                    "description": "Cleaned and validated input text",
+                    "details": {
+                        "is_valid": true,
+                        "language": "en",
+                        "tags_extracted": 0
+                    }
+                },
+                {
+                    "step": 2,
+                    "phase": "2.2",
+                    "name": "Semantic Understanding",
+                    "description": "Analyzed text semantics and domain relevance",
+                    "details": {
+                        "top_domain": "unknown",
+                        "entities_found": 1,
+                        "concepts_found": 5,
+                        "confidence": 0.346613
+                    }
+                },
+                {
+                    "step": 3,
+                    "phase": "2.3",
+                    "name": "Expert Selection",
+                    "description": "Selected 0 experts from 0 candidates",
+                    "details": {
+                        "strategy": "greedy",
+                        "selected": [],
+                        "confidence": 0.0
+                    }
+                },
+                {
+                    "step": 4,
+                    "phase": "2.4",
+                    "name": "Multi-Expert Inference",
+                    "description": "Collected predictions from selected experts",
+                    "details": {
+                        "ensemble_confidence": 0.0,
+                        "disagreement": 0.0,
+                        "outliers": 0
+                    }
+                },
+                {
+                    "step": 5,
+                    "phase": "2.5",
+                    "name": "Confidence Calibration",
+                    "description": "Calibrated predictions and quantified uncertainty",
+                    "details": {
+                        "method": "temperature_scaling",
+                        "temperature": 1.0,
+                        "total_uncertainty": 0.0
+                    }
+                }
+            ],
+            "reasoning_text": "Reasoning Chain:\n  Step 1 (Phase 2.1): Input Normalization\n    \u2192 Cleaned and validated input text\n    \u2022 is_valid: True\n    \u2022 language: en\n    \u2022 tags_extracted: 0\n  Step 2 (Phase 2.2): Semantic Understanding\n    \u2192 Analyzed text semantics and domain relevance\n    \u2022 top_domain: unknown\n    \u2022 entities_found: 1\n    \u2022 concepts_found: 5\n    \u2022 confidence: 0.346613\n  Step 3 (Phase 2.3): Expert Selection\n    \u2192 Selected 0 experts from 0 candidates\n    \u2022 strategy: greedy\n    \u2022 selected: []\n    \u2022 confidence: 0.0\n  Step 4 (Phase 2.4): Multi-Expert Inference\n    \u2192 Collected predictions from selected experts\n    \u2022 ensemble_confidence: 0.0\n    \u2022 disagreement: 0.0\n    \u2022 outliers: 0\n  Step 5 (Phase 2.5): Confidence Calibration\n    \u2192 Calibrated predictions and quantified uncertainty\n    \u2022 method: temperature_scaling\n    \u2022 temperature: 1.0\n    \u2022 total_uncertainty: 0.0",
+            "recommended_action": "create_new_expert",
+            "action_details": {
+                "action": "create_new_expert",
+                "suggested_domain": "general",
+                "confidence": 0.0,
+                "domains_analyzed": []
+            },
+            "selected_experts": [],
+            "primary_expert": null,
+            "expert_scores": {},
+            "expert_predictions": {},
+            "aggregated_prediction": null,
+            "total_uncertainty": 0.0,
+            "uncertainty_intervals": {},
+            "processing_time_ms": 0.07249600093928166,
+            "phases_executed": [
+                "2.1",
+                "2.2",
+                "2.3",
+                "2.4",
+                "2.5",
+                "2.6"
+            ],
+            "warnings": []
+        },
+        "phase3_result": {
+            "original_input": "",
+            "decision_result": {
+                "original_text": "Covalent bonds form when atoms share electrons.",
+                "final_decision": "create_new_expert",
+                "decision_confidence": 0.2,
+                "confidence_factors": {
+                    "semantic_confidence": 0.346613,
+                    "selection_confidence": 0.0,
+                    "ensemble_confidence": 0.0,
+                    "mean_calibrated_confidence": 0.0
+                },
+                "reasoning_chain": [
+                    {
+                        "step": 1,
+                        "phase": "2.1",
+                        "name": "Input Normalization",
+                        "description": "Cleaned and validated input text",
+                        "details": {
+                            "is_valid": true,
+                            "language": "en",
+                            "tags_extracted": 0
+                        }
+                    },
+                    {
+                        "step": 2,
+                        "phase": "2.2",
+                        "name": "Semantic Understanding",
+                        "description": "Analyzed text semantics and domain relevance",
+                        "details": {
+                            "top_domain": "unknown",
+                            "entities_found": 1,
+                            "concepts_found": 5,
+                            "confidence": 0.346613
+                        }
+                    },
+                    {
+                        "step": 3,
+                        "phase": "2.3",
+                        "name": "Expert Selection",
+                        "description": "Selected 0 experts from 0 candidates",
+                        "details": {
+                            "strategy": "greedy",
+                            "selected": [],
+                            "confidence": 0.0
+                        }
+                    },
+                    {
+                        "step": 4,
+                        "phase": "2.4",
+                        "name": "Multi-Expert Inference",
+                        "description": "Collected predictions from selected experts",
+                        "details": {
+                            "ensemble_confidence": 0.0,
+                            "disagreement": 0.0,
+                            "outliers": 0
+                        }
+                    },
+                    {
+                        "step": 5,
+                        "phase": "2.5",
+                        "name": "Confidence Calibration",
+                        "description": "Calibrated predictions and quantified uncertainty",
+                        "details": {
+                            "method": "temperature_scaling",
+                            "temperature": 1.0,
+                            "total_uncertainty": 0.0
+                        }
+                    }
+                ],
+                "reasoning_text": "Reasoning Chain:\n  Step 1 (Phase 2.1): Input Normalization\n    \u2192 Cleaned and validated input text\n    \u2022 is_valid: True\n    \u2022 language: en\n    \u2022 tags_extracted: 0\n  Step 2 (Phase 2.2): Semantic Understanding\n    \u2192 Analyzed text semantics and domain relevance\n    \u2022 top_domain: unknown\n    \u2022 entities_found: 1\n    \u2022 concepts_found: 5\n    \u2022 confidence: 0.346613\n  Step 3 (Phase 2.3): Expert Selection\n    \u2192 Selected 0 experts from 0 candidates\n    \u2022 strategy: greedy\n    \u2022 selected: []\n    \u2022 confidence: 0.0\n  Step 4 (Phase 2.4): Multi-Expert Inference\n    \u2192 Collected predictions from selected experts\n    \u2022 ensemble_confidence: 0.0\n    \u2022 disagreement: 0.0\n    \u2022 outliers: 0\n  Step 5 (Phase 2.5): Confidence Calibration\n    \u2192 Calibrated predictions and quantified uncertainty\n    \u2022 method: temperature_scaling\n    \u2022 temperature: 1.0\n    \u2022 total_uncertainty: 0.0",
+                "recommended_action": "create_new_expert",
+                "action_details": {
+                    "action": "create_new_expert",
+                    "suggested_domain": "general",
+                    "confidence": 0.0,
+                    "domains_analyzed": []
+                },
+                "selected_experts": [],
+                "primary_expert": null,
+                "expert_scores": {},
+                "expert_predictions": {},
+                "aggregated_prediction": null,
+                "total_uncertainty": 0.0,
+                "uncertainty_intervals": {},
+                "processing_time_ms": 0.07249600093928166,
+                "phases_executed": [
+                    "2.1",
+                    "2.2",
+                    "2.3",
+                    "2.4",
+                    "2.5",
+                    "2.6"
+                ],
+                "warnings": []
+            },
+            "action_result": null,
+            "feedback_data": null,
+            "total_latency_ms": 6604.426157002308,
+            "phase_latencies": {
+                "phase_3_validation": 6604.425655998057
+            },
+            "success": false,
+            "error_message": "Validation gate blocked action execution: complete_failure"
+        },
+        "expert_decision": {
+            "unified_decision": {
+                "decision_flag": "create_new_expert",
+                "selected_domain": "unknown",
+                "confidence_in_decision": 0.9,
+                "reasoning": [
+                    "No expert available for tags: []"
+                ]
+            },
+            "expert_analyses": {},
+            "system_summary": {
+                "experts_analyzed": 0
+            }
+        },
+        "expert_flag": "create_new_expert",
+        "selected_domain": "unknown",
+        "decision_confidence": 0.9
+    },
+    {
+        "sentence": "Glossy metallic red finish.",
+        "tags": [],
+        "timestamp": "2026-05-01T20:34:48.843092",
+        "routing_context": {
+            "primary_domain": "aesthetics",
+            "selected_experts": [
+                "aesthetics",
+                "astronomy",
+                "automobile"
+            ],
+            "candidate_domains": [
+                "aesthetics",
+                "astronomy",
+                "automobile"
+            ],
+            "classification": "AMBIGUOUS",
+            "coverage_met": false,
+            "create_new_expert": true,
+            "lens_scores": {
+                "semantic": {
+                    "aesthetics": 0.6469438552856446,
+                    "astronomy": 0.06969918012619018,
+                    "engine_spec": 0.059150487184524536
+                },
+                "spectral": {
+                    "astronomy": 0.5178680946709322,
+                    "automobile": 0.5184955296217514
+                },
+                "confidence": {
+                    "aesthetics": 0.5,
+                    "astronomy": 0.5,
+                    "engine_spec": 0.5
+                }
+            },
+            "fused_scores": {
+                "aesthetics": 0.391125,
+                "astronomy": 0.312618,
+                "automobile": 0.181473,
+                "engine_spec": 0.126618
+            },
+            "variance": 0.01093,
+            "explanation": "Base routing: Attribute-heavy input detected; no core object domain evidence. Ambiguous input; multiple domains with similar relevance: aesthetics, astronomy, automobile. Coverage threshold not met; new expert may be required."
+        },
+        "phase2_result": {
+            "original_text": "Glossy metallic red finish.",
+            "final_decision": "create_new_expert",
+            "decision_confidence": 0.2,
+            "confidence_factors": {
+                "semantic_confidence": 0.143057,
+                "selection_confidence": 0.0,
+                "ensemble_confidence": 0.0,
+                "mean_calibrated_confidence": 0.0
+            },
+            "reasoning_chain": [
+                {
+                    "step": 1,
+                    "phase": "2.1",
+                    "name": "Input Normalization",
+                    "description": "Cleaned and validated input text",
+                    "details": {
+                        "is_valid": true,
+                        "language": "en",
+                        "tags_extracted": 0
+                    }
+                },
+                {
+                    "step": 2,
+                    "phase": "2.2",
+                    "name": "Semantic Understanding",
+                    "description": "Analyzed text semantics and domain relevance",
+                    "details": {
+                        "top_domain": "unknown",
+                        "entities_found": 0,
+                        "concepts_found": 4,
+                        "confidence": 0.143057
+                    }
+                },
+                {
+                    "step": 3,
+                    "phase": "2.3",
+                    "name": "Expert Selection",
+                    "description": "Selected 0 experts from 0 candidates",
+                    "details": {
+                        "strategy": "greedy",
+                        "selected": [],
+                        "confidence": 0.0
+                    }
+                },
+                {
+                    "step": 4,
+                    "phase": "2.4",
+                    "name": "Multi-Expert Inference",
+                    "description": "Collected predictions from selected experts",
+                    "details": {
+                        "ensemble_confidence": 0.0,
+                        "disagreement": 0.0,
+                        "outliers": 0
+                    }
+                },
+                {
+                    "step": 5,
+                    "phase": "2.5",
+                    "name": "Confidence Calibration",
+                    "description": "Calibrated predictions and quantified uncertainty",
+                    "details": {
+                        "method": "temperature_scaling",
+                        "temperature": 1.0,
+                        "total_uncertainty": 0.0
+                    }
+                }
+            ],
+            "reasoning_text": "Reasoning Chain:\n  Step 1 (Phase 2.1): Input Normalization\n    \u2192 Cleaned and validated input text\n    \u2022 is_valid: True\n    \u2022 language: en\n    \u2022 tags_extracted: 0\n  Step 2 (Phase 2.2): Semantic Understanding\n    \u2192 Analyzed text semantics and domain relevance\n    \u2022 top_domain: unknown\n    \u2022 entities_found: 0\n    \u2022 concepts_found: 4\n    \u2022 confidence: 0.143057\n  Step 3 (Phase 2.3): Expert Selection\n    \u2192 Selected 0 experts from 0 candidates\n    \u2022 strategy: greedy\n    \u2022 selected: []\n    \u2022 confidence: 0.0\n  Step 4 (Phase 2.4): Multi-Expert Inference\n    \u2192 Collected predictions from selected experts\n    \u2022 ensemble_confidence: 0.0\n    \u2022 disagreement: 0.0\n    \u2022 outliers: 0\n  Step 5 (Phase 2.5): Confidence Calibration\n    \u2192 Calibrated predictions and quantified uncertainty\n    \u2022 method: temperature_scaling\n    \u2022 temperature: 1.0\n    \u2022 total_uncertainty: 0.0",
+            "recommended_action": "create_new_expert",
+            "action_details": {
+                "action": "create_new_expert",
+                "suggested_domain": "general",
+                "confidence": 0.0,
+                "domains_analyzed": []
+            },
+            "selected_experts": [],
+            "primary_expert": null,
+            "expert_scores": {},
+            "expert_predictions": {},
+            "aggregated_prediction": null,
+            "total_uncertainty": 0.0,
+            "uncertainty_intervals": {},
+            "processing_time_ms": 0.0742090014682617,
+            "phases_executed": [
+                "2.1",
+                "2.2",
+                "2.3",
+                "2.4",
+                "2.5",
+                "2.6"
+            ],
+            "warnings": []
+        },
+        "phase3_result": {
+            "original_input": "",
+            "decision_result": {
+                "original_text": "Glossy metallic red finish.",
+                "final_decision": "create_new_expert",
+                "decision_confidence": 0.2,
+                "confidence_factors": {
+                    "semantic_confidence": 0.143057,
+                    "selection_confidence": 0.0,
+                    "ensemble_confidence": 0.0,
+                    "mean_calibrated_confidence": 0.0
+                },
+                "reasoning_chain": [
+                    {
+                        "step": 1,
+                        "phase": "2.1",
+                        "name": "Input Normalization",
+                        "description": "Cleaned and validated input text",
+                        "details": {
+                            "is_valid": true,
+                            "language": "en",
+                            "tags_extracted": 0
+                        }
+                    },
+                    {
+                        "step": 2,
+                        "phase": "2.2",
+                        "name": "Semantic Understanding",
+                        "description": "Analyzed text semantics and domain relevance",
+                        "details": {
+                            "top_domain": "unknown",
+                            "entities_found": 0,
+                            "concepts_found": 4,
+                            "confidence": 0.143057
+                        }
+                    },
+                    {
+                        "step": 3,
+                        "phase": "2.3",
+                        "name": "Expert Selection",
+                        "description": "Selected 0 experts from 0 candidates",
+                        "details": {
+                            "strategy": "greedy",
+                            "selected": [],
+                            "confidence": 0.0
+                        }
+                    },
+                    {
+                        "step": 4,
+                        "phase": "2.4",
+                        "name": "Multi-Expert Inference",
+                        "description": "Collected predictions from selected experts",
+                        "details": {
+                            "ensemble_confidence": 0.0,
+                            "disagreement": 0.0,
+                            "outliers": 0
+                        }
+                    },
+                    {
+                        "step": 5,
+                        "phase": "2.5",
+                        "name": "Confidence Calibration",
+                        "description": "Calibrated predictions and quantified uncertainty",
+                        "details": {
+                            "method": "temperature_scaling",
+                            "temperature": 1.0,
+                            "total_uncertainty": 0.0
+                        }
+                    }
+                ],
+                "reasoning_text": "Reasoning Chain:\n  Step 1 (Phase 2.1): Input Normalization\n    \u2192 Cleaned and validated input text\n    \u2022 is_valid: True\n    \u2022 language: en\n    \u2022 tags_extracted: 0\n  Step 2 (Phase 2.2): Semantic Understanding\n    \u2192 Analyzed text semantics and domain relevance\n    \u2022 top_domain: unknown\n    \u2022 entities_found: 0\n    \u2022 concepts_found: 4\n    \u2022 confidence: 0.143057\n  Step 3 (Phase 2.3): Expert Selection\n    \u2192 Selected 0 experts from 0 candidates\n    \u2022 strategy: greedy\n    \u2022 selected: []\n    \u2022 confidence: 0.0\n  Step 4 (Phase 2.4): Multi-Expert Inference\n    \u2192 Collected predictions from selected experts\n    \u2022 ensemble_confidence: 0.0\n    \u2022 disagreement: 0.0\n    \u2022 outliers: 0\n  Step 5 (Phase 2.5): Confidence Calibration\n    \u2192 Calibrated predictions and quantified uncertainty\n    \u2022 method: temperature_scaling\n    \u2022 temperature: 1.0\n    \u2022 total_uncertainty: 0.0",
+                "recommended_action": "create_new_expert",
+                "action_details": {
+                    "action": "create_new_expert",
+                    "suggested_domain": "general",
+                    "confidence": 0.0,
+                    "domains_analyzed": []
+                },
+                "selected_experts": [],
+                "primary_expert": null,
+                "expert_scores": {},
+                "expert_predictions": {},
+                "aggregated_prediction": null,
+                "total_uncertainty": 0.0,
+                "uncertainty_intervals": {},
+                "processing_time_ms": 0.0742090014682617,
+                "phases_executed": [
+                    "2.1",
+                    "2.2",
+                    "2.3",
+                    "2.4",
+                    "2.5",
+                    "2.6"
+                ],
+                "warnings": []
+            },
+            "action_result": null,
+            "feedback_data": null,
+            "total_latency_ms": 6654.480588000297,
+            "phase_latencies": {
+                "phase_3_validation": 6654.479947002983
+            },
+            "success": false,
+            "error_message": "Validation gate blocked action execution: complete_failure"
+        },
+        "expert_decision": {
+            "unified_decision": {
+                "decision_flag": "create_new_expert",
+                "selected_domain": "unknown",
+                "confidence_in_decision": 0.9,
+                "reasoning": [
+                    "No expert available for tags: []"
+                ]
+            },
+            "expert_analyses": {},
+            "system_summary": {
+                "experts_analyzed": 0
+            }
+        },
+        "expert_flag": "create_new_expert",
+        "selected_domain": "unknown",
+        "decision_confidence": 0.9
+    },
+    {
+        "sentence": "Photosynthesis occurs in plants.",
+        "tags": [],
+        "timestamp": "2026-05-01T20:35:01.847070",
+        "routing_context": {
+            "primary_domain": null,
+            "selected_experts": [],
+            "candidate_domains": [],
+            "classification": "ATTRIBUTE_ONLY",
+            "coverage_met": true,
+            "create_new_expert": false,
+            "lens_scores": {
+                "semantic": {
+                    "astronomy": 0.17295641899108888,
+                    "engine_spec": 0.06376739144325257,
+                    "automobile": 0.03479907214641571
+                },
+                "spectral": {},
+                "confidence": {}
+            },
+            "fused_scores": {},
+            "variance": 0.0,
+            "explanation": "Attribute-heavy input detected; no core object domain evidence."
+        },
+        "phase2_result": {
+            "original_text": "Photosynthesis occurs in plants.",
+            "final_decision": "create_new_expert",
+            "decision_confidence": 0.2,
+            "confidence_factors": {
+                "semantic_confidence": 0.18153,
+                "selection_confidence": 0.0,
+                "ensemble_confidence": 0.0,
+                "mean_calibrated_confidence": 0.0
+            },
+            "reasoning_chain": [
+                {
+                    "step": 1,
+                    "phase": "2.1",
+                    "name": "Input Normalization",
+                    "description": "Cleaned and validated input text",
+                    "details": {
+                        "is_valid": true,
+                        "language": "en",
+                        "tags_extracted": 0
+                    }
+                },
+                {
+                    "step": 2,
+                    "phase": "2.2",
+                    "name": "Semantic Understanding",
+                    "description": "Analyzed text semantics and domain relevance",
+                    "details": {
+                        "top_domain": "unknown",
+                        "entities_found": 0,
+                        "concepts_found": 3,
+                        "confidence": 0.18153
+                    }
+                },
+                {
+                    "step": 3,
+                    "phase": "2.3",
+                    "name": "Expert Selection",
+                    "description": "Selected 0 experts from 0 candidates",
+                    "details": {
+                        "strategy": "greedy",
+                        "selected": [],
+                        "confidence": 0.0
+                    }
+                },
+                {
+                    "step": 4,
+                    "phase": "2.4",
+                    "name": "Multi-Expert Inference",
+                    "description": "Collected predictions from selected experts",
+                    "details": {
+                        "ensemble_confidence": 0.0,
+                        "disagreement": 0.0,
+                        "outliers": 0
+                    }
+                },
+                {
+                    "step": 5,
+                    "phase": "2.5",
+                    "name": "Confidence Calibration",
+                    "description": "Calibrated predictions and quantified uncertainty",
+                    "details": {
+                        "method": "temperature_scaling",
+                        "temperature": 1.0,
+                        "total_uncertainty": 0.0
+                    }
+                }
+            ],
+            "reasoning_text": "Reasoning Chain:\n  Step 1 (Phase 2.1): Input Normalization\n    \u2192 Cleaned and validated input text\n    \u2022 is_valid: True\n    \u2022 language: en\n    \u2022 tags_extracted: 0\n  Step 2 (Phase 2.2): Semantic Understanding\n    \u2192 Analyzed text semantics and domain relevance\n    \u2022 top_domain: unknown\n    \u2022 entities_found: 0\n    \u2022 concepts_found: 3\n    \u2022 confidence: 0.18153\n  Step 3 (Phase 2.3): Expert Selection\n    \u2192 Selected 0 experts from 0 candidates\n    \u2022 strategy: greedy\n    \u2022 selected: []\n    \u2022 confidence: 0.0\n  Step 4 (Phase 2.4): Multi-Expert Inference\n    \u2192 Collected predictions from selected experts\n    \u2022 ensemble_confidence: 0.0\n    \u2022 disagreement: 0.0\n    \u2022 outliers: 0\n  Step 5 (Phase 2.5): Confidence Calibration\n    \u2192 Calibrated predictions and quantified uncertainty\n    \u2022 method: temperature_scaling\n    \u2022 temperature: 1.0\n    \u2022 total_uncertainty: 0.0",
+            "recommended_action": "create_new_expert",
+            "action_details": {
+                "action": "create_new_expert",
+                "suggested_domain": "general",
+                "confidence": 0.0,
+                "domains_analyzed": []
+            },
+            "selected_experts": [],
+            "primary_expert": null,
+            "expert_scores": {},
+            "expert_predictions": {},
+            "aggregated_prediction": null,
+            "total_uncertainty": 0.0,
+            "uncertainty_intervals": {},
+            "processing_time_ms": 0.07074299719533883,
+            "phases_executed": [
+                "2.1",
+                "2.2",
+                "2.3",
+                "2.4",
+                "2.5",
+                "2.6"
+            ],
+            "warnings": []
+        },
+        "phase3_result": {
+            "original_input": "",
+            "decision_result": {
+                "original_text": "Photosynthesis occurs in plants.",
+                "final_decision": "create_new_expert",
+                "decision_confidence": 0.2,
+                "confidence_factors": {
+                    "semantic_confidence": 0.18153,
+                    "selection_confidence": 0.0,
+                    "ensemble_confidence": 0.0,
+                    "mean_calibrated_confidence": 0.0
+                },
+                "reasoning_chain": [
+                    {
+                        "step": 1,
+                        "phase": "2.1",
+                        "name": "Input Normalization",
+                        "description": "Cleaned and validated input text",
+                        "details": {
+                            "is_valid": true,
+                            "language": "en",
+                            "tags_extracted": 0
+                        }
+                    },
+                    {
+                        "step": 2,
+                        "phase": "2.2",
+                        "name": "Semantic Understanding",
+                        "description": "Analyzed text semantics and domain relevance",
+                        "details": {
+                            "top_domain": "unknown",
+                            "entities_found": 0,
+                            "concepts_found": 3,
+                            "confidence": 0.18153
+                        }
+                    },
+                    {
+                        "step": 3,
+                        "phase": "2.3",
+                        "name": "Expert Selection",
+                        "description": "Selected 0 experts from 0 candidates",
+                        "details": {
+                            "strategy": "greedy",
+                            "selected": [],
+                            "confidence": 0.0
+                        }
+                    },
+                    {
+                        "step": 4,
+                        "phase": "2.4",
+                        "name": "Multi-Expert Inference",
+                        "description": "Collected predictions from selected experts",
+                        "details": {
+                            "ensemble_confidence": 0.0,
+                            "disagreement": 0.0,
+                            "outliers": 0
+                        }
+                    },
+                    {
+                        "step": 5,
+                        "phase": "2.5",
+                        "name": "Confidence Calibration",
+                        "description": "Calibrated predictions and quantified uncertainty",
+                        "details": {
+                            "method": "temperature_scaling",
+                            "temperature": 1.0,
+                            "total_uncertainty": 0.0
+                        }
+                    }
+                ],
+                "reasoning_text": "Reasoning Chain:\n  Step 1 (Phase 2.1): Input Normalization\n    \u2192 Cleaned and validated input text\n    \u2022 is_valid: True\n    \u2022 language: en\n    \u2022 tags_extracted: 0\n  Step 2 (Phase 2.2): Semantic Understanding\n    \u2192 Analyzed text semantics and domain relevance\n    \u2022 top_domain: unknown\n    \u2022 entities_found: 0\n    \u2022 concepts_found: 3\n    \u2022 confidence: 0.18153\n  Step 3 (Phase 2.3): Expert Selection\n    \u2192 Selected 0 experts from 0 candidates\n    \u2022 strategy: greedy\n    \u2022 selected: []\n    \u2022 confidence: 0.0\n  Step 4 (Phase 2.4): Multi-Expert Inference\n    \u2192 Collected predictions from selected experts\n    \u2022 ensemble_confidence: 0.0\n    \u2022 disagreement: 0.0\n    \u2022 outliers: 0\n  Step 5 (Phase 2.5): Confidence Calibration\n    \u2192 Calibrated predictions and quantified uncertainty\n    \u2022 method: temperature_scaling\n    \u2022 temperature: 1.0\n    \u2022 total_uncertainty: 0.0",
+                "recommended_action": "create_new_expert",
+                "action_details": {
+                    "action": "create_new_expert",
+                    "suggested_domain": "general",
+                    "confidence": 0.0,
+                    "domains_analyzed": []
+                },
+                "selected_experts": [],
+                "primary_expert": null,
+                "expert_scores": {},
+                "expert_predictions": {},
+                "aggregated_prediction": null,
+                "total_uncertainty": 0.0,
+                "uncertainty_intervals": {},
+                "processing_time_ms": 0.07074299719533883,
+                "phases_executed": [
+                    "2.1",
+                    "2.2",
+                    "2.3",
+                    "2.4",
+                    "2.5",
+                    "2.6"
+                ],
+                "warnings": []
+            },
+            "action_result": null,
+            "feedback_data": null,
+            "total_latency_ms": 6425.884054999187,
+            "phase_latencies": {
+                "phase_3_validation": 6425.883615000203
+            },
+            "success": false,
+            "error_message": "Validation gate blocked action execution: complete_failure"
+        },
+        "expert_decision": {
+            "unified_decision": {
+                "decision_flag": "create_new_expert",
+                "selected_domain": "unknown",
+                "confidence_in_decision": 0.9,
+                "reasoning": [
+                    "No expert available for tags: []"
+                ]
+            },
+            "expert_analyses": {},
+            "system_summary": {
+                "experts_analyzed": 0
+            }
+        },
+        "expert_flag": "create_new_expert",
+        "selected_domain": "unknown",
+        "decision_confidence": 0.9
     }
 ]

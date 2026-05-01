@@ -116,3 +116,41 @@ class TestFullSystemPipeline:
         plan = pipeline.run_analysis_and_improvement()
         # May or may not return a plan depending on data
         assert plan is None or hasattr(plan, "plan_id")
+
+    def test_validation_gate_blocks_action(self):
+        pipeline = Phase3To5Pipeline()
+        pipeline._validator.analyzer.config.contradiction_threshold = 0.99
+        decision = FinalDecisionResult(
+            decision="Use existing medical expert",
+            confidence=0.9,
+            reasoning="",
+            action="use_existing",
+            expert_name="expert_medical",
+            domain="medical",
+            metadata={
+                "evidence": [
+                    "Unrelated evidence about chemistry reactions.",
+                ]
+            },
+        )
+        decision.final_decision = "Use existing medical expert"
+        pipeline._validator.analyzer.embedding_gen.generate_embedding = (
+            lambda text: __import__("numpy").zeros(
+                pipeline._validator.analyzer.config.embedding_dim,
+                dtype=__import__("numpy").float32,
+            )
+        )
+        pipeline._validator.analyzer.contradiction_detector.embedding_gen = (
+            pipeline._validator.analyzer.embedding_gen
+        )
+        pipeline._validator.analyzer.chain_validator.embedding_gen = (
+            pipeline._validator.analyzer.embedding_gen
+        )
+        decision.reasoning_chain = [
+            {"content": "Quantum wavefunctions describe electrons."},
+            {"content": "Entropy increases in closed systems."},
+        ]
+        result = pipeline.run_complete_pipeline(decision)
+        assert isinstance(result, SystemExecutionResult)
+        assert result.success is False
+        assert result.action_result is None

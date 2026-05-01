@@ -14,7 +14,7 @@ Example:
 
 import logging
 import time
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 from phase2_validation.config.phase2_config import Phase2Config
 from phase2_validation.phases.phase_2_1_input_normalization import (
@@ -81,6 +81,8 @@ class Phase2Pipeline:
         self,
         text: str,
         skip_cache: bool = False,
+        routing_context: Optional[Dict[str, Any]] = None,
+        available_experts: Optional[List[Dict[str, object]]] = None,
     ) -> FinalDecisionResult:
         """Execute the full Phase 2 pipeline for *text*.
 
@@ -88,6 +90,10 @@ class Phase2Pipeline:
             text: Raw input text to process.
             skip_cache: When True, notes the request to skip
                 caches (used after a complete failure).
+            routing_context: Optional Layer 0 routing context to
+                influence expert selection.
+            available_experts: Optional list of expert configs
+                passed to Phase 2.3 selection.
 
         Returns:
             :class:`FinalDecisionResult` with all phase outputs.
@@ -113,18 +119,30 @@ class Phase2Pipeline:
             )
 
             # Phase 2.3 — Expert Selection
+            experts = available_experts
+            if experts is None:
+                experts = self._selection_pipeline.build_default_experts(
+                    semantic_result
+                )
+
             selection_result = self._selection_pipeline.select_experts(
-                semantic_result
+                semantic_result,
+                experts,
+                routing_context=routing_context,
             )
 
             # Phase 2.4 — Multi-Expert Inference
-            inference_result = self._inference_pipeline.run_inference(
-                norm_result, semantic_result, selection_result
+            inference_result = self._inference_pipeline.infer(
+                text=norm_result.cleaned_text,
+                selected_experts=selection_result.selected_experts,
+                expert_configs=None,
             )
 
             # Phase 2.5 — Calibration
-            calibration_result = self._calibration_pipeline.calibrate(
-                inference_result
+            calibration_result = (
+                self._calibration_pipeline.calibrate_and_quantify(
+                    inference_result
+                )
             )
 
             # Phase 2.6 — Decision Synthesis

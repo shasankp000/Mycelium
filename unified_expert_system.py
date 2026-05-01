@@ -694,7 +694,11 @@ class UnifiedExpert:
             'ood_detection': {
                 'enabled': self.enable_ood_detection,
                 'methods': ['svm_distance', 'nn_distance', 'isolation_forest'] if self.enable_ood_detection else [],
-                'training_samples': len(self.training_embeddings) if hasattr(self, 'training_embeddings') else 0
+                'training_samples': (
+                    len(self.training_embeddings)
+                    if getattr(self, "training_embeddings", None) is not None
+                    else 0
+                )
             }
         }
     

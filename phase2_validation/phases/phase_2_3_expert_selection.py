@@ -25,7 +25,7 @@ Example:
 import logging
 import math
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from phase2_validation.config.phase2_config import Phase2Config
 from phase2_validation.utils.semantic_types import (
@@ -464,6 +464,7 @@ class ExpertSelectionPipeline:
         max_experts: int = 4,
         min_score: float = 0.3,
         strategy: str = "greedy",
+            routing_context: Optional[Dict[str, Any]] = None,
     ) -> ExpertSelectionResult:
         """Run the full expert selection pipeline.
 
@@ -482,59 +483,97 @@ class ExpertSelectionPipeline:
         warnings: List[str] = []
         cold_start = False
         ranked: List[RankedExpert] = []
+        ranked_all: List[RankedExpert] = []
+        ranked_for_selection: List[RankedExpert] = []
 
         try:
             # Step 1: rank
-            ranked = self._ranking_engine.rank_experts(
+            ranked_all = self._ranking_engine.rank_experts(
                 semantic_result, available_experts
             )
+            ranked = list(ranked_all)
+            ranked_for_selection = list(ranked_all)
 
-            # Step 2: filter
-            pool = self._pool_filter.filter_pool(
-                ranked, semantic_result
-            )
-            selected_pool = pool["selected"]
-            filtered_out = pool["filtered_out"]
-
-            # Step 3: apply thresholds
-            selected_pool = self._pool_filter.apply_thresholds(
-                selected_pool, min_score, max_experts
+            routing_class, preferred_domains = (
+                self._extract_routing_preferences(routing_context)
             )
 
-            # Step 4: detect cold start
-            if self._pool_filter.detect_no_suitable_expert(
-                ranked
-            ):
+            if routing_class == "NO_EXPERT_AVAILABLE":
                 cold_start = True
                 warnings.append(
-                    "No expert meets threshold; "
-                    "using cold-start fallback"
+                    "Layer 0 reported no expert available; "
+                    "skipping expert selection"
                 )
-                # Fallback: return top expert regardless
-                if ranked:
-                    selected_pool = [ranked[0]]
-                    filtered_out = ranked[1:]
-
-            # Step 5: prioritize / diversify
-            if strategy == "diversity":
-                selected_pool = (
-                    self._grouping.select_diverse_pool(
-                        selected_pool, max_experts
-                    )
-                )
+                selected_pool = []
+                filtered_out = ranked_all
             else:
-                selected_pool = (
-                    self._grouping.prioritize_experts(
-                        selected_pool, strategy
-                    )
-                )[:max_experts]
+                if preferred_domains:
+                    prioritized = [
+                        e for e in ranked_all
+                        if e.domain in preferred_domains
+                    ]
+                    if prioritized:
+                        ranked_for_selection = prioritized
+                        warnings.append(
+                            "Layer 0 routing prior applied to "
+                            "expert selection"
+                        )
+                    else:
+                        warnings.append(
+                            "Layer 0 routing prior did not match "
+                            "any experts; using semantic ranking"
+                        )
 
-            # Build filtered_out from ranked minus selected
-            selected_names = {e.name for e in selected_pool}
-            filtered_out = [
-                e for e in ranked
-                if e.name not in selected_names
-            ]
+                # Step 2: filter
+                pool = self._pool_filter.filter_pool(
+                    ranked_for_selection, semantic_result
+                )
+                selected_pool = pool["selected"]
+                filtered_out = pool["filtered_out"]
+
+                # Step 3: apply thresholds
+                selected_pool = self._pool_filter.apply_thresholds(
+                    selected_pool, min_score, max_experts
+                )
+
+                # Step 4: detect cold start
+                if self._pool_filter.detect_no_suitable_expert(
+                    ranked_for_selection
+                ):
+                    cold_start = True
+                    warnings.append(
+                        "No expert meets threshold; "
+                        "using cold-start fallback"
+                    )
+                    # Fallback: return top expert regardless
+                    if ranked_for_selection:
+                        selected_pool = [ranked_for_selection[0]]
+                        filtered_out = ranked_for_selection[1:]
+
+                # Step 5: prioritize / diversify
+                if selected_pool:
+                    if strategy == "diversity":
+                        selected_pool = (
+                            self._grouping.select_diverse_pool(
+                                selected_pool, max_experts
+                            )
+                        )
+                    else:
+                        selected_pool = (
+                            self._grouping.prioritize_experts(
+                                selected_pool, strategy
+                            )
+                        )[:max_experts]
+                elif ranked_for_selection:
+                    selected_pool = [ranked_for_selection[0]]
+                    filtered_out = ranked_for_selection[1:]
+
+                # Build filtered_out from ranked minus selected
+                selected_names = {e.name for e in selected_pool}
+                filtered_out = [
+                    e for e in ranked_all
+                    if e.name not in selected_names
+                ]
 
         except InvalidStrategyError:
             raise
@@ -567,6 +606,25 @@ class ExpertSelectionPipeline:
             cold_start_fallback_used=cold_start,
             warnings=warnings,
         )
+
+    @staticmethod
+    def build_default_experts(
+        semantic_result: SemanticResult,
+    ) -> List[Dict[str, object]]:
+        experts: List[Dict[str, object]] = []
+        domains = list(semantic_result.domain_relevance_scores.keys())
+        if not domains:
+            domains = list(semantic_result.ranked_domains)
+
+        for domain in domains:
+            if not domain:
+                continue
+            experts.append({
+                "name": f"expert_{domain}",
+                "domain": domain,
+            })
+
+        return experts
 
     def get_selection_justification(
         self,
@@ -617,3 +675,34 @@ class ExpertSelectionPipeline:
             selected
         )
         return min(avg, 1.0)
+
+    @staticmethod
+    def _extract_routing_preferences(
+        routing_context: Optional[Dict[str, Any]],
+    ) -> Tuple[Optional[str], List[str]]:
+        if not routing_context:
+            return None, []
+
+        classification = routing_context.get("classification")
+        preferred: List[str] = []
+
+        for key in ("selected_experts", "candidate_domains"):
+            values = routing_context.get(key) or []
+            if isinstance(values, list):
+                preferred.extend(
+                    [str(v) for v in values if v is not None]
+                )
+
+        primary = routing_context.get("primary_domain")
+        if primary:
+            preferred.append(str(primary))
+
+        deduped: List[str] = []
+        seen: set = set()
+        for item in preferred:
+            key = item.lower()
+            if key not in seen:
+                seen.add(key)
+                deduped.append(item)
+
+        return classification, deduped
