@@ -273,7 +273,7 @@ def run_mycelium_workflow(sentences: Sequence[str]) -> Tuple[List[Dict[str, Any]
         )
     else:
         embeddings = np.zeros((0, 0))
-        clusters = []
+        clusters = {}
 
     clustering_data = {
         "tags": unique_tags,
