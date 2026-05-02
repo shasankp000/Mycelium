@@ -266,10 +266,15 @@ def run_mycelium_workflow(sentences: Sequence[str]) -> Tuple[List[Dict[str, Any]
 
     # Step 3: Remove duplicates for clustering
     unique_tags = list(set(all_tags))
-    embeddings = embed_tags_transformer(unique_tags, model_name="all-mpnet-base-v2")
-    clusters = cluster_tags_transformer(
-        unique_tags, embeddings, similarity_threshold=0.5
-    )
+    if unique_tags:
+        embeddings = embed_tags_transformer(unique_tags, model_name="all-mpnet-base-v2")
+        clusters = cluster_tags_transformer(
+            unique_tags, embeddings, similarity_threshold=0.5
+        )
+    else:
+        embeddings = np.zeros((0, 0))
+        clusters = []
+
     clustering_data = {
         "tags": unique_tags,
         "clusters": clusters,
