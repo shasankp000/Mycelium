@@ -14,6 +14,7 @@ import layer_2_prototype
 from unified_expert_system import UnifiedExpertSystem
 from expert_filter import ExpertFilter
 from orchestration import combine_routing_and_expert_decisions
+from layer0.router import QuestionRouter
 
 class NumpyEncoder(json.JSONEncoder):
     """Custom JSON encoder for numpy types."""
@@ -67,11 +68,38 @@ def run_mycelium_workflow(sentences):
     all_sentence_data = []
     all_tags = []
     
+    # Initialize Layer0 router
+    print("Initializing Layer0 question router...")
+    question_router = QuestionRouter()
+    print("✅ Layer0 router initialized\n")
+
     for text in sentences:
         tags = extract_tags_llama(text)
         normalized_tags = normalize_tags(tags)
         timestamp = datetime.datetime.now().isoformat()
         temporal_layer.add_statement(text, normalized_tags, timestamp)
+
+        # Step 1a: Layer0 classification
+        layer0_result = question_router.route(text)
+        
+        # Short-circuit for non-REASONING_PIPELINE routes
+        if layer0_result.route != "REASONING_PIPELINE":
+            print(f"🚫 Layer0 route: {layer0_result.route.upper()}\n")
+            # Short-circuit: produce minimal result
+            all_sentence_data.append({
+                "sentence": text,
+                "tags": normalized_tags,
+                "timestamp": timestamp,
+                "layer0_routing": _to_jsonable(layer0_result),
+                "multi_lens_routing": {},
+                "phase2_result": {},
+                "phase3_result": {},
+                "expert_decision": {},
+                "expert_flag": "refused",
+                "selected_domain": "unknown",
+                "decision_confidence": 0.0
+            })
+            continue
 
         routing_context = router.route(text)
         phase2_result = phase2_pipeline.run(
@@ -123,6 +151,10 @@ def run_mycelium_workflow(sentences):
         )
         selected_domain = expert_decision.selected_experts[0] if expert_decision.selected_experts else "unknown"
         confidence = expert_decision.expert_confidence
+    else:
+        flag = "use_existing_expert"
+        selected_domain = "unknown"
+        confidence = 0.0
         
         all_sentence_data.append({
             "sentence": text,
