@@ -29,6 +29,8 @@ from sklearn.covariance import EllipticEnvelope
 import warnings
 warnings.filterwarnings('ignore', category=UserWarning, module='sklearn')
 
+from core.types import ExpertDecisionResult, RoutingResult
+
 class UnifiedExpert:
     """
     Unified Expert with K-Medoids clustering, Calibration, and OOD detection.
@@ -963,7 +965,13 @@ class UnifiedExpertSystem:
             print(f"❌ Failed to initialize unified expert system: {e}")
             raise
     
-    def unified_decision_analysis(self, input_text, filtered_experts=None):
+    def unified_decision_analysis(
+        self,
+        input_text,
+        routing_result: RoutingResult = None,
+        filtered_experts=None,
+        return_legacy_dict: bool = True,
+    ):
         """
         Analyze input text with experts and return unified decision.
         
@@ -990,7 +998,32 @@ class UnifiedExpertSystem:
             }
         
         # Use the unified decision function with filtered experts
-        return make_unified_expert_decision(input_text, experts_to_use)
+        raw_result = make_unified_expert_decision(input_text, experts_to_use)
+
+        if return_legacy_dict:
+            return raw_result
+
+        decision = raw_result.get('unified_decision', {})
+        decision_flag = str(decision.get('decision_flag', 'create_new_expert'))
+        decision_map = {
+            'use_existing_expert': 'USE_EXISTING_EXPERT',
+            'create_new_patch': 'CREATE_NEW_PATCH',
+            'create_new_expert': 'CREATE_NEW_EXPERT',
+        }
+        selected_domain = decision.get('selected_domain')
+        selected_experts = [selected_domain] if selected_domain and selected_domain != 'unknown' else []
+
+        return ExpertDecisionResult(
+            decision_type=decision_map.get(decision_flag, 'CREATE_NEW_EXPERT'),
+            selected_experts=selected_experts,
+            expert_confidence=float(decision.get('confidence_in_decision', 0.0)),
+            ood_penalty=0.0,
+            is_ood=False,
+            metadata={
+                'raw_decision': raw_result,
+                'routing_result': routing_result.to_dict() if routing_result else None,
+            },
+        )
     
     def get_system_status(self):
         """Get status of all experts in the system."""

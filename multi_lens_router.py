@@ -33,6 +33,8 @@ import logging
 from typing import Dict, List, Optional, Any
 import sys
 
+from core.types import RoutingResult
+
 # Import tuning config (graceful fallback if not available)
 try:
     from tuning_config import (
@@ -154,7 +156,7 @@ class MultiLensRouter:
             except Exception as e:
                 logger.warning(f"Failed to initialize optimization selector: {e}")
 
-    def route(self, text: str) -> Dict[str, Any]:
+    def route(self, text: str) -> RoutingResult:
         """
         Full routing pipeline: Layer 1 → Spectral → Fusion → Optimization.
 
@@ -319,22 +321,27 @@ class MultiLensRouter:
                 create_new_expert,
             )
 
-            return {
-                "primary_domain": primary_domain,
-                "selected_experts": selected_experts,
-                "candidate_domains": candidate_domains,
-                "classification": final_classification,
-                "coverage_met": coverage_met,
-                "create_new_expert": create_new_expert,
-                "lens_scores": {
-                    "semantic": semantic_scores,
-                    "spectral": spectral_scores,
-                    "confidence": confidence_scores,
+            return RoutingResult(
+                classification=final_classification,
+                selected_domains=selected_experts,
+                primary_domain=primary_domain,
+                fusion_scores=fused_scores,
+                coverage=1.0 if coverage_met else 0.0,
+                create_new_expert=create_new_expert,
+                metadata={
+                    "selected_experts": selected_experts,
+                    "candidate_domains": candidate_domains,
+                    "coverage_met": coverage_met,
+                    "lens_scores": {
+                        "semantic": semantic_scores,
+                        "spectral": spectral_scores,
+                        "confidence": confidence_scores,
+                    },
+                    "fused_scores": fused_scores,
+                    "variance": round(variance, 6),
+                    "explanation": explanation,
                 },
-                "fused_scores": fused_scores,
-                "variance": round(variance, 6),
-                "explanation": explanation,
-            }
+            )
 
         except Exception as e:
             logger.error(f"Critical routing error: {e}")
@@ -345,45 +352,62 @@ class MultiLensRouter:
 
     # ============= HELPER METHODS =============
 
-    def _enrich_base_result(self, base_result: Dict) -> Dict[str, Any]:
+    def _enrich_base_result(self, base_result: Dict) -> RoutingResult:
         """Enrich base layer_1_prototype result with Phase 4 fields."""
         primary = base_result.get("primary_domain")
         selected = [primary] if primary else []
-        return {
-            "primary_domain": primary,
-            "selected_experts": selected,
-            "candidate_domains": selected,
-            "classification": base_result.get("classification", "NORMAL"),
-            "coverage_met": True,  # Base result assumed to be valid
-            "create_new_expert": False,
-            "lens_scores": {
-                "semantic": self._extract_semantic_scores(base_result),
-                "spectral": {},
-                "confidence": {d: 0.5 for d in selected},
+        fused_scores = {d: 0.5 for d in selected}
+        return RoutingResult(
+            classification=base_result.get("classification", "NORMAL"),
+            selected_domains=selected,
+            primary_domain=primary,
+            fusion_scores=fused_scores,
+            coverage=1.0,
+            create_new_expert=False,
+            metadata={
+                "selected_experts": selected,
+                "candidate_domains": selected,
+                "coverage_met": True,
+                "lens_scores": {
+                    "semantic": self._extract_semantic_scores(base_result),
+                    "spectral": {},
+                    "confidence": {d: 0.5 for d in selected},
+                },
+                "fused_scores": fused_scores,
+                "variance": 0.0,
+                "explanation": base_result.get(
+                    "explanation", "Returned from Layer 1 baseline."
+                ),
             },
-            "fused_scores": {d: 0.5 for d in selected},
-            "variance": 0.0,
-            "explanation": base_result.get("explanation", "Returned from Layer 1 baseline."),
-        }
+        )
 
     def _fallback_result(
         self,
         explanation: str,
         classification: str = "NO_EXPERT_AVAILABLE",
-    ) -> Dict[str, Any]:
+    ) -> RoutingResult:
         """Return a safe fallback result."""
-        return {
-            "primary_domain": None,
-            "selected_experts": [],
-            "candidate_domains": [],
-            "classification": classification,
-            "coverage_met": False,
-            "create_new_expert": True,
-            "lens_scores": {"semantic": {}, "spectral": {}, "confidence": {}},
-            "fused_scores": {},
-            "variance": 0.0,
-            "explanation": explanation,
-        }
+        return RoutingResult(
+            classification=classification,
+            selected_domains=[],
+            primary_domain=None,
+            fusion_scores={},
+            coverage=0.0,
+            create_new_expert=True,
+            metadata={
+                "selected_experts": [],
+                "candidate_domains": [],
+                "coverage_met": False,
+                "lens_scores": {
+                    "semantic": {},
+                    "spectral": {},
+                    "confidence": {},
+                },
+                "fused_scores": {},
+                "variance": 0.0,
+                "explanation": explanation,
+            },
+        )
 
     @staticmethod
     def _extract_semantic_scores(base_result: Dict) -> Dict[str, float]:

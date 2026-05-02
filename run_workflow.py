@@ -13,6 +13,7 @@ from layer_2_prototype import get_expert_model
 import layer_2_prototype
 from unified_expert_system import UnifiedExpertSystem
 from expert_filter import ExpertFilter
+from orchestration import combine_routing_and_expert_decisions
 
 class NumpyEncoder(json.JSONEncoder):
     """Custom JSON encoder for numpy types."""
@@ -80,43 +81,57 @@ def run_mycelium_workflow(sentences):
             phase2_result
         )
         
-        # Filter experts by tags using semantic clustering
+        # Filter experts using routing-selected domains first, then semantic tags
         relevant_domains = []
-        for tag in normalized_tags:
-            domain = expert_filter.normalize_domain(tag)
-            if domain:
-                relevant_domains.append(domain)
-        relevant_domains = list(set(relevant_domains))  # Remove duplicates
-        
+        for domain in routing_context.selected_domains:
+            normalized = expert_filter.normalize_domain(str(domain))
+            if normalized:
+                relevant_domains.append(normalized)
+
         if not relevant_domains:
-            # No expert for this domain
-            expert_decision = {
-                'unified_decision': {
-                    'decision_flag': 'create_new_expert',
-                    'selected_domain': 'unknown',
-                    'confidence_in_decision': 0.9,
-                    'reasoning': [f"No expert available for tags: {normalized_tags}"]
-                },
-                'expert_analyses': {},
-                'system_summary': {'experts_analyzed': 0}
-            }
-        else:
-            # Evaluate only relevant experts
-            filtered_experts = {domain: expert_system.experts[domain] for domain in relevant_domains if domain in expert_system.experts}
-            expert_decision = expert_system.unified_decision_analysis(text, filtered_experts=filtered_experts)
-        
-        flag = expert_decision['unified_decision']['decision_flag']
-        selected_domain = expert_decision['unified_decision']['selected_domain']
-        confidence = expert_decision['unified_decision']['confidence_in_decision']
+            for tag in normalized_tags:
+                domain = expert_filter.normalize_domain(tag)
+                if domain:
+                    relevant_domains.append(domain)
+
+        relevant_domains = list(set(relevant_domains))
+        filtered_experts = {
+            domain: expert_system.experts[domain]
+            for domain in relevant_domains
+            if domain in expert_system.experts
+        }
+
+        expert_decision = expert_system.unified_decision_analysis(
+            text,
+            routing_result=routing_context,
+            filtered_experts=filtered_experts,
+            return_legacy_dict=False,
+        )
+        expert_decision = combine_routing_and_expert_decisions(
+            routing_context,
+            expert_decision,
+        )
+
+        decision_to_flag = {
+            "USE_EXISTING_EXPERT": "use_existing_expert",
+            "CREATE_NEW_PATCH": "create_new_patch",
+            "CREATE_NEW_EXPERT": "create_new_expert",
+        }
+        flag = decision_to_flag.get(
+            expert_decision.decision_type,
+            "create_new_expert",
+        )
+        selected_domain = expert_decision.selected_experts[0] if expert_decision.selected_experts else "unknown"
+        confidence = expert_decision.expert_confidence
         
         all_sentence_data.append({
             "sentence": text,
             "tags": normalized_tags,
             "timestamp": timestamp,
-            "routing_context": routing_context,
+            "routing_context": _to_jsonable(routing_context),
             "phase2_result": _to_jsonable(phase2_result),
             "phase3_result": _to_jsonable(phase3_result),
-            "expert_decision": expert_decision,
+            "expert_decision": _to_jsonable(expert_decision),
             "expert_flag": flag,
             "selected_domain": selected_domain,
             "decision_confidence": confidence
