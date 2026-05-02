@@ -16,8 +16,10 @@ from expert_filter import ExpertFilter
 from orchestration import combine_routing_and_expert_decisions
 from layer0.router import QuestionRouter
 
+
 class NumpyEncoder(json.JSONEncoder):
     """Custom JSON encoder for numpy types."""
+
     def default(self, obj):
         if isinstance(obj, np.integer):
             return int(obj)
@@ -43,6 +45,7 @@ def _to_jsonable(obj):
         return _to_jsonable(vars(obj))
     return obj
 
+
 def run_mycelium_workflow(sentences):
     phase2_pipeline = Phase2Pipeline()
     phase3_pipeline = Phase3To5Pipeline()
@@ -52,22 +55,22 @@ def run_mycelium_workflow(sentences):
     print("Initializing unified expert system (K-Medoids + Calibration + OOD Detection)...")
     expert_system = UnifiedExpertSystem()
     print(f"Initialized unified expert system with {len(expert_system.experts)} experts\n")
-    
+
     # Initialize expert filter for tag-based routing (with auto-clustering)
     print("Initializing expert filter with automatic semantic clustering...")
-    domain_list = ['music', 'physics', 'chemistry', 'medical']
+    domain_list = ["music", "physics", "chemistry", "medical"]
     expert_filter = ExpertFilter(
         domain_list=domain_list,
         use_auto_clustering=True,
-        similarity_threshold=0.45
+        similarity_threshold=0.45,
     )
     print("✅ Expert filter initialized with auto-clustering\n")
-    
+
     # Step 1: Tag generation and normalization
     temporal_layer = TemporalLocalityLayer(max_size=50, time_window_hours=24)
     all_sentence_data = []
     all_tags = []
-    
+
     # Initialize Layer0 router
     print("Initializing Layer0 question router...")
     question_router = QuestionRouter()
@@ -81,37 +84,36 @@ def run_mycelium_workflow(sentences):
 
         # Step 1a: Layer0 classification
         layer0_result = question_router.route(text)
-        
+
         # Short-circuit for non-REASONING_PIPELINE routes
         if layer0_result.route != "REASONING_PIPELINE":
             print(f"🚫 Layer0 route: {layer0_result.route.upper()}\n")
             # Short-circuit: produce minimal result
-            all_sentence_data.append({
-                "sentence": text,
-                "tags": normalized_tags,
-                "timestamp": timestamp,
-                "layer0_routing": _to_jsonable(layer0_result),
-                "multi_lens_routing": {},
-                "phase2_result": {},
-                "phase3_result": {},
-                "expert_decision": {},
-                "expert_flag": "refused",
-                "selected_domain": "unknown",
-                "decision_confidence": 0.0
-            })
+            all_sentence_data.append(
+                {
+                    "sentence": text,
+                    "tags": normalized_tags,
+                    "timestamp": timestamp,
+                    "layer0_routing": _to_jsonable(layer0_result),
+                    "routing_context": {},
+                    "phase2_result": {},
+                    "phase3_result": {},
+                    "expert_decision": {},
+                    "expert_flag": "refused",
+                    "selected_domain": "unknown",
+                    "decision_confidence": 0.0,
+                }
+            )
             continue
 
+        # Routing and Phase 2/3 processing
         routing_context = router.route(text)
-        phase2_result = phase2_pipeline.run(
-            text, routing_context=routing_context
-        )
-        phase3_result = phase3_pipeline.run_complete_pipeline(
-            phase2_result
-        )
-        
+        phase2_result = phase2_pipeline.run(text, routing_context=routing_context)
+        phase3_result = phase3_pipeline.run_complete_pipeline(phase2_result)
+
         # Filter experts using routing-selected domains first, then semantic tags
         relevant_domains = []
-        for domain in routing_context.selected_domains:
+        for domain in getattr(routing_context, "selected_domains", []):
             normalized = expert_filter.normalize_domain(str(domain))
             if normalized:
                 relevant_domains.append(normalized)
@@ -145,83 +147,102 @@ def run_mycelium_workflow(sentences):
             "CREATE_NEW_PATCH": "create_new_patch",
             "CREATE_NEW_EXPERT": "create_new_expert",
         }
-        flag = decision_to_flag.get(
-            expert_decision.decision_type,
-            "create_new_expert",
+        flag = decision_to_flag.get(expert_decision.decision_type, "create_new_expert")
+        selected_domain = (
+            expert_decision.selected_experts[0]
+            if expert_decision.selected_experts
+            else "unknown"
         )
-        selected_domain = expert_decision.selected_experts[0] if expert_decision.selected_experts else "unknown"
-        confidence = expert_decision.expert_confidence
-    else:
-        flag = "use_existing_expert"
-        selected_domain = "unknown"
-        confidence = 0.0
-        
-        all_sentence_data.append({
-            "sentence": text,
-            "tags": normalized_tags,
-            "timestamp": timestamp,
-            "routing_context": _to_jsonable(routing_context),
-            "phase2_result": _to_jsonable(phase2_result),
-            "phase3_result": _to_jsonable(phase3_result),
-            "expert_decision": _to_jsonable(expert_decision),
-            "expert_flag": flag,
-            "selected_domain": selected_domain,
-            "decision_confidence": confidence
-        })
+        confidence = float(getattr(expert_decision, "expert_confidence", 0.0))
+
+        # Record full pipeline data for this sentence
+        all_sentence_data.append(
+            {
+                "sentence": text,
+                "tags": normalized_tags,
+                "timestamp": timestamp,
+                "layer0_routing": _to_jsonable(layer0_result),
+                "routing_context": _to_jsonable(routing_context),
+                "phase2_result": _to_jsonable(phase2_result),
+                "phase3_result": _to_jsonable(phase3_result),
+                "expert_decision": _to_jsonable(expert_decision),
+                "expert_flag": flag,
+                "selected_domain": selected_domain,
+                "decision_confidence": confidence,
+            }
+        )
         all_tags.extend(normalized_tags)
-        print(f"Sentence: {text}\nTags: {normalized_tags}\nTimestamp: {timestamp}\nUnified Decision: {flag} (Domain: {selected_domain}, Confidence: {confidence:.3f})\n")
-    
+
+        print(
+            "Sentence: {sent}\nTags: {tags}\nTimestamp: {ts}\n" "Unified Decision: {flag} (Domain: {dom}, Confidence: {conf:.3f})\n".format(
+                sent=text,
+                tags=normalized_tags,
+                ts=timestamp,
+                flag=flag,
+                dom=selected_domain,
+                conf=confidence,
+            )
+        )
+
     # Step 2: Save all sentences, tags, and timestamps to JSON
     with open("evaluation_data/sentence_tags.json", "w", encoding="utf-8") as f:
         json.dump(all_sentence_data, f, indent=4, cls=NumpyEncoder)
-    
+
     # Save expert evaluation results separately
     expert_evaluation_results = {
         "evaluation_timestamp": datetime.datetime.now().isoformat(),
         "sentences_evaluated": len(all_sentence_data),
         "flag_summary": {},
-        "detailed_results": all_sentence_data
+        "detailed_results": all_sentence_data,
     }
-    
+
     # Count flag occurrences
     for entry in all_sentence_data:
         flag = entry["expert_flag"]
-        expert_evaluation_results["flag_summary"][flag] = expert_evaluation_results["flag_summary"].get(flag, 0) + 1
-    
+        expert_evaluation_results["flag_summary"][flag] = (
+            expert_evaluation_results["flag_summary"].get(flag, 0) + 1
+        )
+
     with open("evaluation_data/expert_evaluation_results.json", "w", encoding="utf-8") as f:
         json.dump(expert_evaluation_results, f, indent=4, cls=NumpyEncoder)
     print("Expert evaluation results saved to expert_evaluation_results.json")
-    
+
     # Step 3: Remove duplicates for clustering
     unique_tags = list(set(all_tags))
     embeddings = embed_tags_transformer(unique_tags, model_name="all-mpnet-base-v2")
-    clusters = cluster_tags_transformer(unique_tags, embeddings, similarity_threshold=0.5)
+    clusters = cluster_tags_transformer(
+        unique_tags, embeddings, similarity_threshold=0.5
+    )
     clustering_data = {
         "tags": unique_tags,
-        "clusters": clusters
+        "clusters": clusters,
     }
     with open("evaluation_data/tag_clusters_transformer.json", "w", encoding="utf-8") as f:
         json.dump(clustering_data, f, indent=4)
     print("Clusters saved to tag_clusters_transformer.json:", clusters)
-    
+
     # Step 4: Temporal and spatial locality analysis
     recent_statements = temporal_layer.get_recent_statements(time_limit_hours=1)
     spatial_analysis = analyze_spatial_locality(recent_statements, clusters)
-    patch_assignment = assign_domain_patch(spatial_analysis, similarity_threshold=0.3)
+    patch_assignment = assign_domain_patch(
+        spatial_analysis, similarity_threshold=0.3
+    )
     frequent_tags = temporal_layer.get_frequent_tags(min_frequency=2)
     temporal_analysis_data = {
         "recent_statements_count": len(recent_statements),
         "spatial_analysis": spatial_analysis,
         "patch_assignment": patch_assignment,
         "frequent_tags": frequent_tags,
-        "analysis_timestamp": datetime.datetime.now().isoformat()
+        "analysis_timestamp": datetime.datetime.now().isoformat(),
     }
     with open("evaluation_data/temporal_analysis.json", "w", encoding="utf-8") as f:
         json.dump(temporal_analysis_data, f, indent=4)
     print("Temporal analysis saved to temporal_analysis.json")
 
+
 import pandas as pd
 import random
+
 
 def _is_lfs_pointer(csv_path: str) -> bool:
     with open(csv_path, "r", encoding="utf-8") as csv_file:
@@ -274,6 +295,7 @@ def get_random_samples():
 
     random.shuffle(all_samples)
     return all_samples
+
 
 if __name__ == "__main__":
     sentences = get_random_samples()
