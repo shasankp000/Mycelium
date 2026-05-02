@@ -1,10 +1,18 @@
 import json
 import datetime
-from dataclasses import asdict, is_dataclass
+from collections import Counter
+from dataclasses import asdict, dataclass, is_dataclass
+from typing import List, Dict, Any, Sequence, Tuple
+
 import numpy as np
 from layer_1_prototype import (
-    extract_tags_llama, normalize_tags, embed_tags_transformer, cluster_tags_transformer,
-    TemporalLocalityLayer, analyze_spatial_locality, assign_domain_patch
+    extract_tags_llama,
+    normalize_tags,
+    embed_tags_transformer,
+    cluster_tags_transformer,
+    TemporalLocalityLayer,
+    analyze_spatial_locality,
+    assign_domain_patch,
 )
 from multi_lens_router import MultiLensRouter
 from phase2_validation.pipeline import Phase2Pipeline
@@ -15,6 +23,7 @@ from unified_expert_system import UnifiedExpertSystem
 from expert_filter import ExpertFilter
 from orchestration import combine_routing_and_expert_decisions
 from layer0.router import QuestionRouter
+from tuning_config import ENABLE_LOGGING, LOG_SAMPLE_RATE
 
 
 class NumpyEncoder(json.JSONEncoder):
@@ -23,16 +32,16 @@ class NumpyEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, np.integer):
             return int(obj)
-        elif isinstance(obj, np.floating):
+        if isinstance(obj, np.floating):
             return float(obj)
-        elif isinstance(obj, np.ndarray):
+        if isinstance(obj, np.ndarray):
             return obj.tolist()
-        elif isinstance(obj, np.bool_):
+        if isinstance(obj, np.bool_):
             return bool(obj)
         return super().default(obj)
 
 
-def _to_jsonable(obj):
+def _to_jsonable(obj: Any) -> Any:
     if is_dataclass(obj):
         return asdict(obj)
     if isinstance(obj, dict):
@@ -46,7 +55,46 @@ def _to_jsonable(obj):
     return obj
 
 
-def run_mycelium_workflow(sentences):
+@dataclass
+class WorkflowMetrics:
+    """Lightweight observability for end-to-end runs.
+
+    This is intentionally simple so tests can assert on high-level behavior
+    without depending on internal implementation details.
+    """
+
+    layer0_routes: Counter = None
+    routing_classifications: Counter = None
+    expert_decisions: Counter = None
+    domains: Counter = None
+
+    def __post_init__(self) -> None:
+        self.layer0_routes = Counter() if self.layer0_routes is None else self.layer0_routes
+        self.routing_classifications = (
+            Counter()
+            if self.routing_classifications is None
+            else self.routing_classifications
+        )
+        self.expert_decisions = (
+            Counter() if self.expert_decisions is None else self.expert_decisions
+        )
+        self.domains = Counter() if self.domains is None else self.domains
+
+    def to_dict(self) -> Dict[str, Dict[str, int]]:
+        return {
+            "layer0_routes": dict(self.layer0_routes),
+            "routing_classifications": dict(self.routing_classifications),
+            "expert_decisions": dict(self.expert_decisions),
+            "domains": dict(self.domains),
+        }
+
+
+def run_mycelium_workflow(sentences: Sequence[str]) -> Tuple[List[Dict[str, Any]], WorkflowMetrics]:
+    """Run the full Mycelium workflow on a batch of sentences.
+
+    Returns the per-sentence analysis records and aggregated WorkflowMetrics.
+    """
+
     phase2_pipeline = Phase2Pipeline()
     phase3_pipeline = Phase3To5Pipeline()
     router = MultiLensRouter()
@@ -66,17 +114,17 @@ def run_mycelium_workflow(sentences):
     )
     print("✅ Expert filter initialized with auto-clustering\n")
 
-    # Step 1: Tag generation and normalization
     temporal_layer = TemporalLocalityLayer(max_size=50, time_window_hours=24)
-    all_sentence_data = []
-    all_tags = []
+    all_sentence_data: List[Dict[str, Any]] = []
+    all_tags: List[str] = []
 
-    # Initialize Layer0 router
+    # Initialize Layer0 router and metrics
     print("Initializing Layer0 question router...")
     question_router = QuestionRouter()
     print("✅ Layer0 router initialized\n")
+    metrics = WorkflowMetrics()
 
-    for text in sentences:
+    for idx, text in enumerate(sentences, start=1):
         tags = extract_tags_llama(text)
         normalized_tags = normalize_tags(tags)
         timestamp = datetime.datetime.now().isoformat()
@@ -84,11 +132,13 @@ def run_mycelium_workflow(sentences):
 
         # Step 1a: Layer0 classification
         layer0_result = question_router.route(text)
+        metrics.layer0_routes[layer0_result.route] += 1
 
         # Short-circuit for non-REASONING_PIPELINE routes
         if layer0_result.route != "REASONING_PIPELINE":
-            print(f"🚫 Layer0 route: {layer0_result.route.upper()}\n")
-            # Short-circuit: produce minimal result
+            if ENABLE_LOGGING and idx % LOG_SAMPLE_RATE == 0:
+                print(f"🚫 Layer0 route: {layer0_result.route.upper()}\n")
+
             all_sentence_data.append(
                 {
                     "sentence": text,
@@ -108,11 +158,15 @@ def run_mycelium_workflow(sentences):
 
         # Routing and Phase 2/3 processing
         routing_context = router.route(text)
+        classification = getattr(routing_context, "classification", None)
+        if classification:
+            metrics.routing_classifications[classification] += 1
+
         phase2_result = phase2_pipeline.run(text, routing_context=routing_context)
         phase3_result = phase3_pipeline.run_complete_pipeline(phase2_result)
 
         # Filter experts using routing-selected domains first, then semantic tags
-        relevant_domains = []
+        relevant_domains: List[str] = []
         for domain in getattr(routing_context, "selected_domains", []):
             normalized = expert_filter.normalize_domain(str(domain))
             if normalized:
@@ -141,6 +195,10 @@ def run_mycelium_workflow(sentences):
             routing_context,
             expert_decision,
         )
+        metrics.expert_decisions[expert_decision.decision_type] += 1
+
+        for dom in getattr(expert_decision, "selected_experts", []) or []:
+            metrics.domains[dom] += 1
 
         decision_to_flag = {
             "USE_EXISTING_EXPERT": "use_existing_expert",
@@ -155,7 +213,6 @@ def run_mycelium_workflow(sentences):
         )
         confidence = float(getattr(expert_decision, "expert_confidence", 0.0))
 
-        # Record full pipeline data for this sentence
         all_sentence_data.append(
             {
                 "sentence": text,
@@ -173,30 +230,30 @@ def run_mycelium_workflow(sentences):
         )
         all_tags.extend(normalized_tags)
 
-        print(
-            "Sentence: {sent}\nTags: {tags}\nTimestamp: {ts}\n" "Unified Decision: {flag} (Domain: {dom}, Confidence: {conf:.3f})\n".format(
-                sent=text,
-                tags=normalized_tags,
-                ts=timestamp,
-                flag=flag,
-                dom=selected_domain,
-                conf=confidence,
+        if ENABLE_LOGGING and idx % LOG_SAMPLE_RATE == 0:
+            print(
+                "Sentence: {sent}\nTags: {tags}\nTimestamp: {ts}\n" "Unified Decision: {flag} (Domain: {dom}, Confidence: {conf:.3f})\n".format(
+                    sent=text,
+                    tags=normalized_tags,
+                    ts=timestamp,
+                    flag=flag,
+                    dom=selected_domain,
+                    conf=confidence,
+                )
             )
-        )
 
     # Step 2: Save all sentences, tags, and timestamps to JSON
     with open("evaluation_data/sentence_tags.json", "w", encoding="utf-8") as f:
         json.dump(all_sentence_data, f, indent=4, cls=NumpyEncoder)
 
     # Save expert evaluation results separately
-    expert_evaluation_results = {
+    expert_evaluation_results: Dict[str, Any] = {
         "evaluation_timestamp": datetime.datetime.now().isoformat(),
         "sentences_evaluated": len(all_sentence_data),
         "flag_summary": {},
         "detailed_results": all_sentence_data,
     }
 
-    # Count flag occurrences
     for entry in all_sentence_data:
         flag = entry["expert_flag"]
         expert_evaluation_results["flag_summary"][flag] = (
@@ -239,6 +296,8 @@ def run_mycelium_workflow(sentences):
         json.dump(temporal_analysis_data, f, indent=4)
     print("Temporal analysis saved to temporal_analysis.json")
 
+    return all_sentence_data, metrics
+
 
 import pandas as pd
 import random
@@ -259,21 +318,21 @@ def _sample_column(df: pd.DataFrame, column: str, count: int, seed: int) -> list
 def get_random_samples():
     # Medical
     med_path = "dummy_models/Medical/medical_dataset.csv"
-    med_samples = []
+    med_samples: List[str] = []
     if not _is_lfs_pointer(med_path):
         med_df = pd.read_csv(med_path)
         med_samples = _sample_column(med_df, "sentence", 3, 42)
 
     # Music
     music_path = "dummy_models/Music/music_classification_dataset.csv"
-    music_samples = []
+    music_samples: List[str] = []
     if not _is_lfs_pointer(music_path):
         music_df = pd.read_csv(music_path)
         music_samples = _sample_column(music_df, "sentence", 3, 43)
 
     # Physics
     phys_path = "dummy_models/Physics/physics_data.csv"
-    phys_samples = []
+    phys_samples: List[str] = []
     if not _is_lfs_pointer(phys_path):
         phys_df = pd.read_csv(phys_path)
         phys_samples = _sample_column(phys_df, "Comment", 4, 44)
