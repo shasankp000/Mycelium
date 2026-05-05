@@ -2,7 +2,7 @@ import json
 import datetime
 from collections import Counter
 from dataclasses import asdict, dataclass, is_dataclass
-from typing import List, Dict, Any, Sequence, Tuple
+from typing import List, Dict, Any, Optional, Sequence, Tuple
 
 import numpy as np
 from layer_1_prototype import (
@@ -24,6 +24,7 @@ from expert_filter import ExpertFilter
 from orchestration import combine_routing_and_expert_decisions
 from layer0.router import QuestionRouter
 from tuning_config import ENABLE_LOGGING, LOG_SAMPLE_RATE
+from patch_batch_logger import patch_logger
 
 
 class NumpyEncoder(json.JSONEncoder):
@@ -89,10 +90,19 @@ class WorkflowMetrics:
         }
 
 
-def run_mycelium_workflow(sentences: Sequence[str]) -> Tuple[List[Dict[str, Any]], WorkflowMetrics]:
+def run_mycelium_workflow(
+    sentences: Sequence[str],
+    trace_id: Optional[str] = None,
+) -> Tuple[List[Dict[str, Any]], WorkflowMetrics]:
     """Run the full Mycelium workflow on a batch of sentences.
 
     Returns the per-sentence analysis records and aggregated WorkflowMetrics.
+
+    Args:
+        sentences:  One or more user queries to process.
+        trace_id:   Optional caller-supplied trace UUID.  When provided, any
+                    CREATE_NEW_PATCH response for the first sentence will be
+                    patched back into the batch log under this ID.
     """
 
     phase2_pipeline = Phase2Pipeline()
@@ -213,6 +223,73 @@ def run_mycelium_workflow(sentences: Sequence[str]) -> Tuple[List[Dict[str, Any]
         )
         confidence = float(getattr(expert_decision, "expert_confidence", 0.0))
 
+        # ------------------------------------------------------------------
+        # CREATE_NEW_PATCH: no matching domain expert exists.
+        #
+        # 1. Log the query immediately into the daily batch file so the
+        #    offline patch-model training pipeline can pick it up later.
+        # 2. Do NOT short-circuit — let the full 6-phase reasoning pipeline
+        #    run as normal (consequence generation, evidence grounding,
+        #    sandbox, validation are all part of phases 2-3 and already
+        #    ran above).  The LLM will still produce the best response it
+        #    can without a specialist expert.
+        # 3. After the response is available, fill it back into the log.
+        # ------------------------------------------------------------------
+        is_patch_decision = expert_decision.decision_type == "CREATE_NEW_PATCH"
+        # Determine the trace_id for this sentence.  For single-query calls
+        # from the API the caller passes its UUID; for batch calls we
+        # generate a per-sentence one.
+        import uuid as _uuid
+        sentence_trace_id = (
+            trace_id if (idx == 1 and trace_id) else str(_uuid.uuid4())
+        )
+
+        if is_patch_decision:
+            phase_latencies: Dict[str, float] = (
+                _to_jsonable(phase3_result).get("phase_latencies", {})
+                if isinstance(phase3_result, (dict,)) or hasattr(phase3_result, "__dict__")
+                else {}
+            )
+            patch_logger.log_query(
+                trace_id=sentence_trace_id,
+                query=text,
+                tags=normalized_tags,
+                routing_classification=str(classification) if classification else "",
+                phase_latencies_ms=phase_latencies,
+            )
+            if ENABLE_LOGGING:
+                print(
+                    f"📝 CREATE_NEW_PATCH — logged query to batch "
+                    f"(trace_id={sentence_trace_id}). "
+                    "Proceeding through reasoning pipeline.\n"
+                )
+
+        # Retrieve the final LLM-generated answer from phase3 result so we
+        # can attach it to the batch record.  Different pipeline versions
+        # surface the answer under different keys; we try the most common
+        # ones in order.
+        final_answer: str = ""
+        p3_dict = _to_jsonable(phase3_result) if phase3_result else {}
+        for _key in ("final_answer", "answer", "response", "output", "text"):
+            val = p3_dict.get(_key)
+            if val and isinstance(val, str):
+                final_answer = val
+                break
+        # Fallback: check nested action_result
+        if not final_answer:
+            action = p3_dict.get("action_result") or {}
+            for _key in ("final_answer", "answer", "response", "output", "text"):
+                val = action.get(_key) if isinstance(action, dict) else None
+                if val and isinstance(val, str):
+                    final_answer = val
+                    break
+
+        if is_patch_decision and final_answer:
+            patch_logger.fill_response(
+                trace_id=sentence_trace_id,
+                response=final_answer,
+            )
+
         all_sentence_data.append(
             {
                 "sentence": text,
@@ -226,13 +303,15 @@ def run_mycelium_workflow(sentences: Sequence[str]) -> Tuple[List[Dict[str, Any]
                 "expert_flag": flag,
                 "selected_domain": selected_domain,
                 "decision_confidence": confidence,
+                "trace_id": sentence_trace_id,
             }
         )
         all_tags.extend(normalized_tags)
 
         if ENABLE_LOGGING and idx % LOG_SAMPLE_RATE == 0:
             print(
-                "Sentence: {sent}\nTags: {tags}\nTimestamp: {ts}\n" "Unified Decision: {flag} (Domain: {dom}, Confidence: {conf:.3f})\n".format(
+                "Sentence: {sent}\nTags: {tags}\nTimestamp: {ts}\n"
+                "Unified Decision: {flag} (Domain: {dom}, Confidence: {conf:.3f})\n".format(
                     sent=text,
                     tags=normalized_tags,
                     ts=timestamp,
