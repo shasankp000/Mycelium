@@ -8,4 +8,6 @@ reports/unified_expert_system_report.md
 .pytest_cache/
 htmlcov/
 .coverage
+web-ui/node_modules
+web-ui/package-lock.json
 
