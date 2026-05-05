@@ -1,9 +1,11 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import Any, Dict
+import json
 from uuid import uuid4
 from datetime import datetime
+from typing import Any, Dict, List
+
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 from run_workflow import run_mycelium_workflow
 from api_models import (
@@ -17,10 +19,12 @@ from api_models import (
     ReasoningTrace,
     append_trace,
     _to_jsonable,
+    TRACES_DIR,
 )
+from conversation_agent import get_conversation_agent
 
 
-app = FastAPI(title="Mycelium Broadcast API", version="0.2.0")
+app = FastAPI(title="Mycelium Broadcast API", version="0.3.0")
 
 # Allow local Next.js dev server by default; can be restricted in prod
 origins = [
@@ -39,6 +43,15 @@ app.add_middleware(
 
 class QueryRequest(BaseModel):
     text: str
+
+
+class ChatRequest(BaseModel):
+    text: str
+
+
+class ChatResponse(BaseModel):
+    trace: MyceliumRunSummary
+    answer: str
 
 
 @app.get("/health")
@@ -132,3 +145,52 @@ async def query(req: QueryRequest) -> MyceliumRunSummary:
 async def query_v0(req: QueryRequest) -> Dict[str, Any]:
     summary = await query(req)
     return summary.model_dump()
+
+
+@app.get("/api/v1/traces/recent", response_model=List[ReasoningTrace])
+async def recent_traces(limit: int = 20) -> List[ReasoningTrace]:
+    """Return up to `limit` most recent traces (naive JSONL scan)."""
+
+    traces: List[ReasoningTrace] = []
+    files = sorted(TRACES_DIR.glob("*.jsonl"), reverse=True)
+    for path in files:
+        with path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                trace = ReasoningTrace.model_validate_json(line)
+                traces.append(trace)
+                if len(traces) >= limit:
+                    return traces
+    return traces
+
+
+@app.get("/api/v1/traces/{trace_id}", response_model=ReasoningTrace)
+async def get_trace(trace_id: str) -> ReasoningTrace:
+    """Look up a single trace by ID via JSONL scan.
+
+    This is intentionally naive but fine for PoC volumes.
+    """
+
+    files = sorted(TRACES_DIR.glob("*.jsonl"), reverse=True)
+    for path in files:
+        with path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                data = json.loads(line)
+                if data.get("trace_id") == trace_id:
+                    return ReasoningTrace.model_validate(data)
+    raise HTTPException(status_code=404, detail="Trace not found")
+
+
+@app.post("/api/v1/chat", response_model=ChatResponse)
+async def chat(req: ChatRequest) -> ChatResponse:
+    """Run Mycelium for the input and have the conversational agent explain it."""
+
+    summary = await query(QueryRequest(text=req.text))
+    agent = get_conversation_agent()
+    answer = agent.answer(req.text, summary)
+    return ChatResponse(trace=summary, answer=answer)
