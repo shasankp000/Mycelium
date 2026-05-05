@@ -2,11 +2,25 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Any, Dict
+from uuid import uuid4
+from datetime import datetime
 
 from run_workflow import run_mycelium_workflow
+from api_models import (
+    MyceliumRunSummary,
+    Layer0Summary,
+    RoutingSummary,
+    ExpertDecisionSummary,
+    Phase2Summary,
+    Phase3Summary,
+    metrics_to_summary,
+    ReasoningTrace,
+    append_trace,
+    _to_jsonable,
+)
 
 
-app = FastAPI(title="Mycelium Broadcast API", version="0.1.0")
+app = FastAPI(title="Mycelium Broadcast API", version="0.2.0")
 
 # Allow local Next.js dev server by default; can be restricted in prod
 origins = [
@@ -32,21 +46,89 @@ async def health() -> Dict[str, Any]:
     return {"status": "ok"}
 
 
-@app.post("/api/query")
-async def query(req: QueryRequest) -> Dict[str, Any]:
-    # Reuse existing orchestrator; single-sentence wrapper for now
+@app.post("/api/v1/query", response_model=MyceliumRunSummary)
+async def query(req: QueryRequest) -> MyceliumRunSummary:
+    """Run a single-sentence Mycelium workflow and return a typed summary."""
+
     all_data, metrics = run_mycelium_workflow([req.text])
     record = all_data[0]
 
-    return {
-        "sentence": record.get("sentence"),
-        "layer0": record.get("layer0_routing", {}),
-        "routing": record.get("routing_context", {}),
-        "phase2": record.get("phase2_result", {}),
-        "phase3": record.get("phase3_result", {}),
-        "expert_decision": record.get("expert_decision", {}),
-        "expert_flag": record.get("expert_flag"),
-        "selected_domain": record.get("selected_domain"),
-        "decision_confidence": record.get("decision_confidence"),
-        "metrics": metrics.to_dict(),
-    }
+    # Layer0
+    layer0_raw: Dict[str, Any] = record.get("layer0_routing", {}) or {}
+    layer0 = Layer0Summary(
+        route=layer0_raw.get("route"),
+        raw=layer0_raw,
+    )
+
+    # Routing
+    routing_raw: Dict[str, Any] = record.get("routing_context", {}) or {}
+    routing = RoutingSummary(
+        classification=routing_raw.get("classification"),
+        selected_domains=list(routing_raw.get("selected_domains", []) or []),
+        raw=routing_raw,
+    )
+
+    # Expert decision
+    expert_raw: Dict[str, Any] = _to_jsonable(
+        record.get("expert_decision", {}) or {}
+    )
+    decision_type = expert_raw.get("decision_type")
+    selected_experts = list(expert_raw.get("selected_experts", []) or [])
+    expert_confidence = expert_raw.get("expert_confidence")
+    expert_decision = ExpertDecisionSummary(
+        decision_type=decision_type,
+        selected_experts=selected_experts,
+        expert_confidence=expert_confidence,
+        raw=expert_raw,
+    )
+
+    # Phase 2 / 3
+    phase2_raw = _to_jsonable(record.get("phase2_result", {}) or {})
+    phase3_raw = _to_jsonable(record.get("phase3_result", {}) or {})
+
+    validation_decision = phase3_raw.get("validation_decision", {}) or {}
+    action_result = phase3_raw.get("action_result", {}) or {}
+    phase_latencies = phase3_raw.get("phase_latencies", {}) or {}
+
+    phase2 = Phase2Summary(raw=phase2_raw)
+    phase3 = Phase3Summary(
+        validation_decision=validation_decision,
+        action_result=action_result,
+        phase_latencies_ms=phase_latencies,
+        raw=phase3_raw,
+    )
+
+    metrics_summary = metrics_to_summary(metrics)
+
+    trace_id = str(uuid4())
+    now = datetime.utcnow()
+
+    summary = MyceliumRunSummary(
+        trace_id=trace_id,
+        timestamp=now,
+        sentence=record.get("sentence", req.text),
+        layer0=layer0,
+        routing=routing,
+        expert_decision=expert_decision,
+        phase2=phase2,
+        phase3=phase3,
+        metrics=metrics_summary,
+    )
+
+    # Persist a basic reasoning trace for this run
+    trace = ReasoningTrace(
+        trace_id=trace_id,
+        timestamp=now,
+        user_query=req.text,
+        run_summary=summary,
+    )
+    append_trace(trace)
+
+    return summary
+
+
+# Backwards-compatible endpoint for the existing UI while we migrate
+@app.post("/api/query")
+async def query_v0(req: QueryRequest) -> Dict[str, Any]:
+    summary = await query(req)
+    return summary.model_dump()
