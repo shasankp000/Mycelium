@@ -1,6 +1,6 @@
 import Head from 'next/head';
 import { useState, useRef, useEffect } from 'react';
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
 import styles from '../styles/Home.module.css';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:8000';
@@ -24,7 +24,38 @@ interface Message {
   traceOpen?: boolean;
 }
 
-function extractTrace(data: any): PipelineTrace {
+interface ApiResponseData {
+  answer?: string;
+  content?: string;
+  trace?: {
+    layer0?: { route?: string };
+    routing?: { classification?: string; selected_domains?: string[] };
+    expert_decision?: {
+      decision_type?: string;
+      selected_experts?: string[];
+      expert_confidence?: number;
+    };
+    phase3?: {
+      validation_decision?: { result_class?: string };
+      phase_latencies_ms?: Record<string, number>;
+    };
+    trace_id?: string;
+  };
+  layer0?: { route?: string };
+  routing?: { classification?: string; selected_domains?: string[] };
+  expert_decision?: {
+    decision_type?: string;
+    selected_experts?: string[];
+    expert_confidence?: number;
+  };
+  phase3?: {
+    validation_decision?: { result_class?: string };
+    phase_latencies_ms?: Record<string, number>;
+  };
+  trace_id?: string;
+}
+
+function extractTrace(data: ApiResponseData): PipelineTrace {
   return {
     layer0_route: data?.trace?.layer0?.route ?? data?.layer0?.route,
     routing_classification:
@@ -152,8 +183,7 @@ export default function Home() {
     setLoading(true);
 
     try {
-      // Use /api/v1/chat — returns { answer, trace }
-      const res = await axios.post(`${API_BASE}/api/v1/chat`, { text });
+      const res = await axios.post<ApiResponseData>(`${API_BASE}/api/v1/chat`, { text });
       const data = res.data;
       const answer: string =
         data.answer ||
@@ -164,10 +194,11 @@ export default function Home() {
         ...prev,
         { role: 'assistant', content: answer, trace, traceOpen: false },
       ]);
-    } catch (err: any) {
+    } catch (err) {
+      const axiosErr = err as AxiosError<{ detail?: string }>;
       const detail =
-        err?.response?.data?.detail ??
-        err?.message ??
+        axiosErr?.response?.data?.detail ??
+        axiosErr?.message ??
         'Unknown error';
       setMessages((prev) => [
         ...prev,
