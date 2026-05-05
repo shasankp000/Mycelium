@@ -1,0 +1,74 @@
+# Mycelium Configuration File
+# Edit this file to control all runtime parameters.
+# Environment variables override values here when set.
+
+# ─────────────────────────────────────────────────
+# LLM Provider Priority
+# ─────────────────────────────────────────────────
+[llm]
+# Which provider to try first.  Options: "ollama", "huggingface"
+primary   = "ollama"
+secondary = "huggingface"
+
+# ─────────────────────────────────────────────────
+# Ollama
+# ─────────────────────────────────────────────────
+[ollama]
+# The model tag to load, e.g. "qwen2.5:14b", "llama3:8b", "mistral"
+model           = "qwen2.5:14b"
+
+# Base URL of the Ollama server
+base_url        = "http://localhost:11434"
+
+# Sampling temperature (0.0 = deterministic, 1.0 = creative)
+temperature     = 0.2
+
+# Context window size in tokens (num_ctx)
+# Common values: 2048, 4096, 8192, 16384, 32768
+context_size    = 4096
+
+# How long Ollama keeps the model loaded in memory after the last request.
+# Format: "<number><unit>" where unit is s, m, h.  "0" = unload immediately.
+# Examples: "5m", "10m", "1h", "-1" (never unload)
+keep_alive      = "5m"
+
+# HTTP request timeout in seconds
+request_timeout = 60
+
+# Any additional options forwarded verbatim to Ollama's /api/chat `options`
+# object.  Uncomment and add as needed.
+# [ollama.extra_options]
+# num_gpu = 1
+# num_thread = 8
+# repeat_penalty = 1.1
+
+# ─────────────────────────────────────────────────
+# Hugging Face (fallback / secondary provider)
+# ─────────────────────────────────────────────────
+[huggingface]
+# Inference API endpoint URL for your model
+api_url        = ""
+
+# Hugging Face API token (hf_...)
+# Leave blank if the model is public and doesn't require auth.
+api_key        = ""
+
+# Maximum number of new tokens to generate
+max_new_tokens = 512
+
+# Sampling temperature
+temperature    = 0.2
+
+# ─────────────────────────────────────────────────
+# Traces
+# ─────────────────────────────────────────────────
+[traces]
+# Directory where reasoning trace JSONL files are stored
+dir = "traces"
+
+# ─────────────────────────────────────────────────
+# API server
+# ─────────────────────────────────────────────────
+[api]
+# CORS allowed origins (comma-separated strings in the list)
+allowed_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
