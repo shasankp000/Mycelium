@@ -1,0 +1,116 @@
+# =============================================================================
+# Mycelium — central configuration file
+# Edit the values here instead of touching source files or setting env vars.
+# All keys have commented defaults; uncomment and change to override.
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# [layer1]  Parameters for layer_1_prototype.py
+# ---------------------------------------------------------------------------
+[layer1]
+
+# Sentence-transformer model used for tag embedding and lens-1 routing.
+# Any model name accepted by sentence-transformers works here.
+embed_model = "all-MiniLM-L6-v2"
+
+# Number of top-k candidate domains returned by Lens 1 (embedding pass).
+lens1_top_k = 3
+
+# Blend weight for embedding score vs lexical score in Lens 1.
+# embedding_weight + lexical_weight should equal 1.0
+lens1_embedding_weight = 0.8
+lens1_lexical_weight   = 0.2
+
+# Agglomerative clustering distance threshold for cluster_tags().
+# Lower = tighter clusters, higher = more items per cluster.
+tag_cluster_distance_threshold = 0.3
+
+# Similarity threshold for the simpler cluster_tags_transformer() function.
+tag_cluster_similarity_threshold = 0.7
+
+# Fuzzy-match score threshold used when normalising extracted tags against DOMAIN_LIST.
+# Range 0–100; raise to be stricter, lower to accept more fuzzy matches.
+tag_normalize_threshold = 80
+
+# Temporal locality window — how many hours back to look when measuring
+# temporal similarity for the TemporalLocalityLayer.
+temporal_window_hours = 1
+
+# Maximum number of statements held in the TemporalLocalityLayer deque.
+temporal_max_size = 100
+
+# Full time-window for the TemporalLocalityLayer itself (hours).
+temporal_time_window_hours = 24
+
+# Spatial-locality dominance ratio: if a cluster's share of recent tags
+# exceeds this threshold it is treated as dominant (use_existing_patch).
+spatial_dominance_threshold = 0.3
+
+# File name used when saving / loading tag clusters.
+tag_clusters_filename = "tag_clusters.json"
+
+# ---------------------------------------------------------------------------
+# [layer1.domain_list]  Canonical domain vocabulary for tag extraction
+# ---------------------------------------------------------------------------
+[layer1.domain_list]
+domains = [
+    "AI", "healthcare", "logistics", "finance", "education",
+    "physics", "maths", "biology", "chemistry", "technology",
+    "sports", "politics", "history", "art", "music", "literature"
+]
+
+# ---------------------------------------------------------------------------
+# [layer1.llama]  Ollama / local-LLM tag extractor
+# ---------------------------------------------------------------------------
+[layer1.llama]
+model = "llama3:8b"
+
+# ---------------------------------------------------------------------------
+# [layer1.openai]  OpenAI-compatible tag extractor
+# (also used for OpenRouter / Perplexity / any OpenAI-compatible endpoint)
+# ---------------------------------------------------------------------------
+[layer1.openai]
+model    = "gpt-3.5-turbo"
+endpoint = "https://api.openai.com/v1/chat/completions"
+provider = "openai"   # "openai" | "openrouter" | "perplexity"
+max_tokens  = 50
+temperature = 0.2
+# api_key is intentionally omitted here — pass it via the OPENAI_API_KEY env var
+# or supply it directly in code when calling extract_tags_openai().
+
+# ---------------------------------------------------------------------------
+# [unified_expert]  Parameters shared across unified_expert_system.py
+# ---------------------------------------------------------------------------
+[unified_expert]
+
+# OOD detection thresholds
+ood_svm_distance_threshold       = 0.3
+ood_nn_distance_threshold        = 0.65
+ood_isolation_score_threshold    = -0.05
+ood_votes_required               = 2      # 2-of-3 majority vote
+
+# Composite scoring weights (must sum to 1.0)
+composite_weight_similarity  = 0.45
+composite_weight_confidence  = 0.45
+composite_weight_ood         = 0.10
+
+# Decision thresholds (multiplied by expert quality score)
+decision_high_threshold   = 0.5   # use_existing_expert
+decision_mid_threshold    = 0.25  # create_new_patch
+
+# OOD penalty multipliers
+ood_penalty_detected     = 0.5
+ood_penalty_not_detected = 0.2
+
+# OOD tolerance for use_existing_expert decision
+ood_tolerance_use_existing = 0.45
+# OOD rejection threshold (create_new_expert)
+ood_rejection_threshold    = 0.6
+
+# ---------------------------------------------------------------------------
+# [workflow]  run_workflow.py settings
+# ---------------------------------------------------------------------------
+[workflow]
+
+# Directory where trace / report JSON files are written.
+traces_dir = "traces"
