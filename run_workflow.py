@@ -112,17 +112,21 @@ def run_mycelium_workflow(
     # Step 0: Initialize unified expert system
     print("Initializing unified expert system (K-Medoids + Calibration + OOD Detection)...")
     expert_system = UnifiedExpertSystem()
-    print(f"Initialized unified expert system with {len(expert_system.experts)} experts\n")
+    registered_domains = set(expert_system.experts.keys())
+    print(f"Initialized unified expert system with {len(registered_domains)} experts\n")
 
-    # Initialize expert filter for tag-based routing (with auto-clustering)
+    # Initialize expert filter using the live expert registry as the domain
+    # list.  Previously this was hard-coded to ["music", "physics",
+    # "chemistry", "medical"], which caused normalize_domain() to silently
+    # drop any domain that wasn't in that static list — including every
+    # domain emitted by the multi-lens router for ATTRIBUTE_ONLY queries.
     print("Initializing expert filter with automatic semantic clustering...")
-    domain_list = ["music", "physics", "chemistry", "medical"]
     expert_filter = ExpertFilter(
-        domain_list=domain_list,
+        domain_list=list(registered_domains),
         use_auto_clustering=True,
         similarity_threshold=0.45,
     )
-    print("✅ Expert filter initialized with auto-clustering\n")
+    print("\u2705 Expert filter initialized with auto-clustering\n")
 
     temporal_layer = TemporalLocalityLayer(max_size=50, time_window_hours=24)
     all_sentence_data: List[Dict[str, Any]] = []
@@ -131,7 +135,7 @@ def run_mycelium_workflow(
     # Initialize Layer0 router and metrics
     print("Initializing Layer0 question router...")
     question_router = QuestionRouter()
-    print("✅ Layer0 router initialized\n")
+    print("\u2705 Layer0 router initialized\n")
     metrics = WorkflowMetrics()
 
     for idx, text in enumerate(sentences, start=1):
@@ -147,7 +151,7 @@ def run_mycelium_workflow(
         # Short-circuit for non-REASONING_PIPELINE routes
         if layer0_result.route != "REASONING_PIPELINE":
             if ENABLE_LOGGING and idx % LOG_SAMPLE_RATE == 0:
-                print(f"🚫 Layer0 route: {layer0_result.route.upper()}\n")
+                print(f"\U0001f6ab Layer0 route: {layer0_result.route.upper()}\n")
 
             all_sentence_data.append(
                 {
@@ -176,36 +180,56 @@ def run_mycelium_workflow(
         phase3_result = phase3_pipeline.run_complete_pipeline(phase2_result)
 
         # ------------------------------------------------------------------
-        # Resolve relevant_domains from routing result.
+        # Resolve relevant_domains from the routing result.
         #
-        # For ATTRIBUTE_ONLY queries (pure reasoning / philosophical questions)
-        # the router intentionally returns an empty selected_domains list
-        # because no structural domain was matched.  In that case we supply
-        # ALL known experts so that unified_decision_analysis can score the
-        # query across the full expert pool and pick the best fit — or
-        # correctly decide CREATE_NEW_PATCH when nothing matches.
+        # Strategy (in priority order):
+        #
+        # 1. Router candidates that exist in the live expert registry.
+        #    We do a direct membership check against `registered_domains`
+        #    FIRST, before falling back to ExpertFilter.normalize_domain().
+        #    This avoids the old bug where the filter's similarity lookup
+        #    could map a routing domain to a wrong expert (or drop it
+        #    entirely) because the filter was trained on a stale/partial
+        #    domain list.
+        #
+        # 2. normalize_domain() for any router candidate not directly in the
+        #    registry (handles aliases / spelling variants).
+        #
+        # 3. Semantic tags extracted from the query (same two-step check).
+        #
+        # 4. ATTRIBUTE_ONLY / no-match fallback: open the gate to all
+        #    registered experts so the reasoning pipeline is never starved.
         # ------------------------------------------------------------------
         relevant_domains: List[str] = []
+
         for domain in getattr(routing_context, "selected_domains", []):
-            normalized = expert_filter.normalize_domain(str(domain))
-            if normalized:
-                relevant_domains.append(normalized)
+            domain_str = str(domain)
+            if domain_str in registered_domains:
+                # Direct registry hit — use as-is, no normalization needed.
+                relevant_domains.append(domain_str)
+            else:
+                normalized = expert_filter.normalize_domain(domain_str)
+                if normalized:
+                    relevant_domains.append(normalized)
 
         if not relevant_domains:
             # Fallback 1: try semantic tags extracted from the query
             for tag in normalized_tags:
-                domain = expert_filter.normalize_domain(tag)
-                if domain:
-                    relevant_domains.append(domain)
+                if tag in registered_domains:
+                    relevant_domains.append(tag)
+                else:
+                    domain = expert_filter.normalize_domain(tag)
+                    if domain:
+                        relevant_domains.append(domain)
 
         if not relevant_domains:
             # Fallback 2 (ATTRIBUTE_ONLY / no tag match): open the gate to
             # all registered experts so the reasoning pipeline is never
             # starved of candidates.
-            relevant_domains = list(expert_system.experts.keys())
+            relevant_domains = list(registered_domains)
             if ENABLE_LOGGING and idx % LOG_SAMPLE_RATE == 0:
                 print(
-                    f"ℹ️  No domain resolved from routing or tags for query \"{text[:60]}...\". "
+                    f"\u2139\ufe0f  No domain resolved from routing or tags for query \"{text[:60]}...\". "
                     "Supplying all experts to reasoning pipeline.\n"
                 )
 
@@ -280,7 +304,7 @@ def run_mycelium_workflow(
             )
             if ENABLE_LOGGING:
                 print(
-                    f"📝 CREATE_NEW_PATCH — logged query to batch "
+                    f"\U0001f4dd CREATE_NEW_PATCH \u2014 logged query to batch "
                     f"(trace_id={sentence_trace_id}). "
                     "Proceeding through reasoning pipeline.\n"
                 )
