@@ -74,16 +74,16 @@ DOMAIN_REGISTRY = {
     },
 }
 
-# Candidate column names searched in order — first match wins.
+# Candidate column names searched in order (case-insensitive) — first match wins.
 # Add any new column name variants here if needed.
-_LABEL_COL_CANDIDATES = ["label", "category", "class", "target", "is_domain"]
+_LABEL_COL_CANDIDATES = ["label", "type", "category", "class", "target", "is_domain"]
 _TEXT_COL_CANDIDATES  = ["text", "sentence", "content", "input", "question"]
 
 
 def _detect_column(df: pd.DataFrame, candidates: list, kind: str) -> str:
     """
-    Return the first column name from `candidates` that exists in df.
-    Raises a descriptive ValueError if none match.
+    Return the first column name from `candidates` that exists in df
+    (case-insensitive match). Raises a descriptive ValueError if none match.
     """
     cols_lower = {c.lower(): c for c in df.columns}
     for cand in candidates:
