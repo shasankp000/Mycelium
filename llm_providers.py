@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
 import config_loader as cfg
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -33,6 +36,10 @@ class HuggingFaceConfig:
     api_key: str = field(default_factory=cfg.hf_api_key)
     max_new_tokens: int = field(default_factory=cfg.hf_max_new_tokens)
     temperature: float = field(default_factory=cfg.hf_temperature)
+
+    def is_configured(self) -> bool:
+        """Return True only when an API URL has actually been set."""
+        return bool(self.api_url and self.api_url.strip())
 
 
 @dataclass
@@ -72,14 +79,30 @@ class OllamaClient:
             "options": options,
         }
 
-        resp = requests.post(
-            url,
-            json=payload,
-            timeout=self.config.request_timeout,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+        try:
+            resp = requests.post(
+                url,
+                json=payload,
+                timeout=self.config.request_timeout,
+            )
+            resp.raise_for_status()
+        except requests.exceptions.ConnectionError as exc:
+            raise RuntimeError(
+                f"Cannot reach Ollama at {self.config.base_url}. "
+                "Is `ollama serve` running?"
+            ) from exc
+        except requests.exceptions.Timeout as exc:
+            raise RuntimeError(
+                f"Ollama request timed out after {self.config.request_timeout}s. "
+                "Consider increasing ollama.request_timeout in config.toml."
+            ) from exc
+        except requests.exceptions.HTTPError as exc:
+            raise RuntimeError(
+                f"Ollama returned HTTP {exc.response.status_code}: "
+                f"{exc.response.text[:300]}"
+            ) from exc
 
+        data = resp.json()
         message = data.get("message") or {}
         content = message.get("content")
         if isinstance(content, str):
@@ -92,8 +115,11 @@ class HuggingFaceClient:
         self.config = config or HuggingFaceConfig()
 
     def generate(self, prompt: str, *, system: Optional[str] = None) -> str:
-        if not self.config.api_url:
-            raise RuntimeError("huggingface.api_url is not configured in config.toml")
+        if not self.config.is_configured():
+            raise RuntimeError(
+                "HuggingFace provider is not configured "
+                "(huggingface.api_url is empty in config.toml)."
+            )
 
         headers = {"Accept": "application/json"}
         if self.config.api_key:
@@ -109,7 +135,9 @@ class HuggingFaceClient:
             },
         }
 
-        resp = requests.post(self.config.api_url, json=payload, headers=headers, timeout=60)
+        resp = requests.post(
+            self.config.api_url, json=payload, headers=headers, timeout=60
+        )
         resp.raise_for_status()
         data = resp.json()
 
@@ -123,32 +151,71 @@ class HuggingFaceClient:
 
 
 class LLMClient:
-    """High-level client that routes between Ollama and Hugging Face."""
+    """High-level client that routes between configured LLM providers.
+
+    Fall-through behaviour:
+    - Providers with missing configuration are skipped entirely (never tried).
+    - If the primary provider fails with a runtime/network error it is logged
+      and the next *configured* provider is tried.
+    - If no provider succeeds, the primary provider's original error is raised
+      so the caller gets a meaningful message rather than a config complaint
+      from a secondary provider they didn't intend to use.
+    """
 
     def __init__(self, config: Optional[LLMProviderConfig] = None) -> None:
         self.config = config or LLMProviderConfig()
         self._ollama = OllamaClient(self.config.ollama)
         self._hf = HuggingFaceClient(self.config.huggingface)
 
-    def generate(self, prompt: str, *, system: Optional[str] = None) -> str:
-        providers = []
+    def _build_provider_list(self) -> List[Tuple[str, Any]]:
+        """Return only providers that are actually configured, in priority order."""
+        providers: List[Tuple[str, Any]] = []
         for name in (self.config.primary, self.config.secondary):
             if name == "ollama":
                 providers.append((name, self._ollama))
             elif name == "huggingface":
-                providers.append((name, self._hf))
+                # Skip HF entirely if it has no api_url set
+                if self.config.huggingface.is_configured():
+                    providers.append((name, self._hf))
+                else:
+                    logger.debug(
+                        "Skipping HuggingFace provider: api_url not set in config.toml"
+                    )
+        return providers
 
-        last_error: Optional[Exception] = None
+    def generate(self, prompt: str, *, system: Optional[str] = None) -> str:
+        providers = self._build_provider_list()
+
+        if not providers:
+            raise RuntimeError(
+                "No LLM providers are configured. "
+                "Set ollama.model / ollama.base_url in config.toml, "
+                "or configure huggingface.api_url for the HF provider."
+            )
+
+        primary_error: Optional[Exception] = None
+
         for name, client in providers:
             try:
+                logger.debug("LLMClient: trying provider '%s'", name)
                 return client.generate(prompt, system=system)
             except Exception as exc:  # noqa: BLE001
-                last_error = exc
-                continue
+                logger.warning(
+                    "LLMClient: provider '%s' failed — %s: %s",
+                    name,
+                    type(exc).__name__,
+                    exc,
+                )
+                if primary_error is None:
+                    primary_error = exc
+                # Only fall through to the next provider if HF is configured.
+                # If this was the only provider, stop immediately.
+                if len(providers) == 1:
+                    break
 
-        if last_error is not None:
-            raise last_error
-        raise RuntimeError("No LLM providers configured")
+        # Raise the primary provider's error — it's the most actionable one.
+        assert primary_error is not None
+        raise primary_error
 
 
 def default_llm_client_from_env() -> LLMClient:
