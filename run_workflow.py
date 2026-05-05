@@ -175,7 +175,16 @@ def run_mycelium_workflow(
         phase2_result = phase2_pipeline.run(text, routing_context=routing_context)
         phase3_result = phase3_pipeline.run_complete_pipeline(phase2_result)
 
-        # Filter experts using routing-selected domains first, then semantic tags
+        # ------------------------------------------------------------------
+        # Resolve relevant_domains from routing result.
+        #
+        # For ATTRIBUTE_ONLY queries (pure reasoning / philosophical questions)
+        # the router intentionally returns an empty selected_domains list
+        # because no structural domain was matched.  In that case we supply
+        # ALL known experts so that unified_decision_analysis can score the
+        # query across the full expert pool and pick the best fit — or
+        # correctly decide CREATE_NEW_PATCH when nothing matches.
+        # ------------------------------------------------------------------
         relevant_domains: List[str] = []
         for domain in getattr(routing_context, "selected_domains", []):
             normalized = expert_filter.normalize_domain(str(domain))
@@ -183,10 +192,22 @@ def run_mycelium_workflow(
                 relevant_domains.append(normalized)
 
         if not relevant_domains:
+            # Fallback 1: try semantic tags extracted from the query
             for tag in normalized_tags:
                 domain = expert_filter.normalize_domain(tag)
                 if domain:
                     relevant_domains.append(domain)
+
+        if not relevant_domains:
+            # Fallback 2 (ATTRIBUTE_ONLY / no tag match): open the gate to
+            # all registered experts so the reasoning pipeline is never
+            # starved of candidates.
+            relevant_domains = list(expert_system.experts.keys())
+            if ENABLE_LOGGING and idx % LOG_SAMPLE_RATE == 0:
+                print(
+                    f"ℹ️  No domain resolved from routing or tags for query \"{text[:60]}...\". "
+                    "Supplying all experts to reasoning pipeline.\n"
+                )
 
         relevant_domains = list(set(relevant_domains))
         filtered_experts = {
