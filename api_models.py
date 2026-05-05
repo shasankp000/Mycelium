@@ -13,10 +13,27 @@ from run_workflow import WorkflowMetrics
 def _to_jsonable(obj: Any) -> Any:
     """Best-effort conversion of nested objects to JSON-serialisable values.
 
-    Mirrors the helper used in run_workflow so the API schema stays stable
-    even if internals change slightly.
+    Handles numpy scalars/arrays explicitly so that Pydantic's serializer
+    never encounters an unknown numpy type (e.g. numpy.bool_, numpy.int64).
     """
 
+    # ── numpy scalars & arrays ────────────────────────────────────────────
+    # Import lazily so the module still loads when numpy is absent.
+    try:
+        import numpy as np  # type: ignore[import]
+
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return [_to_jsonable(v) for v in obj.tolist()]
+    except ImportError:
+        pass
+
+    # ── standard Python containers ────────────────────────────────────────
     if is_dataclass(obj):
         return asdict(obj)
     if isinstance(obj, dict):
