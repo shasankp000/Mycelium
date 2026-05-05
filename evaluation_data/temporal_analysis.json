@@ -1,5 +1,5 @@
 {
-    "recent_statements_count": 5,
+    "recent_statements_count": 1,
     "spatial_analysis": {
         "dominant_clusters": [],
         "cluster_distribution": {},
@@ -11,5 +11,5 @@
         "reason": "no_dominant_clusters"
     },
     "frequent_tags": {},
-    "analysis_timestamp": "2026-05-02T20:30:22.032661"
+    "analysis_timestamp": "2026-05-05T23:09:25.784907"
 }

@@ -15,7 +15,7 @@ secondary = "huggingface"
 # ─────────────────────────────────────────────────
 [ollama]
 # The model tag to load, e.g. "qwen2.5:14b", "llama3:8b", "mistral"
-model           = "qwen2.5:14b"
+model           = "qwen3.5:9b"
 
 # Base URL of the Ollama server
 base_url        = "http://localhost:11434"
@@ -33,7 +33,7 @@ context_size    = 4096
 keep_alive      = "5m"
 
 # HTTP request timeout in seconds
-request_timeout = 60
+request_timeout = 300
 
 # Any additional options forwarded verbatim to Ollama's /api/chat `options`
 # object.  Uncomment and add as needed.
