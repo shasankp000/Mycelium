@@ -1,19 +1,19 @@
-# Mycelium Configuration File
-# Edit this file to control all runtime parameters.
-# Environment variables override values here when set.
+# =============================================================================
+# Mycelium – Central Configuration
+# =============================================================================
+# Edit this file to control every tunable parameter in the system.
+# Resolution order for every value: ENV VAR → this file → hard-coded default.
+# So CI / Docker overrides (e.g. OLLAMA_MODEL=…) still take precedence.
+#
+# After changing this file you do NOT need to restart the server; config_loader
+# re-reads it on every call (cheap because TOML parsing is fast).
+# =============================================================================
 
-# ─────────────────────────────────────────────────
-# LLM Provider Priority
-# ─────────────────────────────────────────────────
-[llm]
-# Which provider to try first.  Options: "ollama", "huggingface"
-primary   = "ollama"
-secondary = "huggingface"
-
-# ─────────────────────────────────────────────────
-# Ollama
-# ─────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Ollama (primary LLM backend)
+# ---------------------------------------------------------------------------
 [ollama]
+<<<<<<< HEAD
 # The model tag to load, e.g. "qwen2.5:14b", "llama3:8b", "mistral"
 model           = "qwen3.5:9b"
 
@@ -37,38 +37,80 @@ request_timeout = 300
 
 # Any additional options forwarded verbatim to Ollama's /api/chat `options`
 # object.  Uncomment and add as needed.
+=======
+model           = "qwen2.5:14b"   # env: OLLAMA_MODEL
+base_url        = "http://localhost:11434"  # env: OLLAMA_BASE_URL
+temperature     = 0.2             # env: OLLAMA_TEMPERATURE
+context_size    = 4096            # num_ctx passed in options  env: OLLAMA_CONTEXT_SIZE
+keep_alive      = "5m"            # "10m", "1h", "-1" (never), "0" (immediately)
+request_timeout = 60              # seconds  env: OLLAMA_REQUEST_TIMEOUT
+
+# Uncomment to pass extra raw options to /api/chat:
+>>>>>>> c0a8f6f56e995d376bb11de311ee9e30428b3d9c
 # [ollama.extra_options]
-# num_gpu = 1
-# num_thread = 8
+# num_gpu        = 1
 # repeat_penalty = 1.1
 
-# ─────────────────────────────────────────────────
-# Hugging Face (fallback / secondary provider)
-# ─────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# HuggingFace (secondary / embedding backend)
+# ---------------------------------------------------------------------------
 [huggingface]
-# Inference API endpoint URL for your model
-api_url        = ""
+api_url        = ""     # env: HF_API_URL
+api_key        = ""     # env: HF_API_KEY   (never commit real keys)
+max_new_tokens = 512    # env: HF_MAX_NEW_TOKENS
+temperature    = 0.2    # env: HF_TEMPERATURE
 
-# Hugging Face API token (hf_...)
-# Leave blank if the model is public and doesn't require auth.
-api_key        = ""
+# ---------------------------------------------------------------------------
+# LLM routing
+# ---------------------------------------------------------------------------
+[llm]
+primary   = "ollama"      # "ollama" | "huggingface"
+secondary = "huggingface" # fallback when primary is unavailable
 
-# Maximum number of new tokens to generate
-max_new_tokens = 512
+# ---------------------------------------------------------------------------
+# Multi-lens fusion weights  (must sum to 1.0)
+# ---------------------------------------------------------------------------
+[routing]
+semantic_weight                  = 0.45   # env: SEMANTIC_WEIGHT
+spectral_weight                  = 0.35   # env: SPECTRAL_WEIGHT
+confidence_weight                = 0.20   # env: CONFIDENCE_WEIGHT
+superposition_variance_threshold = 0.08   # env: SUPERPOSITION_VARIANCE_THRESHOLD
+domain_score_threshold           = 0.45   # env: DOMAIN_SCORE_THRESHOLD
+enable_attribute_override        = true   # env: ENABLE_ATTRIBUTE_OVERRIDE
 
-# Sampling temperature
-temperature    = 0.2
+# ---------------------------------------------------------------------------
+# Expert selection
+# ---------------------------------------------------------------------------
+[experts]
+coverage_threshold  = 0.70   # env: COVERAGE_THRESHOLD
+soft_stop_pct       = 0.90   # env: SOFT_STOP_PERCENTAGE
+max_experts         = 3      # env: MAX_EXPERTS
+similarity_threshold = 0.45  # ExpertFilter  env: EXPERT_SIMILARITY_THRESHOLD
 
-# ─────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Logging & metrics
+# ---------------------------------------------------------------------------
+[logging]
+enable  = true   # env: ENABLE_LOGGING
+sample_rate = 1  # log every Nth request  env: LOG_SAMPLE_RATE
+
+# ---------------------------------------------------------------------------
+# Patch-batch logger
+# ---------------------------------------------------------------------------
+[patch_batches]
+dir = "patch_batches"   # env: PATCH_BATCH_DIR
+
+# ---------------------------------------------------------------------------
 # Traces
-# ─────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 [traces]
-# Directory where reasoning trace JSONL files are stored
-dir = "traces"
+dir = "traces"   # env: TRACES_DIR
 
-# ─────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 # API server
-# ─────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 [api]
-# CORS allowed origins (comma-separated strings in the list)
-allowed_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
+allowed_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]

@@ -22,6 +22,7 @@ from api_models import (
     TRACES_DIR,
 )
 from conversation_agent import get_conversation_agent
+from patch_batch_logger import patch_logger
 
 
 app = FastAPI(title="Mycelium Broadcast API", version="0.3.0")
@@ -63,7 +64,8 @@ async def health() -> Dict[str, Any]:
 async def query(req: QueryRequest) -> MyceliumRunSummary:
     """Run a single-sentence Mycelium workflow and return a typed summary."""
 
-    all_data, metrics = run_mycelium_workflow([req.text])
+    trace_id = str(uuid4())
+    all_data, metrics = run_mycelium_workflow([req.text], trace_id=trace_id)
     record = all_data[0]
 
     # Layer0
@@ -112,8 +114,6 @@ async def query(req: QueryRequest) -> MyceliumRunSummary:
     )
 
     metrics_summary = metrics_to_summary(metrics)
-
-    trace_id = str(uuid4())
     now = datetime.utcnow()
 
     summary = MyceliumRunSummary(
@@ -188,9 +188,28 @@ async def get_trace(trace_id: str) -> ReasoningTrace:
 
 @app.post("/api/v1/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest) -> ChatResponse:
-    """Run Mycelium for the input and have the conversational agent explain it."""
+    """Run Mycelium for the input and have the conversational agent explain it.
+
+    If the pipeline decision was CREATE_NEW_PATCH, the conversational agent's
+    answer is also patched back into the batch log so the record is complete
+    for offline training.
+    """
 
     summary = await query(QueryRequest(text=req.text))
     agent = get_conversation_agent()
     answer = agent.answer(req.text, summary)
+
+    # If this was a no-domain (patch) query, fill the response into the log.
+    # The log_query() call already happened inside run_mycelium_workflow;
+    # fill_response() is idempotent if the pipeline already filled it.
+    if (
+        summary.expert_decision
+        and summary.expert_decision.decision_type == "CREATE_NEW_PATCH"
+        and answer
+    ):
+        patch_logger.fill_response(
+            trace_id=summary.trace_id,
+            response=answer,
+        )
+
     return ChatResponse(trace=summary, answer=answer)
