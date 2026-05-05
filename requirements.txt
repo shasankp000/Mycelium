@@ -4,3 +4,17 @@ bleach>=6.0.0
 nltk>=3.8.1
 PyYAML>=6.0
 numpy>=2.4.4
+
+# Web API and orchestration
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.6.0
+
+# ML / pipeline stack (already used in the repo)
+scikit-learn>=1.5.1
+transformers>=4.40.0
+sentence-transformers>=2.5.1
+pandas>=2.2.0
+
+# Misc utilities
+python-dotenv>=1.0.1
