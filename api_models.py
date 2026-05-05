@@ -93,6 +93,7 @@ class ReasoningTrace(BaseModel):
     timestamp: datetime
     user_query: str
     run_summary: MyceliumRunSummary
+    sandbox_result: Dict[str, Any] = Field(default_factory=dict)
 
 
 def append_trace(trace: ReasoningTrace) -> None:
@@ -115,4 +116,3 @@ def metrics_to_summary(metrics: WorkflowMetrics) -> MetricsSummary:
         expert_decisions=data.get("expert_decisions", {}),
         domains=data.get("domains", {}),
     )
-
