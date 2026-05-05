@@ -1,14 +1,14 @@
 {
-    "evaluation_timestamp": "2026-05-06T00:31:30.891341",
+    "evaluation_timestamp": "2026-05-06T02:58:41.178234",
     "sentences_evaluated": 1,
     "flag_summary": {
-        "create_new_patch": 1
+        "use_existing_expert": 1
     },
     "detailed_results": [
         {
             "sentence": "Is string theory scientifically proven?",
             "tags": [],
-            "timestamp": "2026-05-06T00:31:10.192570",
+            "timestamp": "2026-05-06T02:57:18.506384",
             "layer0_routing": {
                 "route": "REASONING_PIPELINE",
                 "response_type": "DEFINITIVE_ANSWER",
@@ -18,27 +18,54 @@
             },
             "routing_context": {
                 "classification": "ATTRIBUTE_ONLY",
-                "selected_domains": [],
-                "primary_domain": null,
-                "fusion_scores": {},
-                "coverage": 1.0,
-                "create_new_expert": false,
+                "selected_domains": [
+                    "aesthetics",
+                    "astronomy",
+                    "automobile"
+                ],
+                "primary_domain": "aesthetics",
+                "fusion_scores": {
+                    "aesthetics": 0.106709,
+                    "astronomy": 0.324225,
+                    "automobile": 0.27068
+                },
+                "coverage": 0.0,
+                "create_new_expert": true,
                 "metadata": {
-                    "selected_experts": [],
-                    "candidate_domains": [],
-                    "coverage_met": true,
+                    "selected_experts": [
+                        "aesthetics",
+                        "astronomy",
+                        "automobile"
+                    ],
+                    "candidate_domains": [
+                        "aesthetics",
+                        "astronomy",
+                        "automobile"
+                    ],
+                    "coverage_met": false,
                     "lens_scores": {
                         "semantic": {
-                            "astronomy": 0.11794128417968751,
-                            "aesthetics": 0.014909410476684572,
+                            "astronomy": 0.11794135570526124,
+                            "aesthetics": 0.014909380674362184,
                             "automobile": 0.0
                         },
-                        "spectral": {},
-                        "confidence": {}
+                        "spectral": {
+                            "astronomy": 0.4890038668293244,
+                            "automobile": 0.48765821402208015
+                        },
+                        "confidence": {
+                            "astronomy": 0.5,
+                            "aesthetics": 0.5,
+                            "automobile": 0.5
+                        }
                     },
-                    "fused_scores": {},
-                    "variance": 0.0,
-                    "explanation": "Attribute-heavy input detected; no core object domain evidence."
+                    "fused_scores": {
+                        "aesthetics": 0.106709,
+                        "astronomy": 0.324225,
+                        "automobile": 0.27068
+                    },
+                    "variance": 0.008563,
+                    "explanation": "Base routing: Attribute-heavy input detected; no core object domain evidence. Detected ATTRIBUTE_ONLY input (pure reasoning / no structural domain match); all available experts will be evaluated by the reasoning pipeline. Coverage threshold not met; new expert may be required."
                 }
             },
             "phase2_result": {
@@ -124,7 +151,7 @@
                 "aggregated_prediction": null,
                 "total_uncertainty": 0.0,
                 "uncertainty_intervals": {},
-                "processing_time_ms": 0.08169400098267943,
+                "processing_time_ms": 0.07880599878262728,
                 "phases_executed": [
                     "2.1",
                     "2.2",
@@ -220,7 +247,7 @@
                     "aggregated_prediction": null,
                     "total_uncertainty": 0.0,
                     "uncertainty_intervals": {},
-                    "processing_time_ms": 0.08169400098267943,
+                    "processing_time_ms": 0.07880599878262728,
                     "phases_executed": [
                         "2.1",
                         "2.2",
@@ -233,25 +260,329 @@
                 },
                 "action_result": null,
                 "feedback_data": null,
-                "total_latency_ms": 6861.258361997898,
+                "total_latency_ms": 6403.992935003771,
                 "phase_latencies": {
-                    "phase_3_validation": 6861.25339299906
+                    "phase_3_validation": 6403.987485995458
                 },
                 "success": false,
                 "error_message": "Validation gate blocked action execution: complete_failure"
             },
             "expert_decision": {
-                "decision_type": "CREATE_NEW_PATCH",
-                "selected_experts": [],
-                "expert_confidence": 0.0,
+                "decision_type": "USE_EXISTING_EXPERT",
+                "selected_experts": [
+                    "medical"
+                ],
+                "expert_confidence": 0.354646388224264,
                 "ood_penalty": 0.0,
                 "is_ood": false,
-                "metadata": {}
+                "metadata": {
+                    "raw_decision": {
+                        "input_text": "Is string theory scientifically proven?",
+                        "timestamp": "2026-05-06T02:57:45.140557",
+                        "expert_analyses": {
+                            "music": {
+                                "input_text": "Is string theory scientifically proven?",
+                                "domain": "music",
+                                "timestamp": "2026-05-06T02:57:45.140594",
+                                "systems_analysis": {
+                                    "k_medoids": {
+                                        "similarity_score": 0.02078629657626152,
+                                        "num_medoids": 10,
+                                        "primary_medoid_text": "Now darling, you should know\r\nThat I'm really, rea..."
+                                    },
+                                    "calibration": {
+                                        "enabled": true,
+                                        "prediction": "No",
+                                        "confidence_score": 0.38151993039903775,
+                                        "raw_confidence": 0.5086932405320503,
+                                        "calibration_quality": 0.5
+                                    },
+                                    "ood_detection": {
+                                        "enabled": true,
+                                        "is_ood": false,
+                                        "ood_confidence": 0.3333333333333333,
+                                        "ood_scores": {
+                                            "svm_distance": 1.0173864810641007,
+                                            "nn_distance": 0.8024737238883972,
+                                            "isolation_score": -0.007920540809058019
+                                        },
+                                        "reason": "1/3 methods flagged as OOD"
+                                    }
+                                },
+                                "unified_scores": {
+                                    "base_similarity": 0.02078629657626152,
+                                    "base_confidence": 0.38151993039903775,
+                                    "ood_penalty": 0.06666666666666667,
+                                    "adjusted_similarity": 0.02037057064473629,
+                                    "adjusted_confidence": 0.35608526837243526,
+                                    "composite_score": 0.2627384608910605,
+                                    "quality_score": 0.7,
+                                    "systems_enabled": {
+                                        "k_medoids": true,
+                                        "calibration": true,
+                                        "ood_detection": true
+                                    }
+                                },
+                                "recommendation": {
+                                    "decision": "create_new_patch",
+                                    "confidence_in_decision": 0.14713353809899388,
+                                    "reasoning": [
+                                        "Medium composite score (0.263) suitable for patch creation",
+                                        "Low similarity to existing medoids",
+                                        "Low calibrated confidence"
+                                    ],
+                                    "thresholds_used": {
+                                        "high_threshold": 0.35,
+                                        "medium_threshold": 0.175,
+                                        "ood_rejection_threshold": 0.6
+                                    }
+                                }
+                            },
+                            "physics": {
+                                "input_text": "Is string theory scientifically proven?",
+                                "domain": "physics",
+                                "timestamp": "2026-05-06T02:57:59.599863",
+                                "systems_analysis": {
+                                    "k_medoids": {
+                                        "similarity_score": 0.23692254722118378,
+                                        "num_medoids": 10,
+                                        "primary_medoid_text": "Organisms that reproduce sexually by joining gamet..."
+                                    },
+                                    "calibration": {
+                                        "enabled": true,
+                                        "prediction": 0,
+                                        "confidence_score": 0.523548424243927,
+                                        "raw_confidence": 0.6752479672431946,
+                                        "calibration_quality": 0.5506849315068493
+                                    },
+                                    "ood_detection": {
+                                        "enabled": true,
+                                        "is_ood": false,
+                                        "ood_confidence": 0.3333333333333333,
+                                        "ood_scores": {
+                                            "svm_distance": 0.884082555770874,
+                                            "nn_distance": 0.6645931601524353,
+                                            "isolation_score": -0.020710691195444497
+                                        },
+                                        "reason": "1/3 methods flagged as OOD"
+                                    }
+                                },
+                                "unified_scores": {
+                                    "base_similarity": 0.23692254722118378,
+                                    "base_confidence": 0.523548424243927,
+                                    "ood_penalty": 0.06666666666666667,
+                                    "adjusted_similarity": 0.2321840962767601,
+                                    "adjusted_confidence": 0.48864519596099854,
+                                    "composite_score": 0.4177065148403247,
+                                    "quality_score": 0.7,
+                                    "systems_enabled": {
+                                        "k_medoids": true,
+                                        "calibration": true,
+                                        "ood_detection": true
+                                    }
+                                },
+                                "recommendation": {
+                                    "decision": "use_existing_expert",
+                                    "confidence_in_decision": 0.2923945603882273,
+                                    "reasoning": [
+                                        "High composite score (0.418) with acceptable OOD risk"
+                                    ],
+                                    "thresholds_used": {
+                                        "high_threshold": 0.35,
+                                        "medium_threshold": 0.175,
+                                        "ood_rejection_threshold": 0.6
+                                    }
+                                }
+                            },
+                            "medical": {
+                                "input_text": "Is string theory scientifically proven?",
+                                "domain": "medical",
+                                "timestamp": "2026-05-06T02:58:13.008393",
+                                "systems_analysis": {
+                                    "k_medoids": {
+                                        "similarity_score": 0.23692254722118378,
+                                        "num_medoids": 10,
+                                        "primary_medoid_text": "Organisms that reproduce sexually by joining gamet..."
+                                    },
+                                    "calibration": {
+                                        "enabled": true,
+                                        "prediction": 1,
+                                        "confidence_score": 0.7352893352508545,
+                                        "raw_confidence": 0.986965537071228,
+                                        "calibration_quality": 0.49
+                                    },
+                                    "ood_detection": {
+                                        "enabled": true,
+                                        "is_ood": false,
+                                        "ood_confidence": 0.3333333333333333,
+                                        "ood_scores": {
+                                            "svm_distance": 1.9234733581542969,
+                                            "nn_distance": 0.8274211287498474,
+                                            "isolation_score": 0.02766616824167667
+                                        },
+                                        "reason": "1/3 methods flagged as OOD"
+                                    }
+                                },
+                                "unified_scores": {
+                                    "base_similarity": 0.23692254722118378,
+                                    "base_confidence": 0.7352893352508545,
+                                    "ood_penalty": 0.06666666666666667,
+                                    "adjusted_similarity": 0.2321840962767601,
+                                    "adjusted_confidence": 0.6862700462341309,
+                                    "composite_score": 0.5066376974632343,
+                                    "quality_score": 0.7,
+                                    "systems_enabled": {
+                                        "k_medoids": true,
+                                        "calibration": true,
+                                        "ood_detection": true
+                                    }
+                                },
+                                "recommendation": {
+                                    "decision": "use_existing_expert",
+                                    "confidence_in_decision": 0.354646388224264,
+                                    "reasoning": [
+                                        "High composite score (0.507) with acceptable OOD risk"
+                                    ],
+                                    "thresholds_used": {
+                                        "high_threshold": 0.35,
+                                        "medium_threshold": 0.175,
+                                        "ood_rejection_threshold": 0.6
+                                    }
+                                }
+                            },
+                            "chemistry": {
+                                "input_text": "Is string theory scientifically proven?",
+                                "domain": "chemistry",
+                                "timestamp": "2026-05-06T02:58:27.218565",
+                                "systems_analysis": {
+                                    "k_medoids": {
+                                        "similarity_score": 0.23692254722118378,
+                                        "num_medoids": 10,
+                                        "primary_medoid_text": "Organisms that reproduce sexually by joining gamet..."
+                                    },
+                                    "calibration": {
+                                        "enabled": true,
+                                        "prediction": 0,
+                                        "confidence_score": 0.5399479269981384,
+                                        "raw_confidence": 0.7642924785614014,
+                                        "calibration_quality": 0.4129353233830846
+                                    },
+                                    "ood_detection": {
+                                        "enabled": true,
+                                        "is_ood": false,
+                                        "ood_confidence": 0.3333333333333333,
+                                        "ood_scores": {
+                                            "svm_distance": 0.5789280533790588,
+                                            "nn_distance": 0.7312942147254944,
+                                            "isolation_score": 0.008807981392830233
+                                        },
+                                        "reason": "1/3 methods flagged as OOD"
+                                    }
+                                },
+                                "unified_scores": {
+                                    "base_similarity": 0.23692254722118378,
+                                    "base_confidence": 0.5399479269981384,
+                                    "ood_penalty": 0.06666666666666667,
+                                    "adjusted_similarity": 0.2321840962767601,
+                                    "adjusted_confidence": 0.5039513985315959,
+                                    "composite_score": 0.4245943059970935,
+                                    "quality_score": 0.7,
+                                    "systems_enabled": {
+                                        "k_medoids": true,
+                                        "calibration": true,
+                                        "ood_detection": true
+                                    }
+                                },
+                                "recommendation": {
+                                    "decision": "use_existing_expert",
+                                    "confidence_in_decision": 0.29721601419796545,
+                                    "reasoning": [
+                                        "High composite score (0.425) with acceptable OOD risk"
+                                    ],
+                                    "thresholds_used": {
+                                        "high_threshold": 0.35,
+                                        "medium_threshold": 0.175,
+                                        "ood_rejection_threshold": 0.6
+                                    }
+                                }
+                            }
+                        },
+                        "unified_decision": {
+                            "selected_domain": "medical",
+                            "decision_flag": "use_existing_expert",
+                            "confidence_in_decision": 0.354646388224264,
+                            "composite_score": 0.5066376974632343,
+                            "quality_score": 0.7,
+                            "reasoning": [
+                                "High composite score (0.507) with acceptable OOD risk"
+                            ],
+                            "ood_analysis": {
+                                "is_ood": false,
+                                "ood_confidence": 0.3333333333333333
+                            },
+                            "similarity_analysis": {
+                                "similarity_score": 0.23692254722118378,
+                                "adjusted_similarity": 0.2321840962767601
+                            },
+                            "confidence_analysis": {
+                                "calibrated_confidence": 0.7352893352508545,
+                                "adjusted_confidence": 0.6862700462341309
+                            }
+                        },
+                        "system_summary": {
+                            "experts_analyzed": 4,
+                            "systems_enabled": {
+                                "k_medoids": true,
+                                "calibration": true,
+                                "ood_detection": true
+                            }
+                        }
+                    },
+                    "routing_result": {
+                        "classification": "ATTRIBUTE_ONLY",
+                        "selected_experts": [
+                            "aesthetics",
+                            "astronomy",
+                            "automobile"
+                        ],
+                        "candidate_domains": [
+                            "aesthetics",
+                            "astronomy",
+                            "automobile"
+                        ],
+                        "primary_domain": "aesthetics",
+                        "fused_scores": {
+                            "aesthetics": 0.106709,
+                            "astronomy": 0.324225,
+                            "automobile": 0.27068
+                        },
+                        "coverage_met": false,
+                        "create_new_expert": true,
+                        "lens_scores": {
+                            "semantic": {
+                                "astronomy": 0.11794135570526124,
+                                "aesthetics": 0.014909380674362184,
+                                "automobile": 0.0
+                            },
+                            "spectral": {
+                                "astronomy": 0.4890038668293244,
+                                "automobile": 0.48765821402208015
+                            },
+                            "confidence": {
+                                "astronomy": 0.5,
+                                "aesthetics": 0.5,
+                                "automobile": 0.5
+                            }
+                        },
+                        "variance": 0.008563,
+                        "explanation": "Base routing: Attribute-heavy input detected; no core object domain evidence. Detected ATTRIBUTE_ONLY input (pure reasoning / no structural domain match); all available experts will be evaluated by the reasoning pipeline. Coverage threshold not met; new expert may be required."
+                    }
+                }
             },
-            "expert_flag": "create_new_patch",
-            "selected_domain": "unknown",
-            "decision_confidence": 0.0,
-            "trace_id": "c9d6f361-9f3b-4113-9bc7-7df32c07cc9d"
+            "expert_flag": "use_existing_expert",
+            "selected_domain": "medical",
+            "decision_confidence": 0.354646388224264,
+            "trace_id": "cf362edc-f7ec-4ca7-a172-4ef5223d4f6f"
         }
     ]
 }
