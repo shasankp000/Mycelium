@@ -10,6 +10,8 @@ The goal is to move from a working routing/decision demo to a minimal but comple
 - How a conversational LLM can *explain* and *surface* those internals without doing its own opaque reasoning.
 - How a sandbox layer can run concrete experiments, calculations, and literature lookups and archive reasoning traces.
 
+**LLM vendor preference:** Unless otherwise noted, both the conversational agent and the sandbox agent will use **Ollama** as the primary runtime, with **Hugging Face‑hosted models** as the secondary fallback/provider.
+
 ---
 
 ## 1. Current Baseline
@@ -44,11 +46,11 @@ At PoC completion, the architecture will consist of four cooperating layers:
 
 2. **Sandbox Research Layer**
    - A controlled environment where tools can be executed: numerical computations, simple simulations, web / literature search, and sub‑agent dialogues.
-   - Driven by a tool‑calling LLM that receives structured outputs from Mycelium and a narrow instruction: *"Design and run experiments to test or extend these hypotheses; log every step and its result."*
+   - Driven by a tool‑calling LLM (Ollama first, Hugging Face second) that receives structured outputs from Mycelium and a narrow instruction: *"Design and run experiments to test or extend these hypotheses; log every step and its result."*
    - Writes detailed reasoning traces to an archive store.
 
 3. **Conversational LLM Agent**
-   - A separate LLM used *only* for natural‑language interaction with the user (summaries, explanations, follow‑up questions).
+   - A separate LLM (Ollama‑backed by default, with Hugging Face as fallback) used *only* for natural‑language interaction with the user (summaries, explanations, follow‑up questions).
    - Its prompts are seeded with Mycelium outputs and sandbox traces; it does **not** perform independent knowledge inference beyond those sources.
 
 4. **Web UI Layer**
@@ -148,7 +150,8 @@ At PoC completion, the architecture will consist of four cooperating layers:
      - Simple sub‑agent discussion (e.g. multiple small LLM calls).
    - For the PoC, tools can initially be mocked or narrowed to a few safe operations.
 3. Integrate a tool‑calling LLM:
-   - Wrap your chosen API/client in a single interface (e.g. `ToolCallingLLM.run(task, tools)`), keeping the provider swappable.
+   - Wrap Ollama + Hugging Face in a single interface (e.g. configurable provider priority in `ToolCallingLLM.run(task, tools)`).
+   - Default resolution order: try Ollama; if unavailable or unsuitable for a given tool, fall back to Hugging Face.
    - Implement prompt templates that:
      - Emphasize experimentation and evidence gathering.
      - Require explicit logging of each step.
@@ -166,6 +169,7 @@ At PoC completion, the architecture will consist of four cooperating layers:
      - Describes Mycelium’s decisions and any sandbox experiments.
      - Asks the LLM to produce a clear, faithful explanation and answer.
      - Forbids introducing unsupported claims.
+   - Resolves its backing model via a shared LLM config (Ollama first, Hugging Face fallback) so both conversational and sandbox agents share vendor preferences.
 3. Expose `/api/chat` endpoint:
    - On first turn, runs Mycelium + (optional) sandbox.
    - On follow‑up turns, fetches the existing `ReasoningTrace` by `trace_id` and sends updated instructions to the conversational agent.
@@ -233,11 +237,12 @@ At PoC completion, the architecture will consist of four cooperating layers:
 3. **Sandbox Layer**
    - [ ] Define `SandboxTask`, `SandboxResult`, and `SandboxStep`.
    - [ ] Implement `SandboxManager` with minimal safe tools.
-   - [ ] Integrate tool‑calling LLM and attach results to traces.
+   - [ ] Integrate tool‑calling LLM (Ollama primary, Hugging Face secondary) and attach results to traces.
 
 4. **Conversational Agent**
    - [ ] Implement `ConversationAgent` and `/api/chat`.
    - [ ] Ensure prompts use Mycelium + sandbox outputs as the primary context.
+   - [ ] Route conversational calls through the same LLM provider config (Ollama primary, Hugging Face secondary).
 
 5. **UI Integration**
    - [ ] Add pipeline, sandbox, and trace panels to the web UI.
