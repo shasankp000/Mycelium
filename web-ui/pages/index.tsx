@@ -1,7 +1,7 @@
 import Head from 'next/head';
 import { useState } from 'react';
 import axios from 'axios';
-import styles from '@/styles/Home.module.css';
+import styles from '../styles/Home.module.css';
 
 interface Message {
   role: 'user' | 'system';
