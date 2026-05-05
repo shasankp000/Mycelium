@@ -12,7 +12,6 @@ All flags are optional if set in config.toml under [bert_training].
 
 import argparse
 import json
-import sys
 import torch
 from pathlib import Path
 from torch.utils.data import Dataset, DataLoader
@@ -54,9 +53,10 @@ def _cfg_get(key, fallback):
 # ---------------------------------------------------------------------------
 
 DOMAIN_REGISTRY = {
+    # Medical_BERT CSVs use Biology / Non-Biology labels (see label_map.json)
     "medical": {
-        "positive_label": "Medical",
-        "negative_label": "Non-Medical",
+        "positive_label": "Biology",
+        "negative_label": "Non-Biology",
         "default_data_dir": "dummy_models/Medical_BERT",
         "default_output_dir": "dummy_models/Medical_BERT",
     },
@@ -73,6 +73,28 @@ DOMAIN_REGISTRY = {
         "default_output_dir": "dummy_models/Physics_BERT",
     },
 }
+
+# Candidate column names searched in order — first match wins.
+# Add any new column name variants here if needed.
+_LABEL_COL_CANDIDATES = ["label", "category", "class", "target", "is_domain"]
+_TEXT_COL_CANDIDATES  = ["text", "sentence", "content", "input", "question"]
+
+
+def _detect_column(df: pd.DataFrame, candidates: list, kind: str) -> str:
+    """
+    Return the first column name from `candidates` that exists in df.
+    Raises a descriptive ValueError if none match.
+    """
+    cols_lower = {c.lower(): c for c in df.columns}
+    for cand in candidates:
+        if cand.lower() in cols_lower:
+            return cols_lower[cand.lower()]
+    raise ValueError(
+        f"Could not find a {kind} column in the CSV.\n"
+        f"  Columns found : {list(df.columns)}\n"
+        f"  Expected one of: {candidates}\n"
+        f"  Tip: use --label_col / --text_col flags to specify explicitly."
+    )
 
 # ---------------------------------------------------------------------------
 # Dataset
@@ -112,7 +134,14 @@ class DomainDataset(Dataset):
 class DomainBERTTrainer:
     """BERT fine-tuner for binary domain classification."""
 
-    def __init__(self, domain: str, model_name: str = "bert-base-uncased", device=None):
+    def __init__(
+        self,
+        domain: str,
+        model_name: str = "bert-base-uncased",
+        device=None,
+        label_col: str = None,
+        text_col: str = None,
+    ):
         if domain not in DOMAIN_REGISTRY:
             raise ValueError(
                 f"Unknown domain '{domain}'. "
@@ -126,6 +155,10 @@ class DomainBERTTrainer:
         }
         self.reverse_label_map = {v: k for k, v in self.label_map.items()}
 
+        # Explicit overrides (from CLI); None means auto-detect per CSV
+        self._label_col_override = label_col
+        self._text_col_override  = text_col
+
         self.device = device or torch.device(
             "cuda" if torch.cuda.is_available() else "cpu"
         )
@@ -136,30 +169,46 @@ class DomainBERTTrainer:
         print(f"🔧 Domain       : {domain}")
         print(f"🔧 Device       : {self.device}")
         print(f"📦 Base model   : {model_name}")
+        print(f"🏷️  Labels       : {self.meta['positive_label']} → 1 "
+              f"| {self.meta['negative_label']} → 0")
 
     # ------------------------------------------------------------------
     # Data loading
     # ------------------------------------------------------------------
 
+    def _extract(self, df: pd.DataFrame, split: str):
+        """
+        Detect or use the overridden text/label columns, map label strings
+        to ints, and return (texts, int_labels).
+        """
+        label_col = self._label_col_override or _detect_column(
+            df, _LABEL_COL_CANDIDATES, "label"
+        )
+        text_col = self._text_col_override or _detect_column(
+            df, _TEXT_COL_CANDIDATES, "text"
+        )
+        print(f"  [{split}] using columns → text='{text_col}', label='{label_col}'")
+
+        mapped = df[label_col].map(self.label_map)
+        unknown = df[label_col][mapped.isna()].unique().tolist()
+        if unknown:
+            print(
+                f"  ⚠️  [{split}] Unknown label values — these rows will be "
+                f"DROPPED: {unknown}"
+            )
+            df = df[~df[label_col].isin(unknown)].copy()
+            mapped = df[label_col].map(self.label_map)
+
+        return df[text_col].values, mapped.values.astype(int)
+
     def load_data(self, train_path, val_path, test_path=None):
-        """Load CSVs. test_path is optional (skips test evaluation if absent)."""
+        """Load CSVs. test_path is optional."""
         print("\n📂 Loading datasets...")
         train_df = pd.read_csv(train_path)
-        val_df = pd.read_csv(val_path)
+        val_df   = pd.read_csv(val_path)
 
-        def _map_labels(df):
-            mapped = df["label"].map(self.label_map)
-            unmapped = df["label"][mapped.isna()].unique().tolist()
-            if unmapped:
-                print(
-                    f"⚠️  Unknown label values found (will be dropped): {unmapped}"
-                )
-                df = df[~df["label"].isin(unmapped)].copy()
-                mapped = df["label"].map(self.label_map)
-            return df["text"].values, mapped.values.astype(int)
-
-        train_texts, train_labels = _map_labels(train_df)
-        val_texts, val_labels = _map_labels(val_df)
+        train_texts, train_labels = self._extract(train_df, "train")
+        val_texts,   val_labels   = self._extract(val_df,   "val")
 
         print(f"  Train      : {len(train_texts)} samples")
         print(f"  Validation : {len(val_texts)} samples")
@@ -167,17 +216,17 @@ class DomainBERTTrainer:
         test_texts = test_labels = None
         if test_path and Path(test_path).exists():
             test_df = pd.read_csv(test_path)
-            test_texts, test_labels = _map_labels(test_df)
+            test_texts, test_labels = self._extract(test_df, "test")
             print(f"  Test       : {len(test_texts)} samples")
         else:
-            print("  Test       : (skipped — no test file provided)")
+            print("  Test       : (skipped — file not found)")
 
         return train_texts, train_labels, val_texts, val_labels, test_texts, test_labels
 
     def create_data_loaders(
         self,
         train_texts, train_labels,
-        val_texts, val_labels,
+        val_texts,   val_labels,
         test_texts=None, test_labels=None,
         batch_size: int = 16,
         max_length: int = 128,
@@ -186,16 +235,12 @@ class DomainBERTTrainer:
             f"\n🔄 Creating data loaders "
             f"(batch={batch_size}, max_len={max_length})..."
         )
-        train_ds = DomainDataset(train_texts, train_labels, self.tokenizer, max_length)
-        val_ds = DomainDataset(val_texts, val_labels, self.tokenizer, max_length)
-
-        train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
-        val_loader = DataLoader(val_ds, batch_size=batch_size)
-        test_loader = None
+        mk = lambda t, l: DomainDataset(t, l, self.tokenizer, max_length)  # noqa
+        train_loader = DataLoader(mk(train_texts, train_labels), batch_size=batch_size, shuffle=True)
+        val_loader   = DataLoader(mk(val_texts,   val_labels),   batch_size=batch_size)
+        test_loader  = None
         if test_texts is not None:
-            test_ds = DomainDataset(test_texts, test_labels, self.tokenizer, max_length)
-            test_loader = DataLoader(test_ds, batch_size=batch_size)
-
+            test_loader = DataLoader(mk(test_texts, test_labels), batch_size=batch_size)
         return train_loader, val_loader, test_loader
 
     # ------------------------------------------------------------------
@@ -219,7 +264,7 @@ class DomainBERTTrainer:
         self.model.train()
         total_loss, preds_all, labels_all = 0.0, [], []
         for batch in tqdm(loader, desc="  Training", leave=False):
-            ids = batch["input_ids"].to(self.device)
+            ids  = batch["input_ids"].to(self.device)
             mask = batch["attention_mask"].to(self.device)
             lbls = batch["labels"].to(self.device)
 
@@ -239,7 +284,7 @@ class DomainBERTTrainer:
         total_loss, preds_all, labels_all = 0.0, [], []
         with torch.no_grad():
             for batch in tqdm(loader, desc=f"  {split_name}", leave=False):
-                ids = batch["input_ids"].to(self.device)
+                ids  = batch["input_ids"].to(self.device)
                 mask = batch["attention_mask"].to(self.device)
                 lbls = batch["labels"].to(self.device)
 
@@ -249,7 +294,7 @@ class DomainBERTTrainer:
                 labels_all.extend(lbls.cpu().numpy())
 
         loss = total_loss / len(loader)
-        acc = accuracy_score(labels_all, preds_all)
+        acc  = accuracy_score(labels_all, preds_all)
         prec, rec, f1, _ = precision_recall_fscore_support(
             labels_all, preds_all, average="weighted", zero_division=0
         )
@@ -267,17 +312,15 @@ class DomainBERTTrainer:
         learning_rate: float = 2e-5,
         save_dir: str = None,
     ):
-        save_path = Path(
-            save_dir or self.meta["default_output_dir"]
-        )
+        save_path = Path(save_dir or self.meta["default_output_dir"])
         save_path.mkdir(parents=True, exist_ok=True)
 
         optimizer = AdamW(self.model.parameters(), lr=learning_rate)
-        best_f1 = 0.0
-        history = {
+        best_f1   = 0.0
+        history   = {
             "domain": self.domain,
             "train_loss": [], "train_acc": [],
-            "val_loss": [], "val_acc": [], "val_f1": [],
+            "val_loss": [],   "val_acc": [],  "val_f1": [],
         }
 
         print(f"\n🚀 Training for {epochs} epoch(s) | lr={learning_rate}")
@@ -314,7 +357,6 @@ class DomainBERTTrainer:
         with open(hist_path, "w") as f:
             json.dump(history, f, indent=2)
         print(f"\n💾 Training history → {hist_path}")
-
         return history
 
     def test(self, test_loader):
@@ -325,16 +367,13 @@ class DomainBERTTrainer:
         print("🧪 Final test evaluation")
         print("=" * 60)
 
-        loss, acc, prec, rec, f1, preds, labels = self._evaluate(
-            test_loader, "Test"
-        )
+        loss, acc, prec, rec, f1, preds, labels = self._evaluate(test_loader, "Test")
         print(
             f"\n📊 Test — acc: {acc:.4f}  P: {prec:.4f}  "
             f"R: {rec:.4f}  F1: {f1:.4f}"
         )
         target_names = [
-            self.reverse_label_map[i]
-            for i in sorted(self.reverse_label_map.keys())
+            self.reverse_label_map[i] for i in sorted(self.reverse_label_map.keys())
         ]
         print("\n📋 Classification Report:")
         print(classification_report(labels, preds, target_names=target_names))
@@ -347,7 +386,7 @@ class DomainBERTTrainer:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="Unified BERT domain-expert trainer. "
-        "Flags override config.toml [bert_training] values."
+                    "Flags override config.toml [bert_training] values."
     )
     p.add_argument(
         "--domain",
@@ -359,7 +398,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--train_data",
         default=_cfg_get("train_data", None),
-        help="Path to train CSV. Default: dummy_models/<Domain>_BERT/train.csv",
+        help="Path to train CSV.",
     )
     p.add_argument(
         "--val_data",
@@ -405,6 +444,22 @@ def build_parser() -> argparse.ArgumentParser:
         default=_cfg_get("learning_rate", 2e-5),
         help="AdamW learning rate.",
     )
+    p.add_argument(
+        "--label_col",
+        default=_cfg_get("label_col", None),
+        help=(
+            "CSV column that holds the label strings. "
+            f"Auto-detected from {_LABEL_COL_CANDIDATES} if not set."
+        ),
+    )
+    p.add_argument(
+        "--text_col",
+        default=_cfg_get("text_col", None),
+        help=(
+            "CSV column that holds the text/sentence. "
+            f"Auto-detected from {_TEXT_COL_CANDIDATES} if not set."
+        ),
+    )
     return p
 
 
@@ -412,13 +467,12 @@ def main():
     args = build_parser().parse_args()
 
     domain = args.domain
-    meta = DOMAIN_REGISTRY[domain]
+    meta   = DOMAIN_REGISTRY[domain]
 
-    # Resolve data paths
-    data_dir = Path(meta["default_data_dir"])
+    data_dir   = Path(meta["default_data_dir"])
     train_path = Path(args.train_data) if args.train_data else data_dir / "train.csv"
-    val_path = Path(args.val_data) if args.val_data else data_dir / "validation.csv"
-    test_path = Path(args.test_data) if args.test_data else data_dir / "test.csv"
+    val_path   = Path(args.val_data)   if args.val_data   else data_dir / "validation.csv"
+    test_path  = Path(args.test_data)  if args.test_data  else data_dir / "test.csv"
     output_dir = args.output_dir or meta["default_output_dir"]
 
     print(f"\n{'='*60}")
@@ -426,25 +480,37 @@ def main():
     print(f"{'='*60}")
     print(f"  Train      : {train_path}")
     print(f"  Validation : {val_path}")
-    print(f"  Test       : {test_path} {'(skipped if missing)' if not test_path.exists() else ''}")
+    print(
+        f"  Test       : {test_path} "
+        f"{'(skipped if missing)' if not test_path.exists() else ''}"
+    )
     print(f"  Output     : {output_dir}")
     print(f"  Epochs     : {args.epochs}")
     print(f"  Batch size : {args.batch_size}")
     print(f"  Max length : {args.max_length}")
     print(f"  LR         : {args.learning_rate}")
+    if args.label_col:
+        print(f"  Label col  : {args.label_col} (explicit)")
+    if args.text_col:
+        print(f"  Text col   : {args.text_col} (explicit)")
 
-    trainer = DomainBERTTrainer(domain=domain, model_name=args.model_name)
+    trainer = DomainBERTTrainer(
+        domain=domain,
+        model_name=args.model_name,
+        label_col=args.label_col,
+        text_col=args.text_col,
+    )
 
     (
         train_texts, train_labels,
-        val_texts, val_labels,
-        test_texts, test_labels,
+        val_texts,   val_labels,
+        test_texts,  test_labels,
     ) = trainer.load_data(train_path, val_path, test_path)
 
     train_loader, val_loader, test_loader = trainer.create_data_loaders(
         train_texts, train_labels,
-        val_texts, val_labels,
-        test_texts, test_labels,
+        val_texts,   val_labels,
+        test_texts,  test_labels,
         batch_size=args.batch_size,
         max_length=args.max_length,
     )
