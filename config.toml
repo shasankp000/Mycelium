@@ -13,40 +13,14 @@
 # Ollama (primary LLM backend)
 # ---------------------------------------------------------------------------
 [ollama]
-<<<<<<< HEAD
-# The model tag to load, e.g. "qwen2.5:14b", "llama3:8b", "mistral"
-model           = "qwen3.5:9b"
-
-# Base URL of the Ollama server
-base_url        = "http://localhost:11434"
-
-# Sampling temperature (0.0 = deterministic, 1.0 = creative)
-temperature     = 0.2
-
-# Context window size in tokens (num_ctx)
-# Common values: 2048, 4096, 8192, 16384, 32768
-context_size    = 4096
-
-# How long Ollama keeps the model loaded in memory after the last request.
-# Format: "<number><unit>" where unit is s, m, h.  "0" = unload immediately.
-# Examples: "5m", "10m", "1h", "-1" (never unload)
-keep_alive      = "5m"
-
-# HTTP request timeout in seconds
-request_timeout = 300
-
-# Any additional options forwarded verbatim to Ollama's /api/chat `options`
-# object.  Uncomment and add as needed.
-=======
-model           = "qwen2.5:14b"   # env: OLLAMA_MODEL
+model           = "qwen3.5:9b"   # env: OLLAMA_MODEL
 base_url        = "http://localhost:11434"  # env: OLLAMA_BASE_URL
 temperature     = 0.2             # env: OLLAMA_TEMPERATURE
 context_size    = 4096            # num_ctx passed in options  env: OLLAMA_CONTEXT_SIZE
 keep_alive      = "5m"            # "10m", "1h", "-1" (never), "0" (immediately)
-request_timeout = 60              # seconds  env: OLLAMA_REQUEST_TIMEOUT
+request_timeout = 300              # seconds  env: OLLAMA_REQUEST_TIMEOUT
 
 # Uncomment to pass extra raw options to /api/chat:
->>>>>>> c0a8f6f56e995d376bb11de311ee9e30428b3d9c
 # [ollama.extra_options]
 # num_gpu        = 1
 # repeat_penalty = 1.1
