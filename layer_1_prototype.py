@@ -9,7 +9,7 @@ except Exception:  # pragma: no cover - allow graceful degradation
 # Cosine similarity with graceful fallback if scikit-learn is unavailable
 try:
     from sklearn.metrics.pairwise import cosine_similarity as _sk_cosine_similarity  # type: ignore
-    def cosine_similarity(a, b):
+    def cosine_similarity(a, b=None):
         return _sk_cosine_similarity(a, b)
 except Exception:  # pragma: no cover
     import math as _math
@@ -27,9 +27,9 @@ except Exception:  # pragma: no cover
     def _norm(u):
         return _math.sqrt(sum((ui * ui for ui in u))) + 1e-12
 
-    def cosine_similarity(a, b):
+    def cosine_similarity(a, b=None):
         A = _ensure_2d(a)
-        B = _ensure_2d(b)
+        B = _ensure_2d(b) if b is not None else A
         out = []
         for u in A:
             row = []
