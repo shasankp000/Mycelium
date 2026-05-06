@@ -272,9 +272,6 @@ class TemporalLocalityLayer:
         """Get recent statements within time window"""
         if time_limit_hours is None:
             time_limit_hours = cfg.layer1_temporal_window_hours()
-        if time_limit_hours == 0.0:
-            return list(self.recent_statements)
-        
         cutoff_time = datetime.datetime.now() - datetime.timedelta(hours=time_limit_hours)
         recent = [entry for entry in self.recent_statements 
                  if entry["parsed_time"] >= cutoff_time]

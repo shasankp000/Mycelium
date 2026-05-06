@@ -88,6 +88,8 @@ def _resolve_env(
 
 def _get(section: str, key: str, default: Any, env_var: Optional[str] = None) -> Any:
     """Resolve a single setting using env vars, config.toml, then default."""
+    if not section or section.startswith(".") or section.endswith(".") or ".." in section:
+        return default
     env_val = _resolve_env(default, env_var, section, key)
     if env_val is not None:
         return env_val
