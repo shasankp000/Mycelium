@@ -10,7 +10,7 @@ except Exception:  # pragma: no cover - allow graceful degradation
 # Cosine similarity with graceful fallback if scikit-learn is unavailable
 try:
     from sklearn.metrics.pairwise import cosine_similarity as _sk_cosine_similarity  # type: ignore
-    def cosine_similarity(a, b):
+    def cosine_similarity(a, b=None):
         return _sk_cosine_similarity(a, b)
 except Exception:  # pragma: no cover
     import math as _math
@@ -28,9 +28,9 @@ except Exception:  # pragma: no cover
     def _norm(u):
         return _math.sqrt(sum((ui * ui for ui in u))) + 1e-12
 
-    def cosine_similarity(a, b):
+    def cosine_similarity(a, b=None):
         A = _ensure_2d(a)
-        B = _ensure_2d(b)
+        B = _ensure_2d(b) if b is not None else A
         out = []
         for u in A:
             row = []
@@ -100,8 +100,8 @@ def embed_tags_transformer(tags, model_name: str = ""):
     embeddings = model.encode(tags)
     return embeddings
 
-def cluster_tags_transformer(tags, embeddings, similarity_threshold: float = 0.0):
-    if similarity_threshold == 0.0:
+def cluster_tags_transformer(tags, embeddings, similarity_threshold: Optional[float] = None):
+    if similarity_threshold is None:
         similarity_threshold = cfg.layer1_tag_cluster_similarity_threshold()
     # Compute cosine similarity matrix
     sim_matrix = cosine_similarity(embeddings)
@@ -190,10 +190,10 @@ def extract_tags_llama(text, model: str = ""):
         tags_clean = [tag.strip() for tag in tags_str.split(',') if tag.strip()]
     return tags_clean
 
-def normalize_tags(tags, domain_list=None, threshold: int = 0):
+def normalize_tags(tags, domain_list=None, threshold: Optional[int] = None):
     if domain_list is None:
         domain_list = DOMAIN_LIST
-    if threshold == 0:
+    if threshold is None:
         threshold = cfg.layer1_tag_normalize_threshold()
     normalized = []
     for tag in tags:
@@ -201,8 +201,8 @@ def normalize_tags(tags, domain_list=None, threshold: int = 0):
         normalized.append(match if score >= threshold else tag)
     return normalized
 
-def cluster_tags(tags, embeddings, distance_threshold: float = 0.0):
-    if distance_threshold == 0.0:
+def cluster_tags(tags, embeddings, distance_threshold: Optional[float] = None):
+    if distance_threshold is None:
         distance_threshold = cfg.layer1_tag_cluster_distance_threshold()
     clustering = AgglomerativeClustering(
         n_clusters=None,
@@ -243,11 +243,13 @@ def load_clusters_from_json(filename: str = ""):
 class TemporalLocalityLayer:
     def __init__(
         self,
-        max_size: int = 0,
-        time_window_hours: float = 0.0,
+        max_size: Optional[int] = None,
+        time_window_hours: Optional[float] = None,
     ):
-        max_size = max_size or cfg.layer1_temporal_max_size()
-        time_window_hours = time_window_hours or cfg.layer1_temporal_time_window_hours()
+        if max_size is None:
+            max_size = cfg.layer1_temporal_max_size()
+        if time_window_hours is None:
+            time_window_hours = cfg.layer1_temporal_time_window_hours()
         self.recent_statements = deque(maxlen=max_size)  # LRU-like queue
         self.tag_frequency = {}  # Track tag frequency
         self.time_window = time_window_hours * 3600  # Convert to seconds
@@ -266,19 +268,18 @@ class TemporalLocalityLayer:
         for tag in tags:
             self.tag_frequency[tag] = self.tag_frequency.get(tag, 0) + 1
     
-    def get_recent_statements(self, time_limit_hours: float = 0.0):
+    def get_recent_statements(self, time_limit_hours: Optional[float] = None):
         """Get recent statements within time window"""
-        if time_limit_hours == 0.0:
-            return list(self.recent_statements)
-        
+        if time_limit_hours is None:
+            time_limit_hours = cfg.layer1_temporal_window_hours()
         cutoff_time = datetime.datetime.now() - datetime.timedelta(hours=time_limit_hours)
         recent = [entry for entry in self.recent_statements 
                  if entry["parsed_time"] >= cutoff_time]
         return recent
     
-    def get_temporal_similarity(self, input_tags, time_limit_hours: float = 0.0):
+    def get_temporal_similarity(self, input_tags, time_limit_hours: Optional[float] = None):
         """Calculate temporal similarity based on recent tag overlap"""
-        if time_limit_hours == 0.0:
+        if time_limit_hours is None:
             time_limit_hours = cfg.layer1_temporal_window_hours()
         recent_statements = self.get_recent_statements(time_limit_hours)
         if not recent_statements:
@@ -335,9 +336,9 @@ def analyze_spatial_locality(recent_statements, clusters):
         "unique_recent_tags": len(set(recent_tags))
     }
 
-def assign_domain_patch(spatial_analysis, similarity_threshold: float = 0.0):
+def assign_domain_patch(spatial_analysis, similarity_threshold: Optional[float] = None):
     """Assign domain/patch network based on spatial locality analysis"""
-    if similarity_threshold == 0.0:
+    if similarity_threshold is None:
         similarity_threshold = cfg.layer1_spatial_dominance_threshold()
     if not spatial_analysis["dominant_clusters"]:
         return {"action": "create_new_patch", "reason": "no_dominant_clusters"}
@@ -415,14 +416,15 @@ def _tokenize(text: str) -> List[str]:
 
 def _lens1_embedding_candidates(
     text: str,
-    top_k: int = 0,
+    top_k: Optional[int] = None,
     model_name: str = "",
 ) -> List[Tuple[str, float]]:
     """Lens 1: Embedding-based permissive candidate selection.
     Returns top-k domains by cosine similarity to domain anchors. Gracefully
     degrades to lexical scoring if sentence-transformers is unavailable.
     """
-    top_k      = top_k      or cfg.layer1_lens1_top_k()
+    if top_k is None:
+        top_k = cfg.layer1_lens1_top_k()
     model_name = model_name or cfg.layer1_embed_model()
     emb_weight = cfg.layer1_lens1_embedding_weight()
     lex_weight = cfg.layer1_lens1_lexical_weight()
@@ -568,7 +570,7 @@ def _lens3_abstraction_signature(text: str, concepts: List[str]) -> Dict:
     return signature
 
 
-def multi_lens_route(text: str, top_k: int = 0) -> Dict:
+def multi_lens_route(text: str, top_k: Optional[int] = None) -> Dict:
     """Public API: Multi-lens similarity and gated routing.
 
     Returns dict with:
@@ -580,7 +582,8 @@ def multi_lens_route(text: str, top_k: int = 0) -> Dict:
       - lens3_signature: Dict
       - classification: 'NORMAL' | 'ATTRIBUTE_ONLY' | 'UNKNOWN'
     """
-    top_k = top_k or cfg.layer1_lens1_top_k()
+    if top_k is None:
+        top_k = cfg.layer1_lens1_top_k()
 
     # Lens 1: permissive candidates
     lens1 = _lens1_embedding_candidates(text, top_k=top_k)

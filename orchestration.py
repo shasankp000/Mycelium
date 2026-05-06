@@ -22,8 +22,12 @@ def combine_routing_and_expert_decisions(
     Rules:
     - Normalize expert decision into ExpertDecisionResult.
     - Map CLARIFICATION to CREATE_NEW_EXPERT (for backward compatibility).
-    - If routing indicates create_new_expert=True and the expert decision is
-      not USE_EXISTING_EXPERT, promote the decision to CREATE_NEW_EXPERT.
+    - If routing indicates create_new_expert=True AND the expert decision is
+      already CREATE_NEW_EXPERT, leave it unchanged.
+    - CREATE_NEW_PATCH is intentionally NOT promoted: the expert system
+      determined a known domain exists but has no trained model yet, which
+      is a lighter-weight situation than a fully unknown domain.  Promoting
+      it to CREATE_NEW_EXPERT would trigger unnecessary heavy pipeline work.
     """
     # Normalize expert result
     if isinstance(expert, dict):
@@ -54,11 +58,16 @@ def combine_routing_and_expert_decisions(
         metadata=metadata,
     )
 
-    # Combine with routing signal for new expert creation
     routing_create_new_expert = _extract_bool("create_new_expert", routing, default=False)
 
-    if routing_create_new_expert and result.decision_type != "USE_EXISTING_EXPERT":
-        # Promote to CREATE_NEW_EXPERT when routing signals insufficient coverage
+    # Trip 1 fix: only promote when the expert decision is not already
+    # USE_EXISTING_EXPERT *and* not CREATE_NEW_PATCH.
+    # CREATE_NEW_PATCH must be preserved — it means a known domain exists
+    # but needs a new model, not that the domain is completely unknown.
+    if (
+        routing_create_new_expert
+        and result.decision_type not in ("USE_EXISTING_EXPERT", "CREATE_NEW_PATCH")
+    ):
         result = replace(result, decision_type="CREATE_NEW_EXPERT")
 
     return result

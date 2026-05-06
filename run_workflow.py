@@ -2,7 +2,7 @@ import json
 import datetime
 from collections import Counter
 from dataclasses import asdict, dataclass, is_dataclass
-from typing import List, Dict, Any, Sequence, Tuple
+from typing import List, Dict, Any, Optional, Sequence, Tuple
 
 import numpy as np
 from layer_1_prototype import (
@@ -24,6 +24,7 @@ from expert_filter import ExpertFilter
 from orchestration import combine_routing_and_expert_decisions
 from layer0.router import QuestionRouter
 from tuning_config import ENABLE_LOGGING, LOG_SAMPLE_RATE
+from patch_batch_logger import patch_logger
 
 
 class NumpyEncoder(json.JSONEncoder):
@@ -89,10 +90,19 @@ class WorkflowMetrics:
         }
 
 
-def run_mycelium_workflow(sentences: Sequence[str]) -> Tuple[List[Dict[str, Any]], WorkflowMetrics]:
+def run_mycelium_workflow(
+    sentences: Sequence[str],
+    trace_id: Optional[str] = None,
+) -> Tuple[List[Dict[str, Any]], WorkflowMetrics]:
     """Run the full Mycelium workflow on a batch of sentences.
 
     Returns the per-sentence analysis records and aggregated WorkflowMetrics.
+
+    Args:
+        sentences:  One or more user queries to process.
+        trace_id:   Optional caller-supplied trace UUID.  When provided, any
+                    CREATE_NEW_PATCH response for the first sentence will be
+                    patched back into the batch log under this ID.
     """
 
     phase2_pipeline = Phase2Pipeline()
@@ -102,26 +112,24 @@ def run_mycelium_workflow(sentences: Sequence[str]) -> Tuple[List[Dict[str, Any]
     # Step 0: Initialize unified expert system
     print("Initializing unified expert system (K-Medoids + Calibration + OOD Detection)...")
     expert_system = UnifiedExpertSystem()
-    print(f"Initialized unified expert system with {len(expert_system.experts)} experts\n")
+    registered_domains = set(expert_system.experts.keys())
+    print(f"Initialized unified expert system with {len(registered_domains)} experts\n")
 
-    # Initialize expert filter for tag-based routing (with auto-clustering)
     print("Initializing expert filter with automatic semantic clustering...")
-    domain_list = ["music", "physics", "chemistry", "medical"]
     expert_filter = ExpertFilter(
-        domain_list=domain_list,
+        domain_list=list(registered_domains),
         use_auto_clustering=True,
         similarity_threshold=0.45,
     )
-    print("✅ Expert filter initialized with auto-clustering\n")
+    print("\u2705 Expert filter initialized with auto-clustering\n")
 
     temporal_layer = TemporalLocalityLayer(max_size=50, time_window_hours=24)
     all_sentence_data: List[Dict[str, Any]] = []
     all_tags: List[str] = []
 
-    # Initialize Layer0 router and metrics
     print("Initializing Layer0 question router...")
     question_router = QuestionRouter()
-    print("✅ Layer0 router initialized\n")
+    print("\u2705 Layer0 router initialized\n")
     metrics = WorkflowMetrics()
 
     for idx, text in enumerate(sentences, start=1):
@@ -137,7 +145,7 @@ def run_mycelium_workflow(sentences: Sequence[str]) -> Tuple[List[Dict[str, Any]
         # Short-circuit for non-REASONING_PIPELINE routes
         if layer0_result.route != "REASONING_PIPELINE":
             if ENABLE_LOGGING and idx % LOG_SAMPLE_RATE == 0:
-                print(f"🚫 Layer0 route: {layer0_result.route.upper()}\n")
+                print(f"\U0001f6ab Layer0 route: {layer0_result.route.upper()}\n")
 
             all_sentence_data.append(
                 {
@@ -165,18 +173,61 @@ def run_mycelium_workflow(sentences: Sequence[str]) -> Tuple[List[Dict[str, Any]
         phase2_result = phase2_pipeline.run(text, routing_context=routing_context)
         phase3_result = phase3_pipeline.run_complete_pipeline(phase2_result)
 
-        # Filter experts using routing-selected domains first, then semantic tags
+        # ------------------------------------------------------------------
+        # Resolve relevant_domains from the routing result.
+        #
+        # Priority order:
+        # 1. Router candidates that exist in the live expert registry (direct
+        #    hit, no normalization needed).
+        # 2. normalize_domain() for router candidates not directly in registry.
+        # 3. Semantic tags extracted from the query (same two-step check).
+        # 4. ATTRIBUTE_ONLY / no-match fallback: open the gate to all
+        #    registered experts so the reasoning pipeline is never starved.
+        # ------------------------------------------------------------------
         relevant_domains: List[str] = []
+
         for domain in getattr(routing_context, "selected_domains", []):
-            normalized = expert_filter.normalize_domain(str(domain))
-            if normalized:
-                relevant_domains.append(normalized)
+            domain_str = str(domain)
+            if domain_str in registered_domains:
+                relevant_domains.append(domain_str)
+            else:
+                normalized = expert_filter.normalize_domain(domain_str)
+                if normalized:
+                    relevant_domains.append(normalized)
 
         if not relevant_domains:
             for tag in normalized_tags:
-                domain = expert_filter.normalize_domain(tag)
-                if domain:
-                    relevant_domains.append(domain)
+                if tag in registered_domains:
+                    relevant_domains.append(tag)
+                else:
+                    domain = expert_filter.normalize_domain(tag)
+                    if domain:
+                        relevant_domains.append(domain)
+
+        if not relevant_domains:
+            # Fallback (ATTRIBUTE_ONLY / no tag match): open the gate to all
+            # registered experts.
+            relevant_domains = list(registered_domains)
+            if ENABLE_LOGGING and idx % LOG_SAMPLE_RATE == 0:
+                print(
+                    f"\u2139\ufe0f  No domain resolved from routing or tags for \"{text[:60]}...\". "
+                    "Supplying all experts to reasoning pipeline.\n"
+                )
+            # Trip 3 fix: pass registered_domains as bert_domains so that
+            # BERT-backed experts (physics, chemistry, medical) are not
+            # falsely reported as missing_domains just because no live
+            # BERTExpertManager was supplied.
+            pre_check_result = expert_filter.filter_experts_by_tags(
+                normalized_tags,
+                expert_system,
+                bert_manager=None,
+                bert_domains=registered_domains,
+            )
+            if ENABLE_LOGGING and pre_check_result["missing_domains"]:
+                print(
+                    f"\u26a0\ufe0f  Pre-check (fallback path) \u2014 missing domains: "
+                    f"{pre_check_result['missing_domains']}\n"
+                )
 
         relevant_domains = list(set(relevant_domains))
         filtered_experts = {
@@ -213,6 +264,53 @@ def run_mycelium_workflow(sentences: Sequence[str]) -> Tuple[List[Dict[str, Any]
         )
         confidence = float(getattr(expert_decision, "expert_confidence", 0.0))
 
+        is_patch_decision = expert_decision.decision_type == "CREATE_NEW_PATCH"
+        import uuid as _uuid
+        sentence_trace_id = (
+            trace_id if (idx == 1 and trace_id) else str(_uuid.uuid4())
+        )
+
+        if is_patch_decision:
+            phase_latencies: Dict[str, float] = (
+                _to_jsonable(phase3_result).get("phase_latencies", {})
+                if isinstance(phase3_result, (dict,)) or hasattr(phase3_result, "__dict__")
+                else {}
+            )
+            patch_logger.log_query(
+                trace_id=sentence_trace_id,
+                query=text,
+                tags=normalized_tags,
+                routing_classification=str(classification) if classification else "",
+                phase_latencies_ms=phase_latencies,
+            )
+            if ENABLE_LOGGING:
+                print(
+                    f"\U0001f4dd CREATE_NEW_PATCH \u2014 logged query to batch "
+                    f"(trace_id={sentence_trace_id}). "
+                    "Proceeding through reasoning pipeline.\n"
+                )
+
+        final_answer: str = ""
+        p3_dict = _to_jsonable(phase3_result) if phase3_result else {}
+        for _key in ("final_answer", "answer", "response", "output", "text"):
+            val = p3_dict.get(_key)
+            if val and isinstance(val, str):
+                final_answer = val
+                break
+        if not final_answer:
+            action = p3_dict.get("action_result") or {}
+            for _key in ("final_answer", "answer", "response", "output", "text"):
+                val = action.get(_key) if isinstance(action, dict) else None
+                if val and isinstance(val, str):
+                    final_answer = val
+                    break
+
+        if is_patch_decision and final_answer:
+            patch_logger.fill_response(
+                trace_id=sentence_trace_id,
+                response=final_answer,
+            )
+
         all_sentence_data.append(
             {
                 "sentence": text,
@@ -226,13 +324,15 @@ def run_mycelium_workflow(sentences: Sequence[str]) -> Tuple[List[Dict[str, Any]
                 "expert_flag": flag,
                 "selected_domain": selected_domain,
                 "decision_confidence": confidence,
+                "trace_id": sentence_trace_id,
             }
         )
         all_tags.extend(normalized_tags)
 
         if ENABLE_LOGGING and idx % LOG_SAMPLE_RATE == 0:
             print(
-                "Sentence: {sent}\nTags: {tags}\nTimestamp: {ts}\n" "Unified Decision: {flag} (Domain: {dom}, Confidence: {conf:.3f})\n".format(
+                "Sentence: {sent}\nTags: {tags}\nTimestamp: {ts}\n"
+                "Unified Decision: {flag} (Domain: {dom}, Confidence: {conf:.3f})\n".format(
                     sent=text,
                     tags=normalized_tags,
                     ts=timestamp,
@@ -242,11 +342,9 @@ def run_mycelium_workflow(sentences: Sequence[str]) -> Tuple[List[Dict[str, Any]
                 )
             )
 
-    # Step 2: Save all sentences, tags, and timestamps to JSON
     with open("evaluation_data/sentence_tags.json", "w", encoding="utf-8") as f:
         json.dump(all_sentence_data, f, indent=4, cls=NumpyEncoder)
 
-    # Save expert evaluation results separately
     expert_evaluation_results: Dict[str, Any] = {
         "evaluation_timestamp": datetime.datetime.now().isoformat(),
         "sentences_evaluated": len(all_sentence_data),
@@ -264,7 +362,6 @@ def run_mycelium_workflow(sentences: Sequence[str]) -> Tuple[List[Dict[str, Any]
         json.dump(expert_evaluation_results, f, indent=4, cls=NumpyEncoder)
     print("Expert evaluation results saved to expert_evaluation_results.json")
 
-    # Step 3: Remove duplicates for clustering
     unique_tags = list(set(all_tags))
     if unique_tags:
         embeddings = embed_tags_transformer(unique_tags, model_name="all-mpnet-base-v2")
@@ -283,7 +380,6 @@ def run_mycelium_workflow(sentences: Sequence[str]) -> Tuple[List[Dict[str, Any]
         json.dump(clustering_data, f, indent=4)
     print("Clusters saved to tag_clusters_transformer.json:", clusters)
 
-    # Step 4: Temporal and spatial locality analysis
     recent_statements = temporal_layer.get_recent_statements(time_limit_hours=1)
     spatial_analysis = analyze_spatial_locality(recent_statements, clusters)
     patch_assignment = assign_domain_patch(

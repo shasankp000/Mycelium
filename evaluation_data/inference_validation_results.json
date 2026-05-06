@@ -1,251 +1,79 @@
 {
-    "timestamp": "2025-10-17T23:29:10.604895",
+    "timestamp": "2026-05-02T20:23:13.143742",
     "total_cases": 12,
-    "use_existing_expert_cases": 10,
-    "correct_predictions": 7,
-    "mismatches": 3,
+    "use_existing_expert_cases": 0,
+    "correct_predictions": 0,
+    "mismatches": 0,
     "detailed_results": [
         {
             "sentence": "The photoelectric effect demonstrates that light has particle properties, as Einstein showed in 1905.",
-            "tags": [
-                "physics",
-                "maths"
-            ],
-            "decision": "use_existing_expert",
-            "domain": "physics",
-            "precheck_confidence": 0.43342260786523557,
-            "model_prediction": {
-                "predicted_class": 1,
-                "class_label": "Physics",
-                "confidence": 0.9956574440002441,
-                "probabilities": {
-                    "P(Not Physics)": 0.00434257322922349,
-                    "P(Physics)": 0.9956574440002441
-                },
-                "interpretation": " POSITIVE - Input belongs to PHYSICS domain",
-                "is_positive": true
-            },
-            "alignment": " CORRECT",
-            "confidence_diff": 0.5622348361350086
+            "tags": [],
+            "decision": "create_new_expert",
+            "reason": "No matching expert"
         },
         {
             "sentence": "Quantum entanglement occurs when particles interact and remain correlated regardless of distance.",
-            "tags": [
-                "physics",
-                "maths"
-            ],
-            "decision": "use_existing_expert",
-            "domain": "physics",
-            "precheck_confidence": 0.354815048547545,
-            "model_prediction": {
-                "predicted_class": 1,
-                "class_label": "Physics",
-                "confidence": 0.9943483471870422,
-                "probabilities": {
-                    "P(Not Physics)": 0.005651627201586962,
-                    "P(Physics)": 0.9943483471870422
-                },
-                "interpretation": " POSITIVE - Input belongs to PHYSICS domain",
-                "is_positive": true
-            },
-            "alignment": " CORRECT",
-            "confidence_diff": 0.6395332986394973
+            "tags": [],
+            "decision": "create_new_expert",
+            "reason": "No matching expert"
         },
         {
             "sentence": "The Heisenberg uncertainty principle states that you cannot simultaneously know both position and momentum.",
-            "tags": [
-                "physics",
-                "maths"
-            ],
-            "decision": "use_existing_expert",
-            "domain": "physics",
-            "precheck_confidence": 0.3345001405338719,
-            "model_prediction": {
-                "predicted_class": 1,
-                "class_label": "Physics",
-                "confidence": 0.9942395687103271,
-                "probabilities": {
-                    "P(Not Physics)": 0.005760445725172758,
-                    "P(Physics)": 0.9942395687103271
-                },
-                "interpretation": " POSITIVE - Input belongs to PHYSICS domain",
-                "is_positive": true
-            },
-            "alignment": " CORRECT",
-            "confidence_diff": 0.6597394281764553
+            "tags": [],
+            "decision": "create_new_expert",
+            "reason": "No matching expert"
         },
         {
             "sentence": "The Haber process synthesizes ammonia from nitrogen and hydrogen using an iron catalyst.",
-            "tags": [
-                "chemistry"
-            ],
-            "decision": "use_existing_expert",
-            "domain": "chemistry",
-            "precheck_confidence": 0.35139705234777874,
-            "model_prediction": {
-                "predicted_class": 1,
-                "class_label": "Chemistry",
-                "confidence": 0.9961657524108887,
-                "probabilities": {
-                    "P(Not Chemistry)": 0.003834218718111515,
-                    "P(Chemistry)": 0.9961657524108887
-                },
-                "interpretation": " POSITIVE - Input belongs to CHEMISTRY domain",
-                "is_positive": true
-            },
-            "alignment": " CORRECT",
-            "confidence_diff": 0.6447687000631099
+            "tags": [],
+            "decision": "create_new_expert",
+            "reason": "No matching expert"
         },
         {
             "sentence": "Covalent bonds form when atoms share electrons to achieve stable electron configurations.",
-            "tags": [
-                "chemistry"
-            ],
-            "decision": "use_existing_expert",
-            "domain": "chemistry",
-            "precheck_confidence": 0.35354600036099776,
-            "model_prediction": {
-                "predicted_class": 1,
-                "class_label": "Chemistry",
-                "confidence": 0.9978813529014587,
-                "probabilities": {
-                    "P(Not Chemistry)": 0.0021186189260333776,
-                    "P(Chemistry)": 0.9978813529014587
-                },
-                "interpretation": " POSITIVE - Input belongs to CHEMISTRY domain",
-                "is_positive": true
-            },
-            "alignment": " CORRECT",
-            "confidence_diff": 0.6443353525404609
+            "tags": [],
+            "decision": "create_new_expert",
+            "reason": "No matching expert"
         },
         {
             "sentence": "Oxidation-reduction reactions involve the transfer of electrons between chemical species.",
-            "tags": [
-                "chemistry"
-            ],
-            "decision": "use_existing_expert",
-            "domain": "chemistry",
-            "precheck_confidence": 0.3553000392231034,
-            "model_prediction": {
-                "predicted_class": 1,
-                "class_label": "Chemistry",
-                "confidence": 0.9973610043525696,
-                "probabilities": {
-                    "P(Not Chemistry)": 0.0026389581616967916,
-                    "P(Chemistry)": 0.9973610043525696
-                },
-                "interpretation": " POSITIVE - Input belongs to CHEMISTRY domain",
-                "is_positive": true
-            },
-            "alignment": " CORRECT",
-            "confidence_diff": 0.6420609651294662
+            "tags": [],
+            "decision": "create_new_expert",
+            "reason": "No matching expert"
         },
         {
             "sentence": "Metastatic carcinoma requires systemic chemotherapy rather than localized radiation treatment.",
-            "tags": [
-                "healthcare",
-                "medicine"
-            ],
-            "decision": "use_existing_expert",
-            "domain": "medical",
-            "precheck_confidence": 0.31562801466323437,
-            "model_prediction": {
-                "predicted_class": 0,
-                "class_label": "Not Medical",
-                "confidence": 0.9997770190238953,
-                "probabilities": {
-                    "P(Not Medical)": 0.9997770190238953,
-                    "P(Medical)": 0.00022302135766949505
-                },
-                "interpretation": " NEGATIVE - Input does NOT belong to MEDICAL domain",
-                "is_positive": false
-            },
-            "alignment": " MISMATCH",
-            "confidence_diff": 0.6841490043606608
+            "tags": [],
+            "decision": "create_new_expert",
+            "reason": "No matching expert"
         },
         {
             "sentence": "Immunotherapy has revolutionized cancer treatment by harnessing the body's immune system.",
-            "tags": [
-                "healthcare",
-                "AI"
-            ],
-            "decision": "use_existing_expert",
-            "domain": "medical",
-            "precheck_confidence": 0.33347563098241884,
-            "model_prediction": {
-                "predicted_class": 0,
-                "class_label": "Not Medical",
-                "confidence": 0.9998593330383301,
-                "probabilities": {
-                    "P(Not Medical)": 0.9998593330383301,
-                    "P(Medical)": 0.00014069152530282736
-                },
-                "interpretation": " NEGATIVE - Input does NOT belong to MEDICAL domain",
-                "is_positive": false
-            },
-            "alignment": " MISMATCH",
-            "confidence_diff": 0.6663837020559112
+            "tags": [],
+            "decision": "create_new_expert",
+            "reason": "No matching expert"
         },
         {
             "sentence": "Radiation therapy uses high-energy particles to destroy cancer cells.",
-            "tags": [
-                "physics",
-                "medicine"
-            ],
-            "decision": "use_existing_expert",
-            "domain": "physics",
-            "precheck_confidence": 0.3972285105851415,
-            "model_prediction": {
-                "predicted_class": 1,
-                "class_label": "Physics",
-                "confidence": 0.9955999851226807,
-                "probabilities": {
-                    "P(Not Physics)": 0.004400044213980436,
-                    "P(Physics)": 0.9955999851226807
-                },
-                "interpretation": " POSITIVE - Input belongs to PHYSICS domain",
-                "is_positive": true
-            },
-            "alignment": " CORRECT",
-            "confidence_diff": 0.5983714745375391
+            "tags": [],
+            "decision": "create_new_expert",
+            "reason": "No matching expert"
         },
         {
             "sentence": "People still got cancer before we knew about radiation it was causing harm.",
-            "tags": [
-                "healthcare",
-                "biology"
-            ],
-            "decision": "use_existing_expert",
-            "domain": "medical",
-            "precheck_confidence": 0.32995959200412034,
-            "model_prediction": {
-                "predicted_class": 0,
-                "class_label": "Not Medical",
-                "confidence": 0.9918335676193237,
-                "probabilities": {
-                    "P(Not Medical)": 0.9918335676193237,
-                    "P(Medical)": 0.008166407234966755
-                },
-                "interpretation": " NEGATIVE - Input does NOT belong to MEDICAL domain",
-                "is_positive": false
-            },
-            "alignment": " MISMATCH",
-            "confidence_diff": 0.6618739756152034
+            "tags": [],
+            "decision": "create_new_expert",
+            "reason": "No matching expert"
         },
         {
             "sentence": "The stock market crashed in 1929, leading to the Great Depression.",
-            "tags": [
-                "finance"
-            ],
+            "tags": [],
             "decision": "create_new_expert",
             "reason": "No matching expert"
         },
         {
             "sentence": "Artificial intelligence models require large datasets for training.",
-            "tags": [
-                "AI",
-                "technology"
-            ],
+            "tags": [],
             "decision": "create_new_expert",
             "reason": "No matching expert"
         }

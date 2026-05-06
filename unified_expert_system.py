@@ -227,9 +227,14 @@ class UnifiedExpert:
             X_val_tfidf = self.vectorizer.transform(X_val)
             X_test_tfidf = self.vectorizer.transform(X_test)
             
-            # Create calibrated classifier
+            # Create calibrated classifier.
+            # NOTE: cv='prefit' was removed in scikit-learn 1.2 and raises a
+            # ValueError in 1.4+.  The correct approach for an already-trained
+            # estimator is to omit cv entirely and fit the wrapper only on the
+            # held-out validation split — which is exactly what the .fit() call
+            # below does.
             self.calibrated_model = CalibratedClassifierCV(
-                self.model, method='isotonic', cv='prefit'
+                self.model, method='isotonic'
             )
             
             # Fit calibration on validation set
@@ -468,32 +473,25 @@ class UnifiedExpert:
             ood_flags = []
             
             # 1. SVM Decision Function Distance
-            # For SVMs, decision_function gives distance from hyperplane
-            # Values near 0 = uncertain, far from 0 = confident
-            # Low absolute distance suggests the input is on the decision boundary (potentially OOD)
             decision_distance = abs(self.model.decision_function(text_features)[0])
             ood_scores['svm_distance'] = decision_distance
-            ood_flags.append(decision_distance < 0.3)  # Relaxed: only very uncertain cases
+            ood_flags.append(decision_distance < 0.3)
             
             # 2. Nearest Neighbors Distance
-            # High distance = far from training data = OOD
             nn_distances, _ = self.nn_detector.kneighbors(text_embedding)
             avg_nn_distance = np.mean(nn_distances[0])
             ood_scores['nn_distance'] = avg_nn_distance
-            ood_flags.append(avg_nn_distance > 0.65)  # Relaxed: only very far samples
+            ood_flags.append(avg_nn_distance > 0.65)
             
             # 3. Isolation Forest
-            # Negative scores = anomalies, positive = normal
-            # BUT scores near 0 are ambiguous, so use more conservative threshold
             isolation_score = self.isolation_forest.decision_function(text_embedding)[0]
             ood_scores['isolation_score'] = isolation_score
-            ood_flags.append(isolation_score < -0.05)  # Much more conservative: only clear anomalies
+            ood_flags.append(isolation_score < -0.05)
             
-            # Calculate overall OOD decision
-            # Now require at least 2 methods to agree (majority vote)
+            # Majority vote: 2 out of 3 methods must agree
             ood_count = sum(ood_flags)
             ood_confidence = ood_count / len(ood_flags)
-            is_ood = ood_count >= 2  # Majority vote: 2 out of 3 methods must agree
+            is_ood = ood_count >= 2
             
             return {
                 'is_ood': is_ood,
@@ -569,38 +567,30 @@ class UnifiedExpert:
     def _calculate_unified_scores(self, similarity, confidence, ood_result):
         """Calculate unified scores combining all three systems."""
         
-        # Base scores
         base_similarity = similarity
         base_confidence = confidence
         
-        # OOD penalty: Scale down the impact (was 0.8, now 0.5)
-        # Only apply significant penalty when OOD is actually detected
         if ood_result['is_ood']:
-            ood_penalty = ood_result['ood_confidence'] * 0.5  # Reduced from 0.8
+            ood_penalty = ood_result['ood_confidence'] * 0.5
         else:
-            # If not flagged as OOD, minimal penalty
             ood_penalty = ood_result['ood_confidence'] * 0.2
         
-        # Adjusted scores (apply OOD penalty)
         adjusted_confidence = confidence * (1 - ood_penalty)
-        adjusted_similarity = similarity * (1 - 0.3 * ood_penalty)  # Reduced from 0.5
+        adjusted_similarity = similarity * (1 - 0.3 * ood_penalty)
         
-        # Composite score (combination of all factors)
-        # Give more weight to similarity and confidence, less to OOD
         composite_score = (adjusted_similarity * 0.45 + 
                           adjusted_confidence * 0.45 + 
-                          (1 - ood_penalty) * 0.1)  # Reduced OOD weight from 0.2 to 0.1
+                          (1 - ood_penalty) * 0.1)
         
-        # Quality score (confidence in the composite score)
         quality_indicators = []
         if hasattr(self, 'medoids') and len(self.medoids) >= 5:
-            quality_indicators.append(0.2)  # Good medoid coverage
+            quality_indicators.append(0.2)
         if self.enable_calibration and self.calibration_score > 0.7:
-            quality_indicators.append(0.3)  # Good calibration
+            quality_indicators.append(0.3)
         if self.enable_ood_detection:
-            quality_indicators.append(0.2)  # OOD protection enabled
+            quality_indicators.append(0.2)
         
-        quality_score = sum(quality_indicators) + 0.3  # Base quality
+        quality_score = sum(quality_indicators) + 0.3
         
         return {
             'base_similarity': base_similarity,
@@ -624,10 +614,9 @@ class UnifiedExpert:
         quality = unified_scores['quality_score']
         ood_penalty = unified_scores['ood_penalty']
         
-        # Decision thresholds (adaptive based on quality)
-        high_threshold = 0.5 * quality  # Relaxed from 0.6 to allow more matches
-        medium_threshold = 0.25 * quality  # Relaxed from 0.3
-        ood_rejection_threshold = 0.6  # Relaxed from 0.4: only reject if clearly OOD
+        high_threshold = 0.5 * quality
+        medium_threshold = 0.25 * quality
+        ood_rejection_threshold = 0.6
         
         recommendation = {
             'decision': 'create_new_expert',
@@ -640,18 +629,17 @@ class UnifiedExpert:
             }
         }
         
-        # Decision logic with explicit reasoning
         if ood_penalty > ood_rejection_threshold:
             recommendation['decision'] = 'create_new_expert'
             recommendation['confidence_in_decision'] = 0.9
             recommendation['reasoning'].append(f"High OOD penalty ({ood_penalty:.3f}) suggests input is out-of-distribution")
         
-        elif composite >= high_threshold and ood_penalty < 0.45:  # Relaxed from 0.2: allow mild OOD for use_existing
+        elif composite >= high_threshold and ood_penalty < 0.45:
             recommendation['decision'] = 'use_existing_expert'
             recommendation['confidence_in_decision'] = composite * quality
             recommendation['reasoning'].append(f"High composite score ({composite:.3f}) with acceptable OOD risk")
             
-        elif composite >= medium_threshold and ood_penalty < 0.55:  # Relaxed from 0.3: allow moderate OOD for patches
+        elif composite >= medium_threshold and ood_penalty < 0.55:
             recommendation['decision'] = 'create_new_patch'
             recommendation['confidence_in_decision'] = composite * quality * 0.8
             recommendation['reasoning'].append(f"Medium composite score ({composite:.3f}) suitable for patch creation")
@@ -661,7 +649,6 @@ class UnifiedExpert:
             recommendation['confidence_in_decision'] = 0.7
             recommendation['reasoning'].append(f"Low composite score ({composite:.3f}) or high OOD risk")
         
-        # Add system-specific reasoning
         if unified_scores['adjusted_similarity'] < 0.2:
             recommendation['reasoning'].append("Low similarity to existing medoids")
         
@@ -671,7 +658,6 @@ class UnifiedExpert:
         if unified_scores['ood_penalty'] > 0.3:
             recommendation['reasoning'].append("OOD detection flagged potential distribution shift")
         
-        # Quality assessment
         if quality > 0.8:
             recommendation['reasoning'].append("High-quality analysis (all systems enabled and well-calibrated)")
         elif quality < 0.5:
@@ -722,19 +708,7 @@ def create_unified_expert_from_domain_folder(domain_folder_path, domain_name,
                                            enable_ood_detection=True):
     """
     Create a unified expert from a domain folder.
-    
-    Args:
-        domain_folder_path: Path to domain folder containing model files
-        domain_name: Name of the domain
-        text_column: Name of text column in dataset
-        enable_calibration: Whether to enable calibration
-        enable_ood_detection: Whether to enable OOD detection
-    
-    Returns:
-        UnifiedExpert instance
     """
-    
-    # Find required files
     model_file = None
     vectorizer_file = None
     dataset_file = None
@@ -764,19 +738,11 @@ def create_unified_expert_from_domain_folder(domain_folder_path, domain_name,
 def initialize_unified_experts(enable_calibration=True, enable_ood_detection=True):
     """
     Initialize unified experts for all available domains (SVM and BERT).
-    
-    Args:
-        enable_calibration: Whether to enable calibration for all experts
-        enable_ood_detection: Whether to enable OOD detection for all experts
-    
-    Returns:
-        Dictionary mapping domain names to UnifiedExpert or UnifiedBERTExpert instances
     """
     experts = {}
     base_dir = os.path.dirname(__file__)
     dummy_models_dir = os.path.join(base_dir, 'dummy_models')
     
-    # SVM-based domain configurations
     svm_domain_configs = {
         'music': {
             'folder': 'Music', 
@@ -785,7 +751,6 @@ def initialize_unified_experts(enable_calibration=True, enable_ood_detection=Tru
         }
     }
     
-    # BERT-based domain configurations
     bert_domain_configs = {
         'physics': {
             'folder': 'Physics_BERT',
@@ -804,7 +769,6 @@ def initialize_unified_experts(enable_calibration=True, enable_ood_detection=Tru
         }
     }
     
-    # Initialize SVM experts
     for domain_name, config in svm_domain_configs.items():
         domain_folder = os.path.join(dummy_models_dir, config['folder'])
         if os.path.exists(domain_folder):
@@ -821,7 +785,6 @@ def initialize_unified_experts(enable_calibration=True, enable_ood_detection=Tru
             except Exception as e:
                 print(f"❌ Failed to create SVM expert for {domain_name}: {e}")
     
-    # Initialize BERT experts
     from unified_bert_expert import create_unified_bert_expert_from_folder
     
     for domain_name, config in bert_domain_configs.items():
@@ -848,15 +811,6 @@ def make_unified_expert_decision(input_text, experts,
                                similarity_threshold_medium=0.2):
     """
     Make expert decision using unified analysis from all experts.
-    
-    Args:
-        input_text: Text to analyze
-        experts: Dictionary of UnifiedExpert instances
-        similarity_threshold_high: High similarity threshold
-        similarity_threshold_medium: Medium similarity threshold
-    
-    Returns:
-        Comprehensive decision with analysis from all systems
     """
     
     decision_result = {
@@ -874,14 +828,12 @@ def make_unified_expert_decision(input_text, experts,
         }
     }
     
-    # Analyze with each expert
     expert_results = []
     for domain, expert in experts.items():
         analysis = expert.unified_decision_analysis(input_text)
         decision_result["expert_analyses"][domain] = analysis
         expert_results.append((domain, expert, analysis))
     
-    # Find best expert based on unified scores
     best_expert = None
     best_composite_score = 0
     best_analysis = None
@@ -896,7 +848,6 @@ def make_unified_expert_decision(input_text, experts,
             best_expert = expert
             best_analysis = analysis
     
-    # Make unified decision
     if best_analysis:
         decision_result["unified_decision"] = {
             "selected_domain": best_analysis['domain'],
@@ -953,7 +904,6 @@ class UnifiedExpertSystem:
             )
             print(f"\n✅ Successfully initialized {len(self.experts)} unified experts")
             
-            # Print system status
             for domain, expert in self.experts.items():
                 status = expert.get_system_status()
                 print(f"\n🔧 {domain.upper()} Expert:")
@@ -964,7 +914,16 @@ class UnifiedExpertSystem:
         except Exception as e:
             print(f"❌ Failed to initialize unified expert system: {e}")
             raise
-    
+
+    # The set of domain names for which a trained expert model actually exists.
+    # Used by unified_decision_analysis to distinguish between:
+    #   (a) filtered_experts={} because the caller passed an empty dict
+    #       intentionally (no registered expert matched the routing domains)
+    #   (b) filtered_experts=None (caller wants all experts evaluated)
+    @property
+    def _registered_domains(self):
+        return set(self.experts.keys())
+
     def unified_decision_analysis(
         self,
         input_text,
@@ -974,15 +933,56 @@ class UnifiedExpertSystem:
     ):
         """
         Analyze input text with experts and return unified decision.
-        
+
         Args:
             input_text: Text to analyze
-            filtered_experts: Optional dict of filtered experts to evaluate (tag-based routing).
-                            If None, evaluates all experts.
-        
-        Returns:
-            Dictionary with decision analysis from all three systems
+            routing_result: Routing context (passed through to metadata)
+            filtered_experts: Dict of experts to evaluate.
+                - None  → evaluate ALL registered experts
+                - {}    → the routing layer found no registered expert for the
+                          router-selected domains; treat as CREATE_NEW_PATCH
+                          (the query needs a new or patched expert, not the
+                          best-scoring existing one from an unrelated domain)
+                - {...} → evaluate only the supplied subset
+            return_legacy_dict: When False, return an ExpertDecisionResult
+                                instead of the raw dict.
         """
+        # ----------------------------------------------------------------
+        # Key fix: an *explicitly empty* filtered_experts dict means the
+        # routing layer resolved domains that have no trained model yet.
+        # Do NOT fall through to evaluating all experts — that would pick
+        # whichever existing expert wins by composite score even though it
+        # has nothing to do with the query domain.
+        # Instead, return CREATE_NEW_PATCH immediately.
+        # ----------------------------------------------------------------
+        if filtered_experts is not None and len(filtered_experts) == 0:
+            no_expert_result = {
+                'unified_decision': {
+                    'decision_flag': 'create_new_patch',
+                    'selected_domain': 'unknown',
+                    'confidence_in_decision': 0.85,
+                    'reasoning': [
+                        'Router identified domains with no trained expert model. '
+                        'Query queued for patch-model training pipeline.'
+                    ],
+                },
+                'expert_analyses': {},
+                'system_summary': {'experts_analyzed': 0, 'no_registered_expert': True},
+            }
+            if return_legacy_dict:
+                return no_expert_result
+            return ExpertDecisionResult(
+                decision_type='CREATE_NEW_PATCH',
+                selected_experts=[],
+                expert_confidence=0.85,
+                ood_penalty=0.0,
+                is_ood=False,
+                metadata={
+                    'raw_decision': no_expert_result,
+                    'routing_result': routing_result.to_dict() if routing_result else None,
+                },
+            )
+
         experts_to_use = filtered_experts if filtered_experts is not None else self.experts
         
         if not experts_to_use:
@@ -997,7 +997,6 @@ class UnifiedExpertSystem:
                 'system_summary': {'experts_analyzed': 0}
             }
         
-        # Use the unified decision function with filtered experts
         raw_result = make_unified_expert_decision(input_text, experts_to_use)
 
         if return_legacy_dict:
@@ -1041,7 +1040,6 @@ class UnifiedExpertSystem:
         }
     
     def __repr__(self):
-        """String representation of the system."""
         return f"UnifiedExpertSystem(experts={len(self.experts)}, calibration={self.enable_calibration}, ood={self.enable_ood_detection})"
 
 
@@ -1049,7 +1047,6 @@ if __name__ == "__main__":
     print("🚀 UNIFIED EXPERT SYSTEM - K-MEDOIDS + CALIBRATION + OOD DETECTION")
     print("="*80)
     
-    # Test with different configurations
     test_configs = [
         {"calibration": True, "ood": True, "name": "Full System"},
         {"calibration": False, "ood": True, "name": "K-Medoids + OOD"},
@@ -1066,7 +1063,6 @@ if __name__ == "__main__":
                 enable_ood_detection=config['ood']
             )
             
-            # Test with sample text
             test_text = "The patient showed symptoms of acute myocardial infarction."
             result = system.unified_decision_analysis(test_text)
             

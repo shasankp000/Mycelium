@@ -1,6 +1,45 @@
-langdetect>=1.0.9
-ftfy>=6.1.1
-bleach>=6.0.0
-nltk>=3.8.1
-PyYAML>=6.0
-numpy>=2.4.4
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+pydantic>=2.7.0
+requests>=2.31.0
+
+# TOML parsing for config.toml
+# Python 3.11+ has tomllib in the stdlib; tomli is the backport for 3.10 and below.
+tomli>=2.0.0; python_version < "3.11"
+
+# Fuzzy string matching (used in layer_1_prototype.normalize_tags)
+fuzzywuzzy>=0.18.0
+# C-extension required by fuzzywuzzy for non-trivial performance
+python-Levenshtein>=0.12.0
+
+# Embedding / NLP
+sentence-transformers>=2.6.0
+# sentence-transformers requires torch at runtime
+torch>=2.0.0
+
+# HuggingFace transformers (required by unified_bert_expert and any
+# pipeline that uses AutoModel / AutoTokenizer directly)
+transformers>=4.40.0
+
+# Required by transformers when using device_map='auto' (offloading to GPU/CPU)
+accelerate>=0.30.0
+
+# Classical ML (cosine_similarity, AgglomerativeClustering, EllipticEnvelope)
+scikit-learn>=1.4.0
+
+# scipy — required by sklearn.covariance.EllipticEnvelope and several
+# other sklearn internals used in unified_expert_system.py
+scipy>=1.12.0
+
+# Numerical computing
+numpy>=1.26.0
+
+# Tabular data / CSV reading (run_workflow.get_random_samples)
+pandas>=2.1.0
+
+# Local Ollama client (extract_tags_llama in layer_1_prototype)
+ollama>=0.1.7
+
+# LangChain + Ollama integration used by conversation_agent.py
+langchain-core>=0.2.0
+langchain-ollama>=0.1.0

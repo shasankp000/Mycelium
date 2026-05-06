@@ -1,46 +1,15 @@
 {
-    "recent_statements_count": 10,
+    "recent_statements_count": 1,
     "spatial_analysis": {
-        "dominant_clusters": [
-            [
-                "9",
-                4
-            ],
-            [
-                "1",
-                3
-            ],
-            [
-                "5",
-                3
-            ]
-        ],
-        "cluster_distribution": {
-            "9": 4,
-            "1": 3,
-            "5": 3,
-            "4": 1,
-            "3": 1,
-            "6": 3,
-            "2": 1,
-            "7": 1,
-            "0": 2,
-            "8": 1
-        },
-        "total_recent_tags": 20,
-        "unique_recent_tags": 11
+        "dominant_clusters": [],
+        "cluster_distribution": {},
+        "total_recent_tags": 0,
+        "unique_recent_tags": 0
     },
     "patch_assignment": {
-        "action": "create_hybrid_patch",
-        "primary_cluster": "9",
-        "dominance_ratio": 0.2,
-        "reason": "moderate_dominance_0.20_suggests_hybrid"
+        "action": "create_new_patch",
+        "reason": "no_dominant_clusters"
     },
-    "frequent_tags": {
-        "biology": 4,
-        "technology": 3,
-        "chemistry": 3,
-        "politics": 3
-    },
-    "analysis_timestamp": "2025-10-18T00:31:54.833378"
+    "frequent_tags": {},
+    "analysis_timestamp": "2026-05-06T12:13:38.761922"
 }
