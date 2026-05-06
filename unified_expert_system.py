@@ -227,9 +227,14 @@ class UnifiedExpert:
             X_val_tfidf = self.vectorizer.transform(X_val)
             X_test_tfidf = self.vectorizer.transform(X_test)
             
-            # Create calibrated classifier
+            # Create calibrated classifier.
+            # NOTE: cv='prefit' was removed in scikit-learn 1.2 and raises a
+            # ValueError in 1.4+.  The correct approach for an already-trained
+            # estimator is to omit cv entirely and fit the wrapper only on the
+            # held-out validation split — which is exactly what the .fit() call
+            # below does.
             self.calibrated_model = CalibratedClassifierCV(
-                self.model, method='isotonic', cv='prefit'
+                self.model, method='isotonic'
             )
             
             # Fit calibration on validation set
