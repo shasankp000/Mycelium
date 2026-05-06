@@ -464,7 +464,7 @@ class ExpertSelectionPipeline:
         max_experts: int = 4,
         min_score: float = 0.3,
         strategy: str = "greedy",
-            routing_context: Optional[Dict[str, Any]] = None,
+        routing_context: Optional[Dict[str, Any]] = None,
     ) -> ExpertSelectionResult:
         """Run the full expert selection pipeline.
 
@@ -475,6 +475,12 @@ class ExpertSelectionPipeline:
             min_score: Minimum match score threshold.
             strategy: Selection strategy
                 (``greedy``, ``diversity``, ``uncertainty``).
+            routing_context: Optional routing context (RoutingResult
+                dataclass or plain dict).  When a RoutingResult is
+                passed the preferred_domains list is read from
+                result.metadata["selected_experts"] /
+                result.metadata["candidate_domains"] so that Layer 1
+                routing priors are correctly applied to expert ranking.
 
         Returns:
             An ``ExpertSelectionResult`` with all fields.
@@ -678,31 +684,65 @@ class ExpertSelectionPipeline:
 
     @staticmethod
     def _extract_routing_preferences(
-        routing_context: Optional[Dict[str, Any]],
+        routing_context: Optional[Any],
     ) -> Tuple[Optional[str], List[str]]:
+        """Extract routing classification and preferred domains.
+
+        Handles both plain dicts and RoutingResult dataclass
+        instances.  For a RoutingResult the routing priors
+        (selected_experts / candidate_domains) live inside
+        result.metadata, not at the top level — this method
+        unwraps that correctly so preferred_domains is always
+        populated when a valid routing result is supplied.
+        """
         if not routing_context:
             return None, []
 
-        classification = routing_context.get("classification")
+        # --- extract classification ---
+        if isinstance(routing_context, dict):
+            classification = routing_context.get("classification")
+            top_level = routing_context
+            metadata = routing_context.get("metadata") or {}
+        else:
+            # RoutingResult dataclass or similar object
+            classification = getattr(
+                routing_context, "classification", None
+            )
+            top_level = {}
+            metadata = getattr(routing_context, "metadata", {}) or {}
+
+        # --- extract preferred domains ---
+        # For a RoutingResult the canonical lists live in metadata;
+        # for a plain dict they may be at the top level.  Check both
+        # so neither case is missed.
         preferred: List[str] = []
+        for source in (metadata, top_level):
+            for key in ("selected_experts", "candidate_domains"):
+                values = source.get(key) or []
+                if isinstance(values, list):
+                    preferred.extend(
+                        [str(v) for v in values if v is not None]
+                    )
 
-        for key in ("selected_experts", "candidate_domains"):
-            values = routing_context.get(key) or []
-            if isinstance(values, list):
-                preferred.extend(
-                    [str(v) for v in values if v is not None]
-                )
+        # Also honour a top-level primary_domain / selected_domains
+        for key in ("primary_domain", "selected_domains"):
+            val = (
+                routing_context.get(key)
+                if isinstance(routing_context, dict)
+                else getattr(routing_context, key, None)
+            )
+            if isinstance(val, list):
+                preferred.extend([str(v) for v in val if v])
+            elif val:
+                preferred.append(str(val))
 
-        primary = routing_context.get("primary_domain")
-        if primary:
-            preferred.append(str(primary))
-
+        # Deduplicate while preserving order
         deduped: List[str] = []
         seen: set = set()
         for item in preferred:
-            key = item.lower()
-            if key not in seen:
-                seen.add(key)
+            key_lower = item.lower()
+            if key_lower not in seen:
+                seen.add(key_lower)
                 deduped.append(item)
 
         return classification, deduped
