@@ -5,3 +5,4 @@ requests>=2.31.0
 # TOML parsing for config.toml
 # Python 3.11+ has tomllib in the stdlib; tomli is the backport for 3.10 and below.
 tomli>=2.0.0; python_version < "3.11"
+fuzzywuzzy
