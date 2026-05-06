@@ -96,9 +96,10 @@ def _get(section: str, key: str, default: Any, env_var: Optional[str] = None) ->
     node: Any = data
     for part in section.split("."):
         if not isinstance(node, dict):
-            node = {}
-            break
-        node = node.get(part)
+            return default
+        if part not in node:
+            return default
+        node = node[part]
     if isinstance(node, dict) and key in node:
         return node[key]
     return default
