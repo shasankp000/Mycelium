@@ -29,7 +29,11 @@ class AutoSemanticClusterer:
         self.cache_file = cache_file
         self.model = None
         
-        # Core domain anchors - these define the canonical domains we care about
+        # Core domain anchors — keys MUST match the canonical domain names used
+        # by UnifiedExpertSystem (expert registry) and ExpertFilter.domain_list.
+        # Previously 'mathematics' and 'computer_science' were used here, which
+        # caused normalize_domain('maths') and normalize_domain('AI') to always
+        # return None (no anchor match), producing false missing_domain entries.
         self.domain_anchors = {
             'medical': [
                 'medicine', 'healthcare', 'biology', 'disease', 'treatment',
@@ -43,22 +47,67 @@ class AutoSemanticClusterer:
                 'chemistry', 'chemical reaction', 'molecule', 'compound', 'element',
                 'organic chemistry', 'inorganic', 'biochemistry', 'catalyst'
             ],
-            'mathematics': [
+            # Renamed from 'mathematics' → 'maths' to match ExpertFilter.domain_list
+            # and the expert registry key used throughout the codebase.
+            'maths': [
                 'mathematics', 'algebra', 'calculus', 'geometry', 'statistics',
-                'equation', 'theorem', 'mathematical proof', 'number theory'
+                'equation', 'theorem', 'mathematical proof', 'number theory', 'maths'
             ],
-            'computer_science': [
-                'computer science', 'programming', 'algorithm', 'software', 'hardware',
-                'artificial intelligence', 'machine learning', 'data structure'
+            # Renamed from 'computer_science' → 'AI' to match ExpertFilter.domain_list.
+            'AI': [
+                'artificial intelligence', 'machine learning', 'deep learning',
+                'neural network', 'NLP', 'computer science', 'programming',
+                'algorithm', 'software', 'data structure'
             ],
             'music': [
                 'music', 'song', 'melody', 'harmony', 'instrument', 'composition',
                 'rhythm', 'performance', 'musical notation'
-            ]
+            ],
+            # Additional anchors so every domain in ExpertFilter.domain_list is
+            # covered and normalize_domain() never returns None for a valid tag.
+            'technology': [
+                'technology', 'engineering', 'hardware', 'digital', 'electronics',
+                'robotics', 'automation', 'semiconductor', 'circuit'
+            ],
+            'literature': [
+                'literature', 'novel', 'poetry', 'fiction', 'prose', 'author',
+                'narrative', 'genre', 'literary analysis', 'writing'
+            ],
+            'history': [
+                'history', 'historical event', 'civilization', 'war', 'empire',
+                'archaeology', 'chronology', 'ancient', 'medieval', 'modern history'
+            ],
+            'sports': [
+                'sports', 'athletics', 'football', 'basketball', 'tennis',
+                'competition', 'training', 'athlete', 'tournament', 'fitness'
+            ],
+            'politics': [
+                'politics', 'government', 'policy', 'election', 'democracy',
+                'legislation', 'parliament', 'diplomacy', 'international relations'
+            ],
+            'finance': [
+                'finance', 'economics', 'investment', 'banking', 'stock market',
+                'currency', 'accounting', 'budget', 'financial analysis'
+            ],
+            'logistics': [
+                'logistics', 'supply chain', 'transport', 'shipping', 'warehouse',
+                'distribution', 'inventory', 'freight', 'procurement'
+            ],
+            'education': [
+                'education', 'teaching', 'learning', 'curriculum', 'pedagogy',
+                'school', 'university', 'student', 'academic', 'instruction'
+            ],
+            'art': [
+                'art', 'painting', 'sculpture', 'drawing', 'design', 'aesthetic',
+                'gallery', 'artist', 'visual art', 'creative'
+            ],
         }
         
-        # Similarity threshold for clustering
-        self.similarity_threshold = 0.5  # Adjustable
+        # Similarity threshold for clustering.
+        # NOTE: ExpertFilter sets this via clusterer.similarity_threshold = X
+        # after construction.  load_cache() deliberately does NOT restore this
+        # value from the pickle so the caller always owns the threshold.
+        self.similarity_threshold = 0.5  # default; overridden by ExpertFilter
         
         # Cache for tag -> domain mappings
         self.tag_to_domain = {}
@@ -77,9 +126,7 @@ class AutoSemanticClusterer:
         
         print("\n🔧 Computing domain embeddings from anchor terms...")
         for domain, anchors in self.domain_anchors.items():
-            # Get embeddings for all anchor terms
             embeddings = self.model.encode(anchors)
-            # Average them to get domain centroid
             domain_embedding = np.mean(embeddings, axis=0)
             self.domain_embeddings[domain] = domain_embedding
             print(f"   ✓ {domain}: {len(anchors)} anchor terms")
@@ -94,15 +141,12 @@ class AutoSemanticClusterer:
         Returns:
             (domain, confidence) tuple, or (None, 0) if no good match
         """
-        # Check cache first
         if tag in self.tag_to_domain:
             return self.tag_to_domain[tag], 1.0
         
-        # Compute tag embedding
         self._load_model()
         tag_embedding = self.model.encode([tag])[0]
         
-        # Compare to all domain embeddings
         best_domain = None
         best_similarity = -1
         
@@ -113,7 +157,6 @@ class AutoSemanticClusterer:
                 best_similarity = similarity
                 best_domain = domain
         
-        # Only return if similarity exceeds threshold
         if best_similarity >= self.similarity_threshold:
             self.tag_to_domain[tag] = best_domain
             return best_domain, float(best_similarity)
@@ -132,20 +175,16 @@ class AutoSemanticClusterer:
         """
         self._load_model()
         
-        # Filter out cached tags
         uncached_tags = [t for t in tags if t not in self.tag_to_domain]
         
         if not uncached_tags:
-            # All cached
             return {t: (self.tag_to_domain[t], 1.0) for t in tags}
         
-        # Compute embeddings for uncached tags
         print(f"\n🔍 Clustering {len(uncached_tags)} new tags...")
         tag_embeddings = self.model.encode(uncached_tags)
         
         results = {}
         
-        # Process each tag
         for tag, tag_emb in zip(uncached_tags, tag_embeddings):
             best_domain = None
             best_similarity = -1
@@ -157,14 +196,12 @@ class AutoSemanticClusterer:
                     best_similarity = similarity
                     best_domain = domain
             
-            # Cache and return
             if best_similarity >= self.similarity_threshold:
                 self.tag_to_domain[tag] = best_domain
                 results[tag] = (best_domain, float(best_similarity))
             else:
                 results[tag] = (None, float(best_similarity))
         
-        # Add cached results
         for tag in tags:
             if tag in self.tag_to_domain and tag not in results:
                 results[tag] = (self.tag_to_domain[tag], 1.0)
@@ -177,7 +214,9 @@ class AutoSemanticClusterer:
             'tag_to_domain': self.tag_to_domain,
             'domain_embeddings': self.domain_embeddings,
             'domain_anchors': self.domain_anchors,
-            'similarity_threshold': self.similarity_threshold
+            # NOTE: similarity_threshold is intentionally NOT saved here.
+            # The threshold is owned by the caller (ExpertFilter) and must
+            # not be restored from a stale pickle on the next run.
         }
         
         with open(self.cache_file, 'wb') as f:
@@ -186,7 +225,13 @@ class AutoSemanticClusterer:
         print(f"\n💾 Cached {len(self.tag_to_domain)} tag mappings to {self.cache_file}")
     
     def load_cache(self):
-        """Load cached mappings from disk."""
+        """Load cached mappings from disk.
+        
+        NOTE: similarity_threshold is deliberately NOT restored from the cache.
+        ExpertFilter sets it after construction; letting the pickle override it
+        caused a threshold race where the cache would silently revert to 0.5
+        even when ExpertFilter requested 0.45.
+        """
         if not os.path.exists(self.cache_file):
             print(f"⚠️ No cache found at {self.cache_file}")
             return False
@@ -197,16 +242,24 @@ class AutoSemanticClusterer:
         self.tag_to_domain = cache_data.get('tag_to_domain', {})
         self.domain_embeddings = cache_data.get('domain_embeddings', {})
         self.domain_anchors = cache_data.get('domain_anchors', self.domain_anchors)
-        self.similarity_threshold = cache_data.get('similarity_threshold', self.similarity_threshold)
+        # similarity_threshold is intentionally NOT restored here — see docstring.
         
         print(f"✅ Loaded {len(self.tag_to_domain)} cached tag mappings")
         return True
     
     def initialize(self):
         """Initialize the clusterer (compute domain embeddings)."""
-        # Try loading cache first
         if self.load_cache():
-            print("✅ Using cached embeddings")
+            # Recompute embeddings if the cached anchor set differs from the
+            # current one (e.g. after renaming 'mathematics' → 'maths').
+            if set(self.domain_anchors.keys()) != set(
+                d for d in self.domain_embeddings.keys()
+            ):
+                print("🔄 Anchor set changed — recomputing domain embeddings...")
+                self._compute_domain_embeddings()
+                self.save_cache()
+            else:
+                print("✅ Using cached embeddings")
         else:
             print("🔄 Computing domain embeddings from scratch...")
             self._compute_domain_embeddings()
@@ -214,7 +267,6 @@ class AutoSemanticClusterer:
     
     def export_mappings_to_json(self, filepath='semantic_clusters.json'):
         """Export current tag->domain mappings to JSON for inspection."""
-        # Group by domain
         domain_to_tags = {}
         for tag, domain in self.tag_to_domain.items():
             if domain not in domain_to_tags:
@@ -228,7 +280,6 @@ class AutoSemanticClusterer:
 
 
 if __name__ == "__main__":
-    # Demo
     print("="*80)
     print("AUTO SEMANTIC TAG CLUSTERING DEMO")
     print("="*80)
@@ -236,7 +287,6 @@ if __name__ == "__main__":
     clusterer = AutoSemanticClusterer()
     clusterer.initialize()
     
-    # Test with various tags
     test_tags = [
         'biology', 'healthcare', 'immunology', 'genetics', 'neuroscience',
         'quantum', 'electromagnetism', 'thermodynamics', 'relativity',
@@ -249,7 +299,6 @@ if __name__ == "__main__":
     print(f"\n🧪 Testing {len(test_tags)} tags...")
     results = clusterer.cluster_tags_batch(test_tags)
     
-    # Print results grouped by domain
     from collections import defaultdict
     by_domain = defaultdict(list)
     
@@ -261,11 +310,9 @@ if __name__ == "__main__":
         for tag, conf in sorted(tag_list, key=lambda x: x[1], reverse=True):
             print(f"   {tag:20s} (similarity: {conf:.3f})")
     
-    # Save cache
     clusterer.save_cache()
     clusterer.export_mappings_to_json()
     
     print("\n" + "="*80)
     print("✅ Auto-clustering complete!")
-    print("   Now tags are automatically mapped to domains using semantic similarity!")
     print("="*80)

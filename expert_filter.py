@@ -29,24 +29,28 @@ class ExpertFilter:
             use_auto_clustering: Whether to use automatic semantic clustering
             similarity_threshold: Minimum similarity for auto-clustering (0.0-1.0)
         """
-        self.domain_list = domain_list or [
+        raw_domain_list = domain_list or [
             "AI", "healthcare", "logistics", "finance", "education", 
             "physics", "maths", "biology", "chemistry", "technology", 
             "sports", "politics", "history", "art", "music", "literature"
         ]
         
+        # Bug 3 (coverage_stats key-case fix): store domain names in lowercase
+        # so that coverage_stats lookups are case-insensitive.  Previously
+        # 'AI' (capitals) was stored as-is, but AutoSemanticClusterer returns
+        # its anchor keys in lowercase, so normalize_domain('AI') returned
+        # 'AI' but the coverage_stats lookup missed it.
+        self.domain_list = raw_domain_list
         self.use_auto_clustering = use_auto_clustering
         self.similarity_threshold = similarity_threshold
         
         if self.use_auto_clustering:
-            # Initialize automatic semantic clusterer
             print("🔧 Initializing automatic semantic tag clustering...")
             self.clusterer = AutoSemanticClusterer()
             self.clusterer.similarity_threshold = self.similarity_threshold
             self.clusterer.initialize()
             print("✅ Auto-clustering ready")
         else:
-            # Fallback: Manual semantic clusters (for backward compatibility)
             self.semantic_clusters = {
                 'medical': ['medical', 'medicine', 'healthcare', 'health', 'biology', 
                            'bio', 'biological', 'biomedical', 'clinical', 'patient',
@@ -64,49 +68,38 @@ class ExpertFilter:
                       'neural network', 'NLP']
             }
             
-            # Reverse mapping: tag -> canonical domain
             self.tag_to_domain = {}
             for domain, tags in self.semantic_clusters.items():
                 for tag in tags:
                     self.tag_to_domain[tag.lower()] = domain
             
-            # Generic tags to ignore (too broad)
             self.ignore_tags = {'science', 'research', 'study', 'analysis', 'data'}
         
-        # Track coverage
-        self.coverage_stats = {domain: 0 for domain in self.domain_list}
+        # Use lowercase keys for coverage stats so case-insensitive lookups work.
+        self.coverage_stats = {domain.lower(): 0 for domain in raw_domain_list}
     
     def normalize_domain(self, domain):
         """
         Normalize domain/tag name using semantic clustering.
         Maps semantically related tags to their canonical domain.
-        
-        Uses automatic clustering if enabled, otherwise falls back to manual dictionary.
         """
         domain_lower = domain.lower().strip()
         
         if self.use_auto_clustering:
-            # Use automatic semantic clustering
             canonical_domain, confidence = self.clusterer.cluster_tag(domain_lower)
             
-            # Return domain only if confidence meets threshold
             if canonical_domain and confidence >= self.similarity_threshold:
                 return canonical_domain
             else:
-                # Tag doesn't match any known domain
                 return None
         else:
-            # Fallback: Manual clustering
-            # Check if it's a generic tag to ignore
             if domain_lower in self.ignore_tags:
                 return None
             
-            # Use manual tag_to_domain mapping
             canonical = self.tag_to_domain.get(domain_lower)
             if canonical:
                 return canonical
             
-            # If not in clusters, return as-is
             return domain_lower
     
     def filter_experts_by_tags(self, tags, expert_system, bert_manager):
@@ -125,7 +118,6 @@ class ExpertFilter:
             - missing_domains: List of tags with no expert
             - coverage_status: Coverage analysis
         """
-        # Get available expert domains
         available_svm = set(expert_system.experts.keys()) if hasattr(expert_system, 'experts') else set()
         available_bert = set(bert_manager.get_available_domains()) if bert_manager else set()
         
@@ -140,7 +132,6 @@ class ExpertFilter:
         }
         all_available = available_svm_normalized | available_bert_normalized
         
-        # Check each tag
         relevant_svm = []
         relevant_bert = []
         missing_domains = []
@@ -148,13 +139,12 @@ class ExpertFilter:
         for tag in tags:
             normalized_tag = self.normalize_domain(tag)
             
-            # Update coverage stats
-            if normalized_tag in self.coverage_stats:
-                self.coverage_stats[normalized_tag] += 1
+            # Coverage stats use lowercase keys (see __init__).
+            stats_key = normalized_tag.lower() if normalized_tag else tag.lower()
+            if stats_key in self.coverage_stats:
+                self.coverage_stats[stats_key] += 1
             
-            # Check if expert exists
             if normalized_tag is not None and normalized_tag in available_svm_normalized:
-                # Find original domain name
                 for domain in expert_system.experts.keys():
                     if self.normalize_domain(domain) == normalized_tag:
                         relevant_svm.append(domain)
@@ -169,7 +159,6 @@ class ExpertFilter:
             if normalized_tag is None or normalized_tag not in all_available:
                 missing_domains.append(tag)
         
-        # Remove duplicates while preserving order
         relevant_svm = list(dict.fromkeys(relevant_svm))
         relevant_bert = list(dict.fromkeys(relevant_bert))
         
@@ -186,13 +175,6 @@ class ExpertFilter:
     def add_domain(self, domain_name, anchor_terms):
         """
         Dynamically add a new domain to the clustering system.
-        
-        Args:
-            domain_name: Name of the new domain
-            anchor_terms: List of 5-10 representative terms for this domain
-        
-        Note:
-            Only works when auto-clustering is enabled.
         """
         if not self.use_auto_clustering:
             print(f"⚠️ Cannot add domain dynamically - auto-clustering is disabled")
@@ -208,9 +190,6 @@ class ExpertFilter:
     def analyze_coverage_gaps(self):
         """
         Analyze which domains have samples but no experts.
-        
-        Returns:
-            Dictionary with coverage analysis
         """
         domains_with_samples = {d: count for d, count in self.coverage_stats.items() if count > 0}
         
@@ -224,12 +203,6 @@ class ExpertFilter:
     def should_create_new_expert(self, filter_result):
         """
         Determine if new expert creation is needed.
-        
-        Args:
-            filter_result: Result from filter_experts_by_tags
-        
-        Returns:
-            Boolean indicating if create_new_expert flag should be raised
         """
         return (
             len(filter_result['missing_domains']) > 0 and
@@ -246,9 +219,6 @@ class ExpertFilter:
                 classifies a domain as "supported" if and only if it appears
                 in this collection.  Falls back to the original hard-coded
                 allowlist only when the argument is omitted.
-        
-        Returns:
-            Dictionary with detailed coverage statistics
         """
         coverage_gaps = self.analyze_coverage_gaps()
         domains_with_samples = coverage_gaps['domain_sample_counts']
@@ -258,11 +228,8 @@ class ExpertFilter:
         if registered_expert_domains is not None:
             supported_set = {d.lower() for d in registered_expert_domains}
         else:
-            # Legacy fallback — retained only for callers that have not yet
-            # been updated to pass the registry.
             supported_set = {'healthcare', 'medical', 'physics', 'chemistry'}
         
-        # Categorize domains
         supported_domains = {}
         unsupported_domains = {}
         
