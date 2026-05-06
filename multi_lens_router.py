@@ -258,19 +258,24 @@ class MultiLensRouter:
                     logger.warning(f"Optimization failed: {e}")
                     create_new_expert = True
 
-            # If no selected experts, try to use base result's primary domain
-            if not selected_experts and base_result.get("primary_domain"):
+            # Trip 4 fix: only fall back to the base primary_domain when the
+            # optimization engine did NOT explicitly set create_new_expert=True.
+            # When create_new_expert is True the engine deliberately returned
+            # an empty list; resurrecting a Layer-1 domain here would override
+            # that correct empty selection with a semantically meaningless
+            # candidate (e.g. 'aesthetics' for a physics query).
+            if not selected_experts and not create_new_expert and base_result.get("primary_domain"):
                 selected_experts = [base_result.get("primary_domain")]
 
             # Phase 6: ATTRIBUTE_ONLY Override Rule
-            # If we had ATTRIBUTE_ONLY but found object-level domains with strong scores, override
+            # Collect ALL object-level domains with fused score >= threshold
+            # (Trip 2 fix: removed early break so the best domain wins, not
+            # the first one encountered in iteration order).
             override_applied = False
             if attribute_only_candidate and ENABLE_ATTRIBUTE_OVERRIDE and object_level_domains:
-                # Check if any object-level domain has fused score >= threshold
                 for domain in object_level_domains:
                     domain_score = fused_scores.get(domain, 0.0)
                     if domain_score >= DOMAIN_SCORE_THRESHOLD:
-                        # Override ATTRIBUTE_ONLY - add this domain to selected experts
                         if domain not in selected_experts:
                             selected_experts.append(domain)
                         override_applied = True
@@ -281,13 +286,9 @@ class MultiLensRouter:
                                 f"(score={domain_score:.4f} >= {DOMAIN_SCORE_THRESHOLD})",
                                 file=sys.stderr,
                             )
-                        break  # Only need one strong domain to override
+                        # No break — collect every domain above threshold.
 
             # ============= STEP 5: CLASSIFY SUPERPOSITION =============
-            # Determine final classification based on selected experts.
-            # For ATTRIBUTE_ONLY with no overriding domain the classification
-            # stays ATTRIBUTE_ONLY so that run_workflow can route it into
-            # the reasoning pipeline with all experts available.
             if attribute_only_candidate and not override_applied:
                 final_classification = "ATTRIBUTE_ONLY"
                 candidate_domains = selected_experts  # may be empty — that's fine
@@ -307,7 +308,6 @@ class MultiLensRouter:
                 candidate_domains = selected_experts
                 _METRICS["single_domain"] += 1
             elif len(selected_experts) > 1:
-                # Determine if MULTI_DOMAIN or AMBIGUOUS based on variance
                 final_classification = (
                     "MULTI_DOMAIN" if variance >= 0.1 else "AMBIGUOUS"
                 )
@@ -321,11 +321,9 @@ class MultiLensRouter:
                 candidate_domains = []
                 _METRICS["no_expert"] += 1
 
-            # Phase 6: Track create_new_expert metric
             if create_new_expert:
                 _METRICS["create_new_expert_true"] += 1
 
-            # Phase 6: Log final decision
             if should_log:
                 print(
                     f"  [ROUTER] Final: classification={final_classification}, "
@@ -476,12 +474,10 @@ class MultiLensRouter:
         """Build human-readable explanation."""
         parts = []
 
-        # Base explanation
         base_explanation = base_result.get("explanation", "")
         if base_explanation:
             parts.append(f"Base routing: {base_explanation}")
 
-        # Classification explanation
         if classification == "ATTRIBUTE_ONLY":
             parts.append(
                 "Detected ATTRIBUTE_ONLY input (pure reasoning / no structural domain match); "
@@ -498,7 +494,6 @@ class MultiLensRouter:
         elif classification == "NO_EXPERT_AVAILABLE":
             parts.append("No suitable expert available.")
 
-        # Coverage explanation
         if coverage_met:
             parts.append("Coverage threshold met.")
         elif create_new_expert:
@@ -510,9 +505,6 @@ class MultiLensRouter:
     def _extract_object_level_domains(base_result: Dict) -> List[str]:
         """
         Phase 6: Extract object-level domains from Layer 1 (Lens 2) result.
-
-        Object-level domains are those matched at the core/object level
-        (not just modifiers/attributes).
         """
         object_domains = []
         try:
@@ -520,12 +512,10 @@ class MultiLensRouter:
             if lens3_signature:
                 levels = lens3_signature.get("levels", {})
                 core_domains = levels.get("core", {})
-                # Domains with core features are considered object-level
                 for domain, features in core_domains.items():
-                    if features:  # Has at least one core feature
+                    if features:
                         object_domains.append(domain)
 
-            # Also check lens2_explanations for object-level matches
             lens2_explanations = base_result.get("lens2_explanations", [])
             for explanation in lens2_explanations:
                 if explanation.get("level") == "object" and explanation.get("matched_core"):
@@ -533,19 +523,13 @@ class MultiLensRouter:
                     if concept and concept not in object_domains:
                         object_domains.append(concept)
         except Exception:
-            # Graceful degradation
             pass
 
         return object_domains
 
     @staticmethod
     def get_metrics() -> Dict[str, Any]:
-        """
-        Phase 6: Return aggregate metrics.
-
-        Returns:
-            Dictionary with request counts and percentages
-        """
+        """Phase 6: Return aggregate metrics."""
         total = _METRICS["total_requests"]
         if total == 0:
             return {**_METRICS, "percentages": {}}
@@ -584,22 +568,18 @@ if __name__ == "__main__":
         coverage_threshold=0.8,
     )
 
-    # Test A: Single Domain
     text_a = "Earth orbits the Sun in an elliptical orbit while planets move according to gravitational forces."
     result_a = router.route(text_a)
     _print_case("Test A: Single Domain (Astronomy)", result_a)
 
-    # Test B: Multi Domain
     text_b = "Red metallic car with 700cc engine and sleek design"
     result_b = router.route(text_b)
     _print_case("Test B: Multi Domain", result_b)
 
-    # Test C: Attribute Only (should now continue through full pipeline)
     text_c = "Is string theory scientifically proven?"
     result_c = router.route(text_c)
     _print_case("Test C: Attribute Only / Reasoning (now full pipeline)", result_c)
 
-    # Test D: Backward Compatibility (use_multi_lens=False)
     router_base = MultiLensRouter(use_multi_lens=False)
     result_d = router_base.route(text_a)
     _print_case("Test D: Backward Compatibility (use_multi_lens=False)", result_d)

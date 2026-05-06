@@ -115,11 +115,6 @@ def run_mycelium_workflow(
     registered_domains = set(expert_system.experts.keys())
     print(f"Initialized unified expert system with {len(registered_domains)} experts\n")
 
-    # Initialize expert filter using the live expert registry as the domain
-    # list.  Previously this was hard-coded to ["music", "physics",
-    # "chemistry", "medical"], which caused normalize_domain() to silently
-    # drop any domain that wasn't in that static list — including every
-    # domain emitted by the multi-lens router for ATTRIBUTE_ONLY queries.
     print("Initializing expert filter with automatic semantic clustering...")
     expert_filter = ExpertFilter(
         domain_list=list(registered_domains),
@@ -132,7 +127,6 @@ def run_mycelium_workflow(
     all_sentence_data: List[Dict[str, Any]] = []
     all_tags: List[str] = []
 
-    # Initialize Layer0 router and metrics
     print("Initializing Layer0 question router...")
     question_router = QuestionRouter()
     print("\u2705 Layer0 router initialized\n")
@@ -182,21 +176,11 @@ def run_mycelium_workflow(
         # ------------------------------------------------------------------
         # Resolve relevant_domains from the routing result.
         #
-        # Strategy (in priority order):
-        #
-        # 1. Router candidates that exist in the live expert registry.
-        #    We do a direct membership check against `registered_domains`
-        #    FIRST, before falling back to ExpertFilter.normalize_domain().
-        #    This avoids the old bug where the filter's similarity lookup
-        #    could map a routing domain to a wrong expert (or drop it
-        #    entirely) because the filter was trained on a stale/partial
-        #    domain list.
-        #
-        # 2. normalize_domain() for any router candidate not directly in the
-        #    registry (handles aliases / spelling variants).
-        #
+        # Priority order:
+        # 1. Router candidates that exist in the live expert registry (direct
+        #    hit, no normalization needed).
+        # 2. normalize_domain() for router candidates not directly in registry.
         # 3. Semantic tags extracted from the query (same two-step check).
-        #
         # 4. ATTRIBUTE_ONLY / no-match fallback: open the gate to all
         #    registered experts so the reasoning pipeline is never starved.
         # ------------------------------------------------------------------
@@ -205,7 +189,6 @@ def run_mycelium_workflow(
         for domain in getattr(routing_context, "selected_domains", []):
             domain_str = str(domain)
             if domain_str in registered_domains:
-                # Direct registry hit — use as-is, no normalization needed.
                 relevant_domains.append(domain_str)
             else:
                 normalized = expert_filter.normalize_domain(domain_str)
@@ -213,7 +196,6 @@ def run_mycelium_workflow(
                     relevant_domains.append(normalized)
 
         if not relevant_domains:
-            # Fallback 1: try semantic tags extracted from the query
             for tag in normalized_tags:
                 if tag in registered_domains:
                     relevant_domains.append(tag)
@@ -223,27 +205,27 @@ def run_mycelium_workflow(
                         relevant_domains.append(domain)
 
         if not relevant_domains:
-            # Fallback 2 (ATTRIBUTE_ONLY / no tag match): open the gate to
-            # all registered experts so the reasoning pipeline is never
-            # starved of candidates.
-            #
-            # Bug 4 fix: still call filter_experts_by_tags() here so that
-            # missing_domains is properly populated and surfaced in the trace
-            # rather than being silently discarded.
+            # Fallback (ATTRIBUTE_ONLY / no tag match): open the gate to all
+            # registered experts.
             relevant_domains = list(registered_domains)
             if ENABLE_LOGGING and idx % LOG_SAMPLE_RATE == 0:
                 print(
-                    f"\u2139\ufe0f  No domain resolved from routing or tags for query \"{text[:60]}...\". "
+                    f"\u2139\ufe0f  No domain resolved from routing or tags for \"{text[:60]}...\". "
                     "Supplying all experts to reasoning pipeline.\n"
                 )
-            # Run the pre-check against the full open set so missing_domains
-            # is still recorded in the trace for observability.
+            # Trip 3 fix: pass registered_domains as bert_domains so that
+            # BERT-backed experts (physics, chemistry, medical) are not
+            # falsely reported as missing_domains just because no live
+            # BERTExpertManager was supplied.
             pre_check_result = expert_filter.filter_experts_by_tags(
-                normalized_tags, expert_system, bert_manager=None
+                normalized_tags,
+                expert_system,
+                bert_manager=None,
+                bert_domains=registered_domains,
             )
             if ENABLE_LOGGING and pre_check_result["missing_domains"]:
                 print(
-                    f"\u26a0\ufe0f  Pre-check (fallback path) — missing domains: "
+                    f"\u26a0\ufe0f  Pre-check (fallback path) \u2014 missing domains: "
                     f"{pre_check_result['missing_domains']}\n"
                 )
 
@@ -282,22 +264,7 @@ def run_mycelium_workflow(
         )
         confidence = float(getattr(expert_decision, "expert_confidence", 0.0))
 
-        # ------------------------------------------------------------------
-        # CREATE_NEW_PATCH: no matching domain expert exists.
-        #
-        # 1. Log the query immediately into the daily batch file so the
-        #    offline patch-model training pipeline can pick it up later.
-        # 2. Do NOT short-circuit — let the full 6-phase reasoning pipeline
-        #    run as normal (consequence generation, evidence grounding,
-        #    sandbox, validation are all part of phases 2-3 and already
-        #    ran above).  The LLM will still produce the best response it
-        #    can without a specialist expert.
-        # 3. After the response is available, fill it back into the log.
-        # ------------------------------------------------------------------
         is_patch_decision = expert_decision.decision_type == "CREATE_NEW_PATCH"
-        # Determine the trace_id for this sentence.  For single-query calls
-        # from the API the caller passes its UUID; for batch calls we
-        # generate a per-sentence one.
         import uuid as _uuid
         sentence_trace_id = (
             trace_id if (idx == 1 and trace_id) else str(_uuid.uuid4())
@@ -323,10 +290,6 @@ def run_mycelium_workflow(
                     "Proceeding through reasoning pipeline.\n"
                 )
 
-        # Retrieve the final LLM-generated answer from phase3 result so we
-        # can attach it to the batch record.  Different pipeline versions
-        # surface the answer under different keys; we try the most common
-        # ones in order.
         final_answer: str = ""
         p3_dict = _to_jsonable(phase3_result) if phase3_result else {}
         for _key in ("final_answer", "answer", "response", "output", "text"):
@@ -334,7 +297,6 @@ def run_mycelium_workflow(
             if val and isinstance(val, str):
                 final_answer = val
                 break
-        # Fallback: check nested action_result
         if not final_answer:
             action = p3_dict.get("action_result") or {}
             for _key in ("final_answer", "answer", "response", "output", "text"):
@@ -380,11 +342,9 @@ def run_mycelium_workflow(
                 )
             )
 
-    # Step 2: Save all sentences, tags, and timestamps to JSON
     with open("evaluation_data/sentence_tags.json", "w", encoding="utf-8") as f:
         json.dump(all_sentence_data, f, indent=4, cls=NumpyEncoder)
 
-    # Save expert evaluation results separately
     expert_evaluation_results: Dict[str, Any] = {
         "evaluation_timestamp": datetime.datetime.now().isoformat(),
         "sentences_evaluated": len(all_sentence_data),
@@ -402,7 +362,6 @@ def run_mycelium_workflow(
         json.dump(expert_evaluation_results, f, indent=4, cls=NumpyEncoder)
     print("Expert evaluation results saved to expert_evaluation_results.json")
 
-    # Step 3: Remove duplicates for clustering
     unique_tags = list(set(all_tags))
     if unique_tags:
         embeddings = embed_tags_transformer(unique_tags, model_name="all-mpnet-base-v2")
@@ -421,7 +380,6 @@ def run_mycelium_workflow(
         json.dump(clustering_data, f, indent=4)
     print("Clusters saved to tag_clusters_transformer.json:", clusters)
 
-    # Step 4: Temporal and spatial locality analysis
     recent_statements = temporal_layer.get_recent_statements(time_limit_hours=1)
     spatial_analysis = analyze_spatial_locality(recent_statements, clusters)
     patch_assignment = assign_domain_patch(
