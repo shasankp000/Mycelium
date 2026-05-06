@@ -1,5 +1,5 @@
 """
-config_loader.py — single source of truth for Mycelium runtime configuration.
+config_loader.py - single source of truth for Mycelium runtime configuration.
 
 Resolution order for every value (highest wins):
   1. Matching environment variable (explicit key or MYCELIUM_*)

@@ -268,8 +268,10 @@ class TemporalLocalityLayer:
         for tag in tags:
             self.tag_frequency[tag] = self.tag_frequency.get(tag, 0) + 1
     
-    def get_recent_statements(self, time_limit_hours: float = 0.0):
+    def get_recent_statements(self, time_limit_hours: Optional[float] = None):
         """Get recent statements within time window"""
+        if time_limit_hours is None:
+            time_limit_hours = cfg.layer1_temporal_window_hours()
         if time_limit_hours == 0.0:
             return list(self.recent_statements)
         
@@ -278,9 +280,9 @@ class TemporalLocalityLayer:
                  if entry["parsed_time"] >= cutoff_time]
         return recent
     
-    def get_temporal_similarity(self, input_tags, time_limit_hours: float = 0.0):
+    def get_temporal_similarity(self, input_tags, time_limit_hours: Optional[float] = None):
         """Calculate temporal similarity based on recent tag overlap"""
-        if time_limit_hours == 0.0:
+        if time_limit_hours is None:
             time_limit_hours = cfg.layer1_temporal_window_hours()
         recent_statements = self.get_recent_statements(time_limit_hours)
         if not recent_statements:
