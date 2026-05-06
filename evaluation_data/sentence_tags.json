@@ -2,7 +2,7 @@
     {
         "sentence": "Is string theory scientifically proven?",
         "tags": [],
-        "timestamp": "2026-05-06T02:57:18.506384",
+        "timestamp": "2026-05-06T03:41:58.907328",
         "layer0_routing": {
             "route": "REASONING_PIPELINE",
             "response_type": "DEFINITIVE_ANSWER",
@@ -145,7 +145,7 @@
             "aggregated_prediction": null,
             "total_uncertainty": 0.0,
             "uncertainty_intervals": {},
-            "processing_time_ms": 0.07880599878262728,
+            "processing_time_ms": 0.07875799929024652,
             "phases_executed": [
                 "2.1",
                 "2.2",
@@ -241,7 +241,7 @@
                 "aggregated_prediction": null,
                 "total_uncertainty": 0.0,
                 "uncertainty_intervals": {},
-                "processing_time_ms": 0.07880599878262728,
+                "processing_time_ms": 0.07875799929024652,
                 "phases_executed": [
                     "2.1",
                     "2.2",
@@ -254,9 +254,9 @@
             },
             "action_result": null,
             "feedback_data": null,
-            "total_latency_ms": 6403.992935003771,
+            "total_latency_ms": 6678.975009999704,
             "phase_latencies": {
-                "phase_3_validation": 6403.987485995458
+                "phase_3_validation": 6678.970140994352
             },
             "success": false,
             "error_message": "Validation gate blocked action execution: complete_failure"
@@ -272,12 +272,68 @@
             "metadata": {
                 "raw_decision": {
                     "input_text": "Is string theory scientifically proven?",
-                    "timestamp": "2026-05-06T02:57:45.140557",
+                    "timestamp": "2026-05-06T03:42:27.138958",
                     "expert_analyses": {
+                        "chemistry": {
+                            "input_text": "Is string theory scientifically proven?",
+                            "domain": "chemistry",
+                            "timestamp": "2026-05-06T03:42:27.138994",
+                            "systems_analysis": {
+                                "k_medoids": {
+                                    "similarity_score": 0.23692254722118378,
+                                    "num_medoids": 10,
+                                    "primary_medoid_text": "Organisms that reproduce sexually by joining gamet..."
+                                },
+                                "calibration": {
+                                    "enabled": true,
+                                    "prediction": 0,
+                                    "confidence_score": 0.5399479269981384,
+                                    "raw_confidence": 0.7642924785614014,
+                                    "calibration_quality": 0.4129353233830846
+                                },
+                                "ood_detection": {
+                                    "enabled": true,
+                                    "is_ood": false,
+                                    "ood_confidence": 0.3333333333333333,
+                                    "ood_scores": {
+                                        "svm_distance": 0.5789280533790588,
+                                        "nn_distance": 0.6636494994163513,
+                                        "isolation_score": 0.008582143841608936
+                                    },
+                                    "reason": "1/3 methods flagged as OOD"
+                                }
+                            },
+                            "unified_scores": {
+                                "base_similarity": 0.23692254722118378,
+                                "base_confidence": 0.5399479269981384,
+                                "ood_penalty": 0.06666666666666667,
+                                "adjusted_similarity": 0.2321840962767601,
+                                "adjusted_confidence": 0.5039513985315959,
+                                "composite_score": 0.4245943059970935,
+                                "quality_score": 0.7,
+                                "systems_enabled": {
+                                    "k_medoids": true,
+                                    "calibration": true,
+                                    "ood_detection": true
+                                }
+                            },
+                            "recommendation": {
+                                "decision": "use_existing_expert",
+                                "confidence_in_decision": 0.29721601419796545,
+                                "reasoning": [
+                                    "High composite score (0.425) with acceptable OOD risk"
+                                ],
+                                "thresholds_used": {
+                                    "high_threshold": 0.35,
+                                    "medium_threshold": 0.175,
+                                    "ood_rejection_threshold": 0.6
+                                }
+                            }
+                        },
                         "music": {
                             "input_text": "Is string theory scientifically proven?",
                             "domain": "music",
-                            "timestamp": "2026-05-06T02:57:45.140594",
+                            "timestamp": "2026-05-06T03:42:41.482108",
                             "systems_analysis": {
                                 "k_medoids": {
                                     "similarity_score": 0.02078629657626152,
@@ -297,8 +353,8 @@
                                     "ood_confidence": 0.3333333333333333,
                                     "ood_scores": {
                                         "svm_distance": 1.0173864810641007,
-                                        "nn_distance": 0.8024737238883972,
-                                        "isolation_score": -0.007920540809058019
+                                        "nn_distance": 0.8111318945884705,
+                                        "isolation_score": -0.01452735371310232
                                     },
                                     "reason": "1/3 methods flagged as OOD"
                                 }
@@ -332,66 +388,10 @@
                                 }
                             }
                         },
-                        "physics": {
-                            "input_text": "Is string theory scientifically proven?",
-                            "domain": "physics",
-                            "timestamp": "2026-05-06T02:57:59.599863",
-                            "systems_analysis": {
-                                "k_medoids": {
-                                    "similarity_score": 0.23692254722118378,
-                                    "num_medoids": 10,
-                                    "primary_medoid_text": "Organisms that reproduce sexually by joining gamet..."
-                                },
-                                "calibration": {
-                                    "enabled": true,
-                                    "prediction": 0,
-                                    "confidence_score": 0.523548424243927,
-                                    "raw_confidence": 0.6752479672431946,
-                                    "calibration_quality": 0.5506849315068493
-                                },
-                                "ood_detection": {
-                                    "enabled": true,
-                                    "is_ood": false,
-                                    "ood_confidence": 0.3333333333333333,
-                                    "ood_scores": {
-                                        "svm_distance": 0.884082555770874,
-                                        "nn_distance": 0.6645931601524353,
-                                        "isolation_score": -0.020710691195444497
-                                    },
-                                    "reason": "1/3 methods flagged as OOD"
-                                }
-                            },
-                            "unified_scores": {
-                                "base_similarity": 0.23692254722118378,
-                                "base_confidence": 0.523548424243927,
-                                "ood_penalty": 0.06666666666666667,
-                                "adjusted_similarity": 0.2321840962767601,
-                                "adjusted_confidence": 0.48864519596099854,
-                                "composite_score": 0.4177065148403247,
-                                "quality_score": 0.7,
-                                "systems_enabled": {
-                                    "k_medoids": true,
-                                    "calibration": true,
-                                    "ood_detection": true
-                                }
-                            },
-                            "recommendation": {
-                                "decision": "use_existing_expert",
-                                "confidence_in_decision": 0.2923945603882273,
-                                "reasoning": [
-                                    "High composite score (0.418) with acceptable OOD risk"
-                                ],
-                                "thresholds_used": {
-                                    "high_threshold": 0.35,
-                                    "medium_threshold": 0.175,
-                                    "ood_rejection_threshold": 0.6
-                                }
-                            }
-                        },
                         "medical": {
                             "input_text": "Is string theory scientifically proven?",
                             "domain": "medical",
-                            "timestamp": "2026-05-06T02:58:13.008393",
+                            "timestamp": "2026-05-06T03:42:54.796533",
                             "systems_analysis": {
                                 "k_medoids": {
                                     "similarity_score": 0.23692254722118378,
@@ -411,8 +411,8 @@
                                     "ood_confidence": 0.3333333333333333,
                                     "ood_scores": {
                                         "svm_distance": 1.9234733581542969,
-                                        "nn_distance": 0.8274211287498474,
-                                        "isolation_score": 0.02766616824167667
+                                        "nn_distance": 0.8206920623779297,
+                                        "isolation_score": -0.011258597415494676
                                     },
                                     "reason": "1/3 methods flagged as OOD"
                                 }
@@ -444,10 +444,10 @@
                                 }
                             }
                         },
-                        "chemistry": {
+                        "physics": {
                             "input_text": "Is string theory scientifically proven?",
-                            "domain": "chemistry",
-                            "timestamp": "2026-05-06T02:58:27.218565",
+                            "domain": "physics",
+                            "timestamp": "2026-05-06T03:43:09.089045",
                             "systems_analysis": {
                                 "k_medoids": {
                                     "similarity_score": 0.23692254722118378,
@@ -457,29 +457,29 @@
                                 "calibration": {
                                     "enabled": true,
                                     "prediction": 0,
-                                    "confidence_score": 0.5399479269981384,
-                                    "raw_confidence": 0.7642924785614014,
-                                    "calibration_quality": 0.4129353233830846
+                                    "confidence_score": 0.523548424243927,
+                                    "raw_confidence": 0.6752479672431946,
+                                    "calibration_quality": 0.5506849315068493
                                 },
                                 "ood_detection": {
                                     "enabled": true,
                                     "is_ood": false,
                                     "ood_confidence": 0.3333333333333333,
                                     "ood_scores": {
-                                        "svm_distance": 0.5789280533790588,
-                                        "nn_distance": 0.7312942147254944,
-                                        "isolation_score": 0.008807981392830233
+                                        "svm_distance": 0.884082555770874,
+                                        "nn_distance": 0.7431828379631042,
+                                        "isolation_score": -0.0212630253928226
                                     },
                                     "reason": "1/3 methods flagged as OOD"
                                 }
                             },
                             "unified_scores": {
                                 "base_similarity": 0.23692254722118378,
-                                "base_confidence": 0.5399479269981384,
+                                "base_confidence": 0.523548424243927,
                                 "ood_penalty": 0.06666666666666667,
                                 "adjusted_similarity": 0.2321840962767601,
-                                "adjusted_confidence": 0.5039513985315959,
-                                "composite_score": 0.4245943059970935,
+                                "adjusted_confidence": 0.48864519596099854,
+                                "composite_score": 0.4177065148403247,
                                 "quality_score": 0.7,
                                 "systems_enabled": {
                                     "k_medoids": true,
@@ -489,9 +489,9 @@
                             },
                             "recommendation": {
                                 "decision": "use_existing_expert",
-                                "confidence_in_decision": 0.29721601419796545,
+                                "confidence_in_decision": 0.2923945603882273,
                                 "reasoning": [
-                                    "High composite score (0.425) with acceptable OOD risk"
+                                    "High composite score (0.418) with acceptable OOD risk"
                                 ],
                                 "thresholds_used": {
                                     "high_threshold": 0.35,
@@ -576,6 +576,6 @@
         "expert_flag": "use_existing_expert",
         "selected_domain": "medical",
         "decision_confidence": 0.354646388224264,
-        "trace_id": "cf362edc-f7ec-4ca7-a172-4ef5223d4f6f"
+        "trace_id": "e0da43e7-6a11-44f4-9e2c-e08057e8953b"
     }
 ]
