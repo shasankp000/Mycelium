@@ -9,6 +9,7 @@ inputs into wrong domains and enables proper detection of missing experts.
 Uses automatic semantic clustering to eliminate manual dictionary maintenance.
 """
 
+from typing import Iterable, Optional
 from auto_semantic_clusterer import AutoSemanticClusterer
 
 class ExpertFilter:
@@ -35,21 +36,16 @@ class ExpertFilter:
             "sports", "politics", "history", "art", "music", "literature"
         ]
         
-        # Bug 3 (coverage_stats key-case fix): store domain names in lowercase
-        # so that coverage_stats lookups are case-insensitive.  Previously
-        # 'AI' (capitals) was stored as-is, but AutoSemanticClusterer returns
-        # its anchor keys in lowercase, so normalize_domain('AI') returned
-        # 'AI' but the coverage_stats lookup missed it.
         self.domain_list = raw_domain_list
         self.use_auto_clustering = use_auto_clustering
         self.similarity_threshold = similarity_threshold
         
         if self.use_auto_clustering:
-            print("🔧 Initializing automatic semantic tag clustering...")
+            print("\U0001f527 Initializing automatic semantic tag clustering...")
             self.clusterer = AutoSemanticClusterer()
             self.clusterer.similarity_threshold = self.similarity_threshold
             self.clusterer.initialize()
-            print("✅ Auto-clustering ready")
+            print("\u2705 Auto-clustering ready")
         else:
             self.semantic_clusters = {
                 'medical': ['medical', 'medicine', 'healthcare', 'health', 'biology', 
@@ -102,14 +98,27 @@ class ExpertFilter:
             
             return domain_lower
     
-    def filter_experts_by_tags(self, tags, expert_system, bert_manager):
+    def filter_experts_by_tags(
+        self,
+        tags,
+        expert_system,
+        bert_manager=None,
+        bert_domains: Optional[Iterable[str]] = None,
+    ):
         """
         Filter experts to only those matching input tags.
         
         Args:
             tags: List of normalized tags from Layer 1
             expert_system: UnifiedExpertSystem instance (SVM experts)
-            bert_manager: BERTExpertManager instance (BERT experts)
+            bert_manager: BERTExpertManager instance (BERT experts), or None
+            bert_domains: Optional explicit list of BERT-backed domain names.
+                When bert_manager is None this is the only source of BERT
+                domain information.  Pass expert_system.experts.keys() (or a
+                superset) when calling from a context that has no live
+                BERTExpertManager but still wants BERT domains counted as
+                available so they are not falsely reported as missing.
+                (Trip 3 fix)
         
         Returns:
             Dictionary with:
@@ -119,11 +128,22 @@ class ExpertFilter:
             - coverage_status: Coverage analysis
         """
         available_svm = set(expert_system.experts.keys()) if hasattr(expert_system, 'experts') else set()
-        available_bert = set(bert_manager.get_available_domains()) if bert_manager else set()
+
+        # Trip 3 fix: when bert_manager is None, fall back to the explicit
+        # bert_domains iterable (if provided) so that BERT-backed domains are
+        # not incorrectly reported as missing just because no live manager
+        # was supplied.  This is the common case in the fallback pre-check
+        # path in run_workflow.py.
+        if bert_manager is not None:
+            available_bert = set(bert_manager.get_available_domains())
+        elif bert_domains is not None:
+            available_bert = set(bert_domains)
+        else:
+            available_bert = set()
         
-        # Bug 3 fix: filter out None values from the normalized sets so that
-        # low-confidence auto-cluster results don't pollute all_available and
-        # silently suppress missing-expert detection.
+        # Filter out None values so low-confidence auto-cluster results
+        # don't pollute all_available and silently suppress missing-expert
+        # detection (Bug 3 / original fix preserved).
         available_svm_normalized = {
             d for d in (self.normalize_domain(x) for x in available_svm) if d is not None
         }
@@ -139,7 +159,6 @@ class ExpertFilter:
         for tag in tags:
             normalized_tag = self.normalize_domain(tag)
             
-            # Coverage stats use lowercase keys (see __init__).
             stats_key = normalized_tag.lower() if normalized_tag else tag.lower()
             if stats_key in self.coverage_stats:
                 self.coverage_stats[stats_key] += 1
@@ -151,10 +170,16 @@ class ExpertFilter:
                         break
             
             if normalized_tag is not None and normalized_tag in available_bert_normalized:
-                for domain in bert_manager.get_available_domains():
-                    if self.normalize_domain(domain) == normalized_tag:
-                        relevant_bert.append(domain)
-                        break
+                if bert_manager is not None:
+                    for domain in bert_manager.get_available_domains():
+                        if self.normalize_domain(domain) == normalized_tag:
+                            relevant_bert.append(domain)
+                            break
+                elif bert_domains is not None:
+                    for domain in bert_domains:
+                        if self.normalize_domain(domain) == normalized_tag:
+                            relevant_bert.append(domain)
+                            break
             
             if normalized_tag is None or normalized_tag not in all_available:
                 missing_domains.append(tag)
@@ -177,14 +202,14 @@ class ExpertFilter:
         Dynamically add a new domain to the clustering system.
         """
         if not self.use_auto_clustering:
-            print(f"⚠️ Cannot add domain dynamically - auto-clustering is disabled")
+            print(f"\u26a0\ufe0f Cannot add domain dynamically - auto-clustering is disabled")
             return False
         
         self.clusterer.domain_anchors[domain_name] = anchor_terms
         self.clusterer._compute_domain_embeddings()
         self.clusterer.save_cache()
         
-        print(f"✅ Added new domain: {domain_name} with {len(anchor_terms)} anchor terms")
+        print(f"\u2705 Added new domain: {domain_name} with {len(anchor_terms)} anchor terms")
         return True
     
     def analyze_coverage_gaps(self):
@@ -223,8 +248,6 @@ class ExpertFilter:
         coverage_gaps = self.analyze_coverage_gaps()
         domains_with_samples = coverage_gaps['domain_sample_counts']
 
-        # Bug 2 fix: use the live expert registry instead of a hardcoded
-        # domain allowlist so every registered expert is treated as supported.
         if registered_expert_domains is not None:
             supported_set = {d.lower() for d in registered_expert_domains}
         else:
