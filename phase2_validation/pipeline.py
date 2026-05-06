@@ -83,6 +83,7 @@ class Phase2Pipeline:
         skip_cache: bool = False,
         routing_context: Optional[Dict[str, Any]] = None,
         available_experts: Optional[List[Dict[str, object]]] = None,
+        filtered_experts: Optional[Dict[str, Any]] = None,
     ) -> FinalDecisionResult:
         """Execute the full Phase 2 pipeline for *text*.
 
@@ -90,10 +91,20 @@ class Phase2Pipeline:
             text: Raw input text to process.
             skip_cache: When True, notes the request to skip
                 caches (used after a complete failure).
-            routing_context: Optional Layer 0 routing context to
-                influence expert selection.
-            available_experts: Optional list of expert configs
-                passed to Phase 2.3 selection.
+            routing_context: Optional routing context (RoutingResult
+                or plain dict) to influence Phase 2.3 expert selection.
+            available_experts: Optional list of expert configs in the
+                [{name, domain}] schema consumed by Phase 2.3.
+                Takes precedence over *filtered_experts* if both are
+                supplied.
+            filtered_experts: Optional dict mapping domain name to
+                model object, as produced by run_workflow.py.  When
+                provided (and *available_experts* is not), this dict
+                is converted into the [{name, domain}] schema so that
+                Phase 2.3 receives the pre-resolved expert pool
+                instead of re-deriving an empty candidate list from
+                scratch.  This is the primary integration point
+                between run_workflow and Phase 2.
 
         Returns:
             :class:`FinalDecisionResult` with all phase outputs.
@@ -119,7 +130,22 @@ class Phase2Pipeline:
             )
 
             # Phase 2.3 — Expert Selection
+            # Priority: explicit available_experts > filtered_experts
+            # conversion > internal build_default_experts.
             experts = available_experts
+            if experts is None and filtered_experts:
+                # Convert {domain: model} dict → [{name, domain}] list
+                # so Phase 2.3 ranking/filtering can operate on it.
+                experts = [
+                    {"name": f"expert_{domain}", "domain": domain}
+                    for domain in filtered_experts.keys()
+                    if domain  # skip empty keys defensively
+                ]
+                logger.debug(
+                    "Phase2Pipeline: converted %d filtered_experts "
+                    "into available_experts for Phase 2.3",
+                    len(experts),
+                )
             if experts is None:
                 experts = self._selection_pipeline.build_default_experts(
                     semantic_result
