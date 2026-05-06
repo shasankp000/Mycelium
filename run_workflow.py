@@ -170,9 +170,6 @@ def run_mycelium_workflow(
         if classification:
             metrics.routing_classifications[classification] += 1
 
-        phase2_result = phase2_pipeline.run(text, routing_context=routing_context)
-        phase3_result = phase3_pipeline.run_complete_pipeline(phase2_result)
-
         # ------------------------------------------------------------------
         # Resolve relevant_domains from the routing result.
         #
@@ -235,6 +232,18 @@ def run_mycelium_workflow(
             for domain in relevant_domains
             if domain in expert_system.experts
         }
+
+        # Pass filtered_experts into Phase 2 so it operates on the
+        # pre-resolved expert pool rather than re-deriving from scratch
+        # (which always produced 0 candidates and cascaded into a
+        # Phase 3 complete_failure).  routing_context is passed through
+        # so Phase 2.3 can apply Layer 1 routing priors on top.
+        phase2_result = phase2_pipeline.run(
+            text,
+            routing_context=routing_context,
+            filtered_experts=filtered_experts,
+        )
+        phase3_result = phase3_pipeline.run_complete_pipeline(phase2_result)
 
         expert_decision = expert_system.unified_decision_analysis(
             text,
