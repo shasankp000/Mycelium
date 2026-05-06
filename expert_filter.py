@@ -129,9 +129,15 @@ class ExpertFilter:
         available_svm = set(expert_system.experts.keys()) if hasattr(expert_system, 'experts') else set()
         available_bert = set(bert_manager.get_available_domains()) if bert_manager else set()
         
-        # Normalize available domains
-        available_svm_normalized = {self.normalize_domain(d) for d in available_svm}
-        available_bert_normalized = {self.normalize_domain(d) for d in available_bert}
+        # Bug 3 fix: filter out None values from the normalized sets so that
+        # low-confidence auto-cluster results don't pollute all_available and
+        # silently suppress missing-expert detection.
+        available_svm_normalized = {
+            d for d in (self.normalize_domain(x) for x in available_svm) if d is not None
+        }
+        available_bert_normalized = {
+            d for d in (self.normalize_domain(x) for x in available_bert) if d is not None
+        }
         all_available = available_svm_normalized | available_bert_normalized
         
         # Check each tag
@@ -147,20 +153,20 @@ class ExpertFilter:
                 self.coverage_stats[normalized_tag] += 1
             
             # Check if expert exists
-            if normalized_tag in available_svm_normalized:
+            if normalized_tag is not None and normalized_tag in available_svm_normalized:
                 # Find original domain name
                 for domain in expert_system.experts.keys():
                     if self.normalize_domain(domain) == normalized_tag:
                         relevant_svm.append(domain)
                         break
             
-            if normalized_tag in available_bert_normalized:
+            if normalized_tag is not None and normalized_tag in available_bert_normalized:
                 for domain in bert_manager.get_available_domains():
                     if self.normalize_domain(domain) == normalized_tag:
                         relevant_bert.append(domain)
                         break
             
-            if normalized_tag not in all_available:
+            if normalized_tag is None or normalized_tag not in all_available:
                 missing_domains.append(tag)
         
         # Remove duplicates while preserving order
@@ -230,23 +236,38 @@ class ExpertFilter:
             not filter_result['has_expert_coverage']
         )
     
-    def get_coverage_report(self):
+    def get_coverage_report(self, registered_expert_domains=None):
         """
         Generate comprehensive coverage report.
+
+        Args:
+            registered_expert_domains: Optional set/list of domain names that
+                have a live expert in the system.  When provided, the report
+                classifies a domain as "supported" if and only if it appears
+                in this collection.  Falls back to the original hard-coded
+                allowlist only when the argument is omitted.
         
         Returns:
             Dictionary with detailed coverage statistics
         """
         coverage_gaps = self.analyze_coverage_gaps()
         domains_with_samples = coverage_gaps['domain_sample_counts']
+
+        # Bug 2 fix: use the live expert registry instead of a hardcoded
+        # domain allowlist so every registered expert is treated as supported.
+        if registered_expert_domains is not None:
+            supported_set = {d.lower() for d in registered_expert_domains}
+        else:
+            # Legacy fallback — retained only for callers that have not yet
+            # been updated to pass the registry.
+            supported_set = {'healthcare', 'medical', 'physics', 'chemistry'}
         
         # Categorize domains
         supported_domains = {}
         unsupported_domains = {}
         
         for domain, count in domains_with_samples.items():
-            # This is a simplified check - should be enhanced with actual expert availability
-            if domain.lower() in ['healthcare', 'medical', 'physics', 'chemistry']:
+            if domain.lower() in supported_set:
                 supported_domains[domain] = count
             else:
                 unsupported_domains[domain] = count

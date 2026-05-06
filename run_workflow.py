@@ -226,11 +226,25 @@ def run_mycelium_workflow(
             # Fallback 2 (ATTRIBUTE_ONLY / no tag match): open the gate to
             # all registered experts so the reasoning pipeline is never
             # starved of candidates.
+            #
+            # Bug 4 fix: still call filter_experts_by_tags() here so that
+            # missing_domains is properly populated and surfaced in the trace
+            # rather than being silently discarded.
             relevant_domains = list(registered_domains)
             if ENABLE_LOGGING and idx % LOG_SAMPLE_RATE == 0:
                 print(
                     f"\u2139\ufe0f  No domain resolved from routing or tags for query \"{text[:60]}...\". "
                     "Supplying all experts to reasoning pipeline.\n"
+                )
+            # Run the pre-check against the full open set so missing_domains
+            # is still recorded in the trace for observability.
+            pre_check_result = expert_filter.filter_experts_by_tags(
+                normalized_tags, expert_system, bert_manager=None
+            )
+            if ENABLE_LOGGING and pre_check_result["missing_domains"]:
+                print(
+                    f"\u26a0\ufe0f  Pre-check (fallback path) — missing domains: "
+                    f"{pre_check_result['missing_domains']}\n"
                 )
 
         relevant_domains = list(set(relevant_domains))

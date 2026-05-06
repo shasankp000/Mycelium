@@ -24,23 +24,11 @@ interface Message {
   traceOpen?: boolean;
 }
 
-interface ApiResponseData {
-  answer?: string;
-  content?: string;
-  trace?: {
-    layer0?: { route?: string };
-    routing?: { classification?: string; selected_domains?: string[] };
-    expert_decision?: {
-      decision_type?: string;
-      selected_experts?: string[];
-      expert_confidence?: number;
-    };
-    phase3?: {
-      validation_decision?: { result_class?: string };
-      phase_latencies_ms?: Record<string, number>;
-    };
-    trace_id?: string;
-  };
+// Matches the actual ChatResponse shape returned by /api/v1/chat:
+//   { trace: MyceliumRunSummary, answer: string }
+// MyceliumRunSummary fields are nested under `trace`.
+interface MyceliumRunSummary {
+  trace_id?: string;
   layer0?: { route?: string };
   routing?: { classification?: string; selected_domains?: string[] };
   expert_decision?: {
@@ -52,32 +40,26 @@ interface ApiResponseData {
     validation_decision?: { result_class?: string };
     phase_latencies_ms?: Record<string, number>;
   };
-  trace_id?: string;
 }
 
-function extractTrace(data: ApiResponseData): PipelineTrace {
+interface ChatApiResponse {
+  answer?: string;
+  // /api/v1/chat returns { trace: MyceliumRunSummary, answer: string }
+  trace?: MyceliumRunSummary;
+}
+
+function extractTrace(data: ChatApiResponse): PipelineTrace {
+  const t = data?.trace ?? {};
   return {
-    layer0_route: data?.trace?.layer0?.route ?? data?.layer0?.route,
-    routing_classification:
-      data?.trace?.routing?.classification ?? data?.routing?.classification,
-    routing_domains:
-      data?.trace?.routing?.selected_domains ?? data?.routing?.selected_domains ?? [],
-    expert_decision_type:
-      data?.trace?.expert_decision?.decision_type ??
-      data?.expert_decision?.decision_type,
-    selected_experts:
-      data?.trace?.expert_decision?.selected_experts ??
-      data?.expert_decision?.selected_experts ?? [],
-    expert_confidence:
-      data?.trace?.expert_decision?.expert_confidence ??
-      data?.expert_decision?.expert_confidence ?? null,
-    validation_result:
-      data?.trace?.phase3?.validation_decision?.result_class ??
-      data?.phase3?.validation_decision?.result_class,
-    phase_latencies:
-      data?.trace?.phase3?.phase_latencies_ms ??
-      data?.phase3?.phase_latencies_ms ?? {},
-    trace_id: data?.trace?.trace_id ?? data?.trace_id,
+    layer0_route: t.layer0?.route,
+    routing_classification: t.routing?.classification,
+    routing_domains: t.routing?.selected_domains ?? [],
+    expert_decision_type: t.expert_decision?.decision_type,
+    selected_experts: t.expert_decision?.selected_experts ?? [],
+    expert_confidence: t.expert_decision?.expert_confidence ?? null,
+    validation_result: t.phase3?.validation_decision?.result_class,
+    phase_latencies: t.phase3?.phase_latencies_ms ?? {},
+    trace_id: t.trace_id,
   };
 }
 
@@ -183,11 +165,10 @@ export default function Home() {
     setLoading(true);
 
     try {
-      const res = await axios.post<ApiResponseData>(`${API_BASE}/api/v1/chat`, { text });
+      const res = await axios.post<ChatApiResponse>(`${API_BASE}/api/v1/chat`, { text });
       const data = res.data;
       const answer: string =
         data.answer ||
-        data.content ||
         'Mycelium returned no answer text. Check the pipeline trace below.';
       const trace = extractTrace(data);
       setMessages((prev) => [
