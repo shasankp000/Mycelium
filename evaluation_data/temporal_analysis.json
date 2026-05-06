@@ -1,15 +1,24 @@
 {
     "recent_statements_count": 1,
     "spatial_analysis": {
-        "dominant_clusters": [],
-        "cluster_distribution": {},
-        "total_recent_tags": 0,
-        "unique_recent_tags": 0
+        "dominant_clusters": [
+            [
+                "0",
+                2
+            ]
+        ],
+        "cluster_distribution": {
+            "0": 2
+        },
+        "total_recent_tags": 2,
+        "unique_recent_tags": 2
     },
     "patch_assignment": {
-        "action": "create_new_patch",
-        "reason": "no_dominant_clusters"
+        "action": "use_existing_patch",
+        "cluster_id": "0",
+        "dominance_ratio": 1.0,
+        "reason": "cluster_0_dominates_with_1.00_ratio"
     },
     "frequent_tags": {},
-    "analysis_timestamp": "2026-05-06T12:13:38.761922"
+    "analysis_timestamp": "2026-05-06T14:20:40.669834"
 }

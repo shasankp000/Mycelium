@@ -1,4 +1,12 @@
 {
-    "tags": [],
-    "clusters": {}
+    "tags": [
+        "physics",
+        "maths"
+    ],
+    "clusters": {
+        "0": [
+            "physics",
+            "maths"
+        ]
+    }
 }
