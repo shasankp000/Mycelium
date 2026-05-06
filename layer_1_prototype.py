@@ -2,6 +2,7 @@ import json
 import datetime
 from collections import deque
 from typing import Dict, List, Tuple, Optional
+import config_loader as cfg
 try:
     from sentence_transformers import SentenceTransformer
 except Exception:  # pragma: no cover - allow graceful degradation
@@ -80,7 +81,15 @@ try:
 except Exception:  # pragma: no cover
     def get_expert_model(domain):
         return None
-def embed_tags_transformer(tags, model_name="all-MiniLM-L6-v2"):
+
+# ---------------------------------------------------------------------------
+# Domain list — loaded from config; fallback to built-in default
+# ---------------------------------------------------------------------------
+DOMAIN_LIST: List[str] = cfg.layer1_domain_list()
+
+
+def embed_tags_transformer(tags, model_name: str = ""):
+    model_name = model_name or cfg.layer1_embed_model()
     if SentenceTransformer is None:
         # Graceful fallback: simple bag-of-words vectorization into unit vectors per tag
         # This keeps signature compatible but returns identity-like embeddings
@@ -91,7 +100,9 @@ def embed_tags_transformer(tags, model_name="all-MiniLM-L6-v2"):
     embeddings = model.encode(tags)
     return embeddings
 
-def cluster_tags_transformer(tags, embeddings, similarity_threshold=0.7):
+def cluster_tags_transformer(tags, embeddings, similarity_threshold: float = 0.0):
+    if similarity_threshold == 0.0:
+        similarity_threshold = cfg.layer1_tag_cluster_similarity_threshold()
     # Compute cosine similarity matrix
     sim_matrix = cosine_similarity(embeddings)
     clusters = {}
@@ -110,10 +121,24 @@ def cluster_tags_transformer(tags, embeddings, similarity_threshold=0.7):
         cluster_id += 1
     return clusters
 
-def extract_tags_openai(text, api_key, endpoint="https://api.openai.com/v1/chat/completions", provider="openai", model="gpt-3.5-turbo"):
+def extract_tags_openai(
+    text,
+    api_key,
+    endpoint: str = "",
+    provider: str = "",
+    model: str = "",
+):
     import requests
+    endpoint = endpoint or cfg.layer1_openai_endpoint()
+    provider = provider or cfg.layer1_openai_provider()
+    model    = model    or cfg.layer1_openai_model()
+    max_tokens  = cfg.layer1_openai_max_tokens()
+    temperature = cfg.layer1_openai_temperature()
+
     prompt = (
-        f"Analyze the following sentence and output ONLY a comma-separated list of domain tags (choose from: {', '.join(DOMAIN_LIST)}). Do not include any explanation, headers, or extra text.\nSentence: {text}"
+        f"Analyze the following sentence and output ONLY a comma-separated list of domain tags "
+        f"(choose from: {', '.join(DOMAIN_LIST)}). Do not include any explanation, headers, or extra text.\n"
+        f"Sentence: {text}"
     )
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -121,17 +146,15 @@ def extract_tags_openai(text, api_key, endpoint="https://api.openai.com/v1/chat/
     }
     data = {
         "model": model,
-        "messages": [
-            {"role": "user", "content": prompt}
-        ],
-        "max_tokens": 50,
-        "temperature": 0.2
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temperature,
     }
     response = requests.post(endpoint, headers=headers, json=data)
     response.raise_for_status()
     result = response.json()
     # OpenAI-compatible response parsing
-    if provider == "openai" or provider == "openrouter" or provider == "perplexity":
+    if provider in ("openai", "openrouter", "perplexity"):
         tags_str = result["choices"][0]["message"]["content"]
     else:
         tags_str = result.get("response", "")
@@ -146,14 +169,13 @@ def extract_tags_openai(text, api_key, endpoint="https://api.openai.com/v1/chat/
         tags_clean = [tag.strip() for tag in tags_str.split(',') if tag.strip()]
     return tags_clean
 
-DOMAIN_LIST = [
-    "AI", "healthcare", "logistics", "finance", "education", "physics", "maths", "biology", "chemistry", "technology", "sports", "politics", "history", "art", "music", "literature"
-]
 
-
-def extract_tags_llama(text, model="llama3:8b"):
+def extract_tags_llama(text, model: str = ""):
+    model = model or cfg.layer1_llama_model()
     prompt = (
-        f"Analyze the following sentence and output ONLY a comma-separated list of domain tags (choose from: {', '.join(DOMAIN_LIST)}). Do not include any explanation, headers, or extra text.\nSentence: {text}"
+        f"Analyze the following sentence and output ONLY a comma-separated list of domain tags "
+        f"(choose from: {', '.join(DOMAIN_LIST)}). Do not include any explanation, headers, or extra text.\n"
+        f"Sentence: {text}"
     )
     response = ollama.generate(model=model, prompt=prompt)
     tags_str = response['response']
@@ -168,14 +190,20 @@ def extract_tags_llama(text, model="llama3:8b"):
         tags_clean = [tag.strip() for tag in tags_str.split(',') if tag.strip()]
     return tags_clean
 
-def normalize_tags(tags, domain_list=DOMAIN_LIST, threshold=80):
+def normalize_tags(tags, domain_list=None, threshold: int = 0):
+    if domain_list is None:
+        domain_list = DOMAIN_LIST
+    if threshold == 0:
+        threshold = cfg.layer1_tag_normalize_threshold()
     normalized = []
     for tag in tags:
         match, score = process.extractOne(tag, domain_list)
         normalized.append(match if score >= threshold else tag)
     return normalized
 
-def cluster_tags(tags, embeddings, distance_threshold=0.3):
+def cluster_tags(tags, embeddings, distance_threshold: float = 0.0):
+    if distance_threshold == 0.0:
+        distance_threshold = cfg.layer1_tag_cluster_distance_threshold()
     clustering = AgglomerativeClustering(
         n_clusters=None,
         metric='cosine',
@@ -188,7 +216,8 @@ def cluster_tags(tags, embeddings, distance_threshold=0.3):
         clusters.setdefault(str(label), []).append(tag)
     return clusters
 
-def save_clusters_to_json(clusters, text, extractor, embed_model, distance_threshold, filename="tag_clusters.json"):
+def save_clusters_to_json(clusters, text, extractor, embed_model, distance_threshold, filename: str = ""):
+    filename = filename or cfg.layer1_tag_clusters_filename()
     data = {
         "clusters": clusters,
         "metadata": {
@@ -205,13 +234,20 @@ def save_clusters_to_json(clusters, text, extractor, embed_model, distance_thres
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4)
 
-def load_clusters_from_json(filename="tag_clusters.json"):
+def load_clusters_from_json(filename: str = ""):
+    filename = filename or cfg.layer1_tag_clusters_filename()
     with open(filename, "r", encoding="utf-8") as f:
         return json.load(f)
 
 # Temporal Locality Layer
 class TemporalLocalityLayer:
-    def __init__(self, max_size=100, time_window_hours=24):
+    def __init__(
+        self,
+        max_size: int = 0,
+        time_window_hours: float = 0.0,
+    ):
+        max_size = max_size or cfg.layer1_temporal_max_size()
+        time_window_hours = time_window_hours or cfg.layer1_temporal_time_window_hours()
         self.recent_statements = deque(maxlen=max_size)  # LRU-like queue
         self.tag_frequency = {}  # Track tag frequency
         self.time_window = time_window_hours * 3600  # Convert to seconds
@@ -230,9 +266,9 @@ class TemporalLocalityLayer:
         for tag in tags:
             self.tag_frequency[tag] = self.tag_frequency.get(tag, 0) + 1
     
-    def get_recent_statements(self, time_limit_hours=None):
+    def get_recent_statements(self, time_limit_hours: float = 0.0):
         """Get recent statements within time window"""
-        if time_limit_hours is None:
+        if time_limit_hours == 0.0:
             return list(self.recent_statements)
         
         cutoff_time = datetime.datetime.now() - datetime.timedelta(hours=time_limit_hours)
@@ -240,8 +276,10 @@ class TemporalLocalityLayer:
                  if entry["parsed_time"] >= cutoff_time]
         return recent
     
-    def get_temporal_similarity(self, input_tags, time_limit_hours=1):
+    def get_temporal_similarity(self, input_tags, time_limit_hours: float = 0.0):
         """Calculate temporal similarity based on recent tag overlap"""
+        if time_limit_hours == 0.0:
+            time_limit_hours = cfg.layer1_temporal_window_hours()
         recent_statements = self.get_recent_statements(time_limit_hours)
         if not recent_statements:
             return 0.0
@@ -297,8 +335,10 @@ def analyze_spatial_locality(recent_statements, clusters):
         "unique_recent_tags": len(set(recent_tags))
     }
 
-def assign_domain_patch(spatial_analysis, similarity_threshold=0.3):
+def assign_domain_patch(spatial_analysis, similarity_threshold: float = 0.0):
     """Assign domain/patch network based on spatial locality analysis"""
+    if similarity_threshold == 0.0:
+        similarity_threshold = cfg.layer1_spatial_dominance_threshold()
     if not spatial_analysis["dominant_clusters"]:
         return {"action": "create_new_patch", "reason": "no_dominant_clusters"}
     
@@ -373,11 +413,20 @@ def _tokenize(text: str) -> List[str]:
     import re
     return [t for t in re.findall(r"[A-Za-z0-9]+", text.lower())]
 
-def _lens1_embedding_candidates(text: str, top_k: int = 3, model_name: str = "all-MiniLM-L6-v2") -> List[Tuple[str, float]]:
+def _lens1_embedding_candidates(
+    text: str,
+    top_k: int = 0,
+    model_name: str = "",
+) -> List[Tuple[str, float]]:
     """Lens 1: Embedding-based permissive candidate selection.
     Returns top-k domains by cosine similarity to domain anchors. Gracefully
     degrades to lexical scoring if sentence-transformers is unavailable.
     """
+    top_k      = top_k      or cfg.layer1_lens1_top_k()
+    model_name = model_name or cfg.layer1_embed_model()
+    emb_weight = cfg.layer1_lens1_embedding_weight()
+    lex_weight = cfg.layer1_lens1_lexical_weight()
+
     tokens = _tokenize(text)
 
     # Build anchor phrases per domain
@@ -406,7 +455,7 @@ def _lens1_embedding_candidates(text: str, top_k: int = 3, model_name: str = "al
         for d, emb in dom_embs.items():
             sim = float(cosine_similarity([text_emb], [emb])[0][0])
             # Blend with lexical to stabilize
-            sim = 0.8 * sim + 0.2 * _lexical_score(d)
+            sim = emb_weight * sim + lex_weight * _lexical_score(d)
             scores.append((d, sim))
         scores.sort(key=lambda x: x[1], reverse=True)
         return scores[:top_k]
@@ -519,7 +568,7 @@ def _lens3_abstraction_signature(text: str, concepts: List[str]) -> Dict:
     return signature
 
 
-def multi_lens_route(text: str, top_k: int = 3) -> Dict:
+def multi_lens_route(text: str, top_k: int = 0) -> Dict:
     """Public API: Multi-lens similarity and gated routing.
 
     Returns dict with:
@@ -531,6 +580,8 @@ def multi_lens_route(text: str, top_k: int = 3) -> Dict:
       - lens3_signature: Dict
       - classification: 'NORMAL' | 'ATTRIBUTE_ONLY' | 'UNKNOWN'
     """
+    top_k = top_k or cfg.layer1_lens1_top_k()
+
     # Lens 1: permissive candidates
     lens1 = _lens1_embedding_candidates(text, top_k=top_k)
     lens1_domains = [d for d, _ in lens1]
@@ -690,7 +741,7 @@ if __name__ == "__main__":
     # Run lightweight self-tests without requiring external test frameworks.
     print("Running Layer 1 multi-lens routing tests...")
     test_layer1_multilens()
-    print("\nAll Layer 1 multi-lens tests completed.")
+    print("\nAll Layer 1 multi-lens routing tests completed.")
 
     print("\nQuick manual test:")
     while True:
