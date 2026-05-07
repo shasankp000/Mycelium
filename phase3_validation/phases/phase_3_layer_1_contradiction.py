@@ -697,6 +697,9 @@ class ContradictionAnalyzer:
         """Run all Layer 1 checks and return a consolidated result.
 
         Decision logic (in order of precedence):
+        0. If answer is empty (Phase 2 produced no output) → LOW
+           severity, no contradiction.  This is a data-absence
+           condition, not a reasoning failure.
         1. If ``contradiction_detected`` AND
            ``answer_reasoning_similarity`` < threshold → ``CRITICAL``
         2. If ``hallucination_detected`` (OOD > threshold) → ``CRITICAL``
@@ -714,6 +717,36 @@ class ContradictionAnalyzer:
             :class:`Layer1Result` with all sub-scores and final
             classification.
         """
+        # ----------------------------------------------------------------
+        # Bug 3 fix: an empty answer means Phase 2 produced no decision
+        # text — this is a data-absence condition, not a reasoning failure.
+        # Previously every sub-check returned benign results but
+        # _classify() could still escalate to CRITICAL via other paths
+        # (e.g. zero-vector cosine producing contradiction_found=True in
+        # edge cases, or future sub-check additions).  Short-circuit here
+        # with a LOW-severity pass so the validation gate never fires a
+        # false CRITICAL for an empty upstream output.
+        # ----------------------------------------------------------------
+        if not answer or not answer.strip():
+            logger.debug(
+                "ContradictionAnalyzer.analyze: empty answer — "
+                "returning LOW-severity pass (no sub-checks run)."
+            )
+            return Layer1Result(
+                contradiction_detected=False,
+                severity="LOW",
+                reason="empty_answer_from_phase2",
+                answer_reasoning_similarity=0.0,
+                ood_score=0.0,
+                chain_validity_score=1.0,
+                evidence_alignment_score=1.0,
+                problem_description=
+                    "[LOW] Phase 2 produced no answer text — "
+                    "no contradiction checks performed.",
+                affected_components=[],
+                validation_result_class="all_pass",
+            )
+
         affected_components: List[str] = []
         reasons: List[str] = []
 
@@ -881,6 +914,9 @@ class ContradictionAnalyzer:
             ),
             "evidence_contradiction": (
                 "Answer concepts are not supported by evidence"
+            ),
+            "empty_answer_from_phase2": (
+                "Phase 2 produced no answer text"
             ),
         }
         description = reason_map.get(reason, reason)

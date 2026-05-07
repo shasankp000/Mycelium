@@ -142,6 +142,51 @@ class Phase3To5Pipeline:
                 final_decision_result
             )
 
+            # ----------------------------------------------------------------
+            # Bug 2 fix: if CompleteFailureHandler exhausted all retries and
+            # escalated, stop here with a clean failure result rather than
+            # continuing downstream with broken input.  Without this guard
+            # the pipeline kept rolling into Phase 3.1 / 4.1 and eventually
+            # raised PipelineError, which run_workflow.py didn't catch —
+            # causing the entire per-sentence record to be dropped.
+            # ----------------------------------------------------------------
+            if (
+                validation_decision.result_class == "complete_failure"
+                and getattr(validation_decision, "action", "") == "escalate"
+            ):
+                total_latency_ms = (
+                    (time.perf_counter() - pipeline_start) * 1000.0
+                )
+                failure_reason = ""
+                if validation_decision.failure_info:
+                    failure_reason = (
+                        validation_decision.failure_info.failure_reason or ""
+                    )
+                error_msg = (
+                    f"Validation escalated after max retries: {failure_reason}"
+                )
+                logger.warning(
+                    "Phase3To5Pipeline: escalated failure — returning "
+                    "success=False without running downstream phases. "
+                    "reason=%s",
+                    failure_reason,
+                )
+                phase_latencies["phase_3_validation"] = (
+                    (time.perf_counter() - phase_start) * 1000.0
+                )
+                return SystemExecutionResult(
+                    original_input=getattr(
+                        final_decision_result, "decision", ""
+                    ),
+                    decision_result=final_decision_result,
+                    action_result=None,
+                    feedback_data=None,
+                    total_latency_ms=total_latency_ms,
+                    phase_latencies=phase_latencies,
+                    success=False,
+                    error_message=error_msg,
+                )
+
             if (
                 validation_decision.result_class == "complete_failure"
                 and validation_decision.failure_info

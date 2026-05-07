@@ -17,6 +17,7 @@ from layer_1_prototype import (
 from multi_lens_router import MultiLensRouter
 from phase2_validation.pipeline import Phase2Pipeline
 from phase3_validation.pipeline import Phase3To5Pipeline
+from phase3_validation.utils.types import FinalDecisionResult as P3FinalDecisionResult
 from layer_2_prototype import get_expert_model
 import layer_2_prototype
 from unified_expert_system import UnifiedExpertSystem
@@ -55,6 +56,40 @@ def _to_jsonable(obj: Any) -> Any:
     if hasattr(obj, "__dict__") and not isinstance(obj, (str, bytes)):
         return _to_jsonable(vars(obj))
     return obj
+
+
+def _adapt_phase2_to_p3(p2: Any) -> P3FinalDecisionResult:
+    """Bridge the Phase 2 output into the FinalDecisionResult shape
+    that Phase 3 expects.
+
+    Phase 2 and Phase 3 use different field names for the same
+    concepts (e.g. ``decision_label`` vs ``decision``, ``selected_expert``
+    vs ``expert_name``).  This adapter resolves the mismatch without
+    modifying either pipeline.
+
+    Args:
+        p2: The object returned by ``Phase2Pipeline.run()``.
+
+    Returns:
+        A ``FinalDecisionResult`` populated from whatever fields are
+        available on *p2*, with safe defaults for anything missing.
+    """
+    def _get(*attrs: str, default: Any = "") -> Any:
+        for attr in attrs:
+            val = getattr(p2, attr, None)
+            if val is not None:
+                return val
+        return default
+
+    return P3FinalDecisionResult(
+        original_text=_get("original_text", "input_text", "query", "sentence"),
+        decision=_get("decision_label", "prediction", "final_decision", "decision"),
+        expert_name=_get("selected_expert", "expert_name", "expert"),
+        confidence=float(_get("confidence", "expert_confidence", default=0.5)),
+        reasoning_chain=_get("reasoning_chain", default=[]),
+        action_details=_get("action_details", default={}),
+        expert_predictions=_get("expert_predictions", default={}),
+    )
 
 
 @dataclass
@@ -192,14 +227,6 @@ def run_mycelium_workflow(
 
         # ------------------------------------------------------------------
         # Resolve relevant_domains from the routing result.
-        #
-        # Priority order:
-        # 1. Router candidates that exist in the live expert registry (direct
-        #    hit, no normalization needed).
-        # 2. normalize_domain() for router candidates not directly in registry.
-        # 3. Semantic tags extracted from the query (same two-step check).
-        # 4. ATTRIBUTE_ONLY / no-match fallback: open the gate to all
-        #    registered experts so the reasoning pipeline is never starved.
         # ------------------------------------------------------------------
         relevant_domains: List[str] = []
 
@@ -222,18 +249,12 @@ def run_mycelium_workflow(
                         relevant_domains.append(domain)
 
         if not relevant_domains:
-            # Fallback (ATTRIBUTE_ONLY / no tag match): open the gate to all
-            # registered experts.
             relevant_domains = list(registered_domains)
             if ENABLE_LOGGING and idx % LOG_SAMPLE_RATE == 0:
                 print(
                     f"\u2139\ufe0f  No domain resolved from routing or tags for \"{text[:60]}...\". "
                     "Supplying all experts to reasoning pipeline.\n"
                 )
-            # Trip 3 fix: pass registered_domains as bert_domains so that
-            # BERT-backed experts (physics, chemistry, medical) are not
-            # falsely reported as missing_domains just because no live
-            # BERTExpertManager was supplied.
             pre_check_result = expert_filter.filter_experts_by_tags(
                 normalized_tags,
                 expert_system,
@@ -242,7 +263,7 @@ def run_mycelium_workflow(
             )
             if ENABLE_LOGGING and pre_check_result["missing_domains"]:
                 print(
-                    f"\u26a0\ufe0f  Pre-check (fallback path) \u2014 missing domains: "
+                    f"\u26a0\ufe0f  Pre-check (fallback path) — missing domains: "
                     f"{pre_check_result['missing_domains']}\n"
                 )
 
@@ -253,17 +274,20 @@ def run_mycelium_workflow(
             if domain in expert_system.experts
         }
 
-        # Pass filtered_experts into Phase 2 so it operates on the
-        # pre-resolved expert pool rather than re-deriving from scratch
-        # (which always produced 0 candidates and cascaded into a
-        # Phase 3 complete_failure).  routing_context is passed through
-        # so Phase 2.3 can apply Layer 1 routing priors on top.
         phase2_result = phase2_pipeline.run(
             text,
             routing_context=routing_context,
             filtered_experts=filtered_experts,
         )
-        phase3_result = phase3_pipeline.run_complete_pipeline(phase2_result)
+
+        # ----------------------------------------------------------------
+        # Bug 1 fix: adapt the Phase 2 output to the FinalDecisionResult
+        # shape that Phase 3 expects before handing it over.  Without this
+        # adapter ContradictionAnalyzer received an empty answer string and
+        # always returned severity=CRITICAL → complete_failure.
+        # ----------------------------------------------------------------
+        phase3_input = _adapt_phase2_to_p3(phase2_result)
+        phase3_result = phase3_pipeline.run_complete_pipeline(phase3_input)
 
         expert_decision = expert_system.unified_decision_analysis(
             text,
@@ -314,7 +338,7 @@ def run_mycelium_workflow(
             )
             if ENABLE_LOGGING:
                 print(
-                    f"\U0001f4dd CREATE_NEW_PATCH \u2014 logged query to batch "
+                    f"\U0001f4dd CREATE_NEW_PATCH — logged query to batch "
                     f"(trace_id={sentence_trace_id}). "
                     "Proceeding through reasoning pipeline.\n"
                 )
