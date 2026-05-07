@@ -180,7 +180,20 @@ class MultiLensRouter:
         spectral_dir: str = "signatures",
         coverage_threshold: float = COVERAGE_THRESHOLD,
         max_experts: Optional[int] = None,
+        spectral_analyzer: Optional[Any] = None,
     ) -> None:
+        """
+        Parameters
+        ----------
+        spectral_analyzer:
+            Optional pre-built :class:`RuntimeSpectralAnalyzer` instance.
+            When supplied, the router uses it directly and skips the internal
+            ``RuntimeSpectralAnalyzer(signature_dir=...)`` instantiation.
+            Pass the analyzer returned by
+            ``DynamicSignatureManager.sync_signatures()`` to guarantee the
+            router always sees freshly generated signatures without a
+            cold-load race.
+        """
         self.use_multi_lens = bool(use_multi_lens)
         self.use_spectral = bool(use_spectral)
         self.spectral_dir = str(spectral_dir)
@@ -198,14 +211,21 @@ class MultiLensRouter:
         self._spectral_analyzer: Optional[Any] = None
         self._fusion_engine: Optional[Any] = None
 
-        if self.use_spectral and RuntimeSpectralAnalyzer is not None:
-            try:
-                self._spectral_analyzer = RuntimeSpectralAnalyzer(
-                    signature_dir=self.spectral_dir,
-                    model_name="all-MiniLM-L6-v2",
-                )
-            except Exception as exc:
-                logger.warning("Failed to initialise spectral analyzer: %s", exc)
+        if self.use_spectral:
+            if spectral_analyzer is not None:
+                # Caller supplied a pre-loaded, pre-synced analyzer — use it
+                # directly.  This avoids a redundant disk scan and guarantees
+                # any signatures generated in the same startup sequence are
+                # immediately visible.
+                self._spectral_analyzer = spectral_analyzer
+            elif RuntimeSpectralAnalyzer is not None:
+                try:
+                    self._spectral_analyzer = RuntimeSpectralAnalyzer(
+                        signature_dir=self.spectral_dir,
+                        model_name="all-MiniLM-L6-v2",
+                    )
+                except Exception as exc:
+                    logger.warning("Failed to initialise spectral analyzer: %s", exc)
 
         if FusionEngine is not None:
             try:
@@ -605,4 +625,4 @@ if __name__ == "__main__":
     import json
     print("\n=== Metrics ===")
     print(json.dumps(MultiLensRouter.get_metrics(), indent=2))
-    print("\n✅ Multi-Lens Router rewrite smoke tests completed.")
+    print("\n\u2705 Multi-Lens Router rewrite smoke tests completed.")

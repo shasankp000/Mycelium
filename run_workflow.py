@@ -25,6 +25,7 @@ from orchestration import combine_routing_and_expert_decisions
 from layer0.router import QuestionRouter
 from tuning_config import ENABLE_LOGGING, LOG_SAMPLE_RATE
 from patch_batch_logger import patch_logger
+from dynamic_signature_manager import DynamicSignatureManager
 
 
 class NumpyEncoder(json.JSONEncoder):
@@ -107,13 +108,32 @@ def run_mycelium_workflow(
 
     phase2_pipeline = Phase2Pipeline()
     phase3_pipeline = Phase3To5Pipeline()
-    router = MultiLensRouter()
 
-    # Step 0: Initialize unified expert system
+    # -----------------------------------------------------------------------
+    # Step 0a: Initialise unified expert system first so we know which domains
+    # are registered before the router tries to load spectral signatures.
+    # -----------------------------------------------------------------------
     print("Initializing unified expert system (K-Medoids + Calibration + OOD Detection)...")
     expert_system = UnifiedExpertSystem()
     registered_domains = set(expert_system.experts.keys())
     print(f"Initialized unified expert system with {len(registered_domains)} experts\n")
+
+    # -----------------------------------------------------------------------
+    # Step 0b: Sync spectral signatures — auto-generates any .npy files that
+    # are missing or whose corpus has changed since the last run.  The
+    # returned analyzer is pre-loaded with all current signatures so the
+    # router never cold-reads a stale or absent file.
+    # -----------------------------------------------------------------------
+    print("Syncing spectral signatures with registered expert domains...")
+    sig_manager = DynamicSignatureManager(signature_dir="signatures")
+    spectral_analyzer = sig_manager.sync_signatures(registered_domains)
+    print(f"\u2705 Spectral signatures synced ({len(spectral_analyzer.get_available_domains())} domains loaded)\n")
+
+    # -----------------------------------------------------------------------
+    # Step 0c: Initialise the router with the already-synced analyzer so it
+    # never re-loads from disk (which would miss signatures written in 0b).
+    # -----------------------------------------------------------------------
+    router = MultiLensRouter(spectral_analyzer=spectral_analyzer)
 
     print("Initializing expert filter with automatic semantic clustering...")
     expert_filter = ExpertFilter(
