@@ -62,10 +62,11 @@ def _adapt_phase2_to_p3(p2: Any) -> P3FinalDecisionResult:
     """Bridge the Phase 2 output into the FinalDecisionResult shape
     that Phase 3 expects.
 
-    Phase 2 and Phase 3 use different field names for the same
-    concepts (e.g. ``decision_label`` vs ``decision``, ``selected_expert``
-    vs ``expert_name``).  This adapter resolves the mismatch without
-    modifying either pipeline.
+    FinalDecisionResult fields:
+        decision, confidence, reasoning, action, expert_name, domain, metadata
+
+    Phase 2 uses different names for several of these concepts.  This
+    adapter resolves the mismatch without modifying either pipeline.
 
     Args:
         p2: The object returned by ``Phase2Pipeline.run()``.
@@ -77,18 +78,40 @@ def _adapt_phase2_to_p3(p2: Any) -> P3FinalDecisionResult:
     def _get(*attrs: str, default: Any = "") -> Any:
         for attr in attrs:
             val = getattr(p2, attr, None)
+            if val is None and isinstance(p2, dict):
+                val = p2.get(attr)
             if val is not None:
                 return val
         return default
 
+    # reasoning_chain may be a list — join it into a single string so it
+    # fits the `reasoning: str` field without raising a type error.
+    reasoning_raw = _get("reasoning_chain", "reasoning", default=[])
+    if isinstance(reasoning_raw, list):
+        reasoning_str = " ".join(str(r) for r in reasoning_raw)
+    else:
+        reasoning_str = str(reasoning_raw)
+
+    # Collect any extra Phase-2-only fields into metadata so no
+    # information is silently dropped.
+    extra_fields = ("original_text", "input_text", "query", "sentence",
+                    "action_details", "expert_predictions")
+    metadata: Dict[str, Any] = {}
+    for f in extra_fields:
+        val = getattr(p2, f, None)
+        if val is None and isinstance(p2, dict):
+            val = p2.get(f)
+        if val is not None:
+            metadata[f] = val
+
     return P3FinalDecisionResult(
-        original_text=_get("original_text", "input_text", "query", "sentence"),
         decision=_get("decision_label", "prediction", "final_decision", "decision"),
-        expert_name=_get("selected_expert", "expert_name", "expert"),
         confidence=float(_get("confidence", "expert_confidence", default=0.5)),
-        reasoning_chain=_get("reasoning_chain", default=[]),
-        action_details=_get("action_details", default={}),
-        expert_predictions=_get("expert_predictions", default={}),
+        reasoning=reasoning_str,
+        action=_get("action_type", "action", "recommended_action", default="use_existing"),
+        expert_name=_get("selected_expert", "expert_name", "expert"),
+        domain=_get("domain", "selected_domain", default=""),
+        metadata=metadata,
     )
 
 
@@ -281,10 +304,10 @@ def run_mycelium_workflow(
         )
 
         # ----------------------------------------------------------------
-        # Bug 1 fix: adapt the Phase 2 output to the FinalDecisionResult
-        # shape that Phase 3 expects before handing it over.  Without this
-        # adapter ContradictionAnalyzer received an empty answer string and
-        # always returned severity=CRITICAL → complete_failure.
+        # Adapt the Phase 2 output to the FinalDecisionResult shape that
+        # Phase 3 expects.  The adapter maps Phase 2 field names to the
+        # correct FinalDecisionResult fields (decision, confidence,
+        # reasoning, action, expert_name, domain, metadata).
         # ----------------------------------------------------------------
         phase3_input = _adapt_phase2_to_p3(phase2_result)
         phase3_result = phase3_pipeline.run_complete_pipeline(phase3_input)
