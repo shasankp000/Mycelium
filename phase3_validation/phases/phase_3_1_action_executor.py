@@ -27,6 +27,7 @@ Example:
 import copy
 import logging
 import time
+from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 from uuid import uuid4
@@ -44,6 +45,24 @@ _VALID_ACTIONS = frozenset({"create_new", "use_existing", "create_patch"})
 _VALID_PATCH_TYPES = frozenset(
     {"parameter_update", "retraining", "augmentation"}
 )
+
+
+# ------------------------------------------------------------------
+# Lazy post-check import helper
+# ------------------------------------------------------------------
+
+def _get_post_check_runner():
+    """Return a cached PostCheckRunner, or None if the package is absent."""
+    if not hasattr(_get_post_check_runner, "_instance"):
+        try:
+            from expert_post_check.runner import PostCheckRunner  # noqa: PLC0415
+            _get_post_check_runner._instance = PostCheckRunner()
+        except Exception as exc:
+            logger.warning(
+                "expert_post_check unavailable — post-check disabled: %s", exc
+            )
+            _get_post_check_runner._instance = None
+    return _get_post_check_runner._instance
 
 
 # ------------------------------------------------------------------
@@ -455,14 +474,74 @@ class ActionExecutor:
         )
 
     def _execute_use_existing(self, fdr: FinalDecisionResult) -> ActionResult:
+        """Route to an existing expert, then run the post-check pipeline.
+
+        Steps
+        -----
+        1. Route the request to the selected expert (unchanged).
+        2. Extract the query string from fdr.metadata.
+        3. Run PostCheckRunner.run(query, domain, expert_name).
+        4. Attach the PostCheckResult to action_result.metadata so it
+           flows through to the API trace and the conversation layer LLM.
+        5. Populate fdr.metadata["expert_used"] for upstream feedback.
+        """
         expert_name = fdr.expert_name or "default_expert"
+        domain = fdr.domain or expert_name
         input_data = fdr.metadata.get("input_data", {})
+
+        # Step 1 — routing (unchanged behaviour)
         routing = self._expert_router.route_to_expert(expert_name, input_data)
+
+        # Step 2 — resolve query string
+        query: str = (
+            fdr.metadata.get("original_query")
+            or fdr.metadata.get("query")
+            or input_data.get("query", "")
+            or ""
+        )
+
+        # Step 3 — post-check
+        post_check_meta: Dict = {}
+        verified_answer: str = ""
+        runner = _get_post_check_runner()
+        if runner is not None and query:
+            try:
+                pc_result = runner.run(
+                    query=query,
+                    domain=domain,
+                    expert_name=expert_name,
+                )
+                verified_answer = pc_result.verified_answer
+                # Serialise dataclass to plain dict for JSON-safe storage
+                if is_dataclass(pc_result):
+                    post_check_meta = asdict(pc_result)
+                else:
+                    post_check_meta = vars(pc_result)
+                logger.info(
+                    "PostCheck complete — status=%s sim=%.3f",
+                    pc_result.verification_status,
+                    pc_result.similarity,
+                )
+            except Exception as exc:
+                logger.warning("PostCheckRunner.run() failed: %s", exc)
+                post_check_meta = {"error": str(exc)}
+        elif runner is None:
+            logger.debug("PostCheck skipped — runner unavailable")
+        else:
+            logger.debug("PostCheck skipped — empty query")
+
+        # Step 4 — feedback: mark which expert was used
+        fdr.metadata["expert_used"] = expert_name
+
         return ActionResult(
             action_type="use_existing",
             status="success",
             executed_action=f"Routed to expert={expert_name}",
-            metadata={"routing": routing},
+            metadata={
+                "routing": routing,
+                "verified_answer": verified_answer,
+                "post_check": post_check_meta,
+            },
             rollback_available=False,
         )
 
