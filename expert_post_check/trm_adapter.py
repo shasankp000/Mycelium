@@ -3,7 +3,7 @@ expert_post_check.trm_adapter
 ==============================
 TRM-slot adapter.
 
-Currently backed by a local Ollama instance running ``qwen3:9b``.
+Currently backed by a local Ollama instance running ``qwen3.5:9b``.
 When the TRM architecture is retrained on Mycelium's domain corpora,
 swap the internals of ``TRMAdapter.reason()`` only — nothing else
 in the post-check system needs to change.
@@ -25,14 +25,20 @@ ReasoningResult fields
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
 
-OLLAMA_MODEL = "qwen3:9b"
+OLLAMA_MODEL = "qwen3.5:9b"
 OLLAMA_BASE_URL = "http://localhost:11434"
+
+# Hard caps — prevent Qwen3 thinking-mode from generating unbounded tokens
+# and saturating RAM.  Raise these once TRM weights replace the stub.
+OLLAMA_NUM_PREDICT = 512   # max output tokens
+OLLAMA_NUM_CTX = 2048      # context window
 
 SYSTEM_PROMPT = (
     "You are a precise domain reasoning engine. "
@@ -40,6 +46,9 @@ SYSTEM_PROMPT = (
     "factually accurate answer. Do not add disclaimers or padding. "
     "If you are uncertain, say so explicitly with a confidence estimate."
 )
+
+# Regex to strip Qwen3 internal <think>...</think> blocks from output
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 
 @dataclass
@@ -52,7 +61,7 @@ class ReasoningResult:
 
 
 class TRMAdapter:
-    """TRM-slot reasoner backed by qwen3:9b via Ollama.
+    """TRM-slot reasoner backed by qwen3.5:9b via Ollama.
 
     Swap the body of ``reason()`` when the real TRM weights are ready.
     The constructor and public interface are intentionally frozen.
@@ -145,6 +154,10 @@ class TRMAdapter:
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ],
+            options={
+                "num_predict": OLLAMA_NUM_PREDICT,
+                "num_ctx": OLLAMA_NUM_CTX,
+            },
         )
         # ollama-python returns an object with a .message attribute
         if hasattr(response, "message"):
@@ -164,7 +177,11 @@ class TRMAdapter:
         return {"content": str(response)}
 
     def _extract_answer(self, raw: Dict[str, Any]) -> str:
-        return raw.get("content", "").strip()
+        """Extract and clean the answer, stripping Qwen3 <think> blocks."""
+        content = raw.get("content", "").strip()
+        # Remove internal chain-of-thought blocks emitted by Qwen3 thinking mode
+        content = _THINK_RE.sub("", content).strip()
+        return content
 
     def _heuristic_confidence(self, answer: str) -> float:
         """Estimate confidence from answer characteristics.

@@ -6,7 +6,7 @@ Top-level orchestrator for the Expert Post-Check System.
 Flow
 ----
 1. Hardware probe  →  decide PARALLEL vs SERIAL
-2. Run TRM-slot (qwen3:9b stub) + 6-phase pipeline
+2. Run TRM-slot (qwen3.5:9b stub) + 6-phase pipeline
    — parallel via ThreadPoolExecutor on capable hardware
    — serial (TRM first, then P6) on low-resource machines
 3. Fuzzy verify both answers with cosine-sim
@@ -37,9 +37,16 @@ from __future__ import annotations
 
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import (
+    Future,
+    ThreadPoolExecutor,
+    TimeoutError as FuturesTimeoutError,
+    as_completed,
+    wait,
+    FIRST_COMPLETED,
+)
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from expert_post_check.hardware_check import probe_hardware, PostCheckMode
 from expert_post_check.trm_adapter import TRMAdapter, ReasoningResult
@@ -48,6 +55,13 @@ from expert_post_check.fuzzy_verifier import FuzzyVerifier
 from expert_post_check.rl_weight import RLWeightStore
 
 logger = logging.getLogger(__name__)
+
+# Wall-clock budget for each reasoner call (seconds).
+# Keeps the post-check from hanging the entire request when a model stalls.
+REASONER_TIMEOUT_S = 60
+
+_EMPTY = ReasoningResult(answer="", confidence=0.0, latency_ms=0.0,
+                         source="timeout", raw={"error": "timeout"})
 
 
 @dataclass
@@ -76,14 +90,17 @@ class PostCheckRunner:
     def __init__(
         self,
         fuzzy_threshold: float = 0.72,
+        reasoner_timeout: int = REASONER_TIMEOUT_S,
     ) -> None:
         self._hw = probe_hardware()
         self._trm = TRMAdapter()
         self._p6 = P6Adapter()
         self._verifier = FuzzyVerifier(threshold=fuzzy_threshold)
         self._rl = RLWeightStore()
+        self._timeout = reasoner_timeout
         logger.info(
-            "PostCheckRunner initialised — mode=%s", self._hw.mode.value
+            "PostCheckRunner initialised — mode=%s timeout=%ds",
+            self._hw.mode.value, self._timeout,
         )
 
     # ------------------------------------------------------------------
@@ -158,60 +175,122 @@ class PostCheckRunner:
 
     def _run_parallel(
         self, query: str, domain: str
-    ):
-        """Run TRM-slot and P6 concurrently."""
-        trm_res: Optional[ReasoningResult] = None
-        p6_res: Optional[ReasoningResult] = None
+    ) -> Tuple[ReasoningResult, ReasoningResult]:
+        """Run TRM-slot and P6 concurrently with a hard wall-clock timeout."""
+        trm_res: ReasoningResult = _EMPTY
+        p6_res: ReasoningResult = _EMPTY
 
         with ThreadPoolExecutor(max_workers=2) as pool:
-            fut_trm = pool.submit(self._trm.reason, query, domain)
-            fut_p6 = pool.submit(self._p6.reason, query, domain)
-            for fut in as_completed([fut_trm, fut_p6]):
-                if fut is fut_trm:
+            fut_trm: Future = pool.submit(self._trm.reason, query, domain)
+            fut_p6: Future = pool.submit(self._p6.reason, query, domain)
+
+            try:
+                for fut in as_completed(
+                    [fut_trm, fut_p6], timeout=self._timeout
+                ):
+                    if fut is fut_trm:
+                        try:
+                            trm_res = fut.result()
+                        except Exception as exc:
+                            logger.warning("TRM parallel future failed: %s", exc)
+                            trm_res = ReasoningResult(
+                                "", 0.0, 0.0, "ollama/error",
+                                {"error": str(exc)},
+                            )
+                    else:
+                        try:
+                            p6_res = fut.result()
+                        except Exception as exc:
+                            logger.warning("P6 parallel future failed: %s", exc)
+                            p6_res = ReasoningResult(
+                                "", 0.0, 0.0, "p6_pipeline/error",
+                                {"error": str(exc)},
+                            )
+            except FuturesTimeoutError:
+                logger.warning(
+                    "PostCheck parallel timeout after %ds — "
+                    "cancelling outstanding futures",
+                    self._timeout,
+                )
+                # Collect whatever finished before the timeout
+                if fut_trm.done():
                     try:
-                        trm_res = fut.result()
-                    except Exception as exc:
-                        logger.warning("TRM parallel future failed: %s", exc)
-                        trm_res = ReasoningResult("", 0.0, 0.0, "ollama/error", {"error": str(exc)})
-                else:
+                        trm_res = fut_trm.result()
+                    except Exception:
+                        pass
+                if fut_p6.done():
                     try:
-                        p6_res = fut.result()
-                    except Exception as exc:
-                        logger.warning("P6 parallel future failed: %s", exc)
-                        p6_res = ReasoningResult("", 0.0, 0.0, "p6_pipeline/error", {"error": str(exc)})
+                        p6_res = fut_p6.result()
+                    except Exception:
+                        pass
+                # Cancel pending futures (best-effort)
+                fut_trm.cancel()
+                fut_p6.cancel()
 
         return trm_res, p6_res
 
     def _run_serial(
         self, query: str, domain: str
-    ):
-        """Run TRM-slot then P6 sequentially."""
-        try:
-            trm_res = self._trm.reason(query, domain)
-        except Exception as exc:
-            logger.warning("TRM serial call failed: %s", exc)
-            trm_res = ReasoningResult("", 0.0, 0.0, "ollama/error", {"error": str(exc)})
-        try:
-            p6_res = self._p6.reason(query, domain)
-        except Exception as exc:
-            logger.warning("P6 serial call failed: %s", exc)
-            p6_res = ReasoningResult("", 0.0, 0.0, "p6_pipeline/error", {"error": str(exc)})
+    ) -> Tuple[ReasoningResult, ReasoningResult]:
+        """Run TRM-slot then P6 sequentially, each with a timeout."""
+        trm_res = self._call_with_timeout(
+            self._trm.reason, query, domain, label="TRM"
+        )
+        p6_res = self._call_with_timeout(
+            self._p6.reason, query, domain, label="P6"
+        )
         return trm_res, p6_res
+
+    def _call_with_timeout(
+        self,
+        fn,
+        query: str,
+        domain: str,
+        label: str = "",
+    ) -> ReasoningResult:
+        """Call *fn(query, domain)* with a hard wall-clock timeout.
+
+        Uses a single-thread executor so the timeout works on all platforms
+        (signal.alarm is UNIX-only and can't be used in threads).
+        """
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            fut: Future = pool.submit(fn, query, domain)
+            try:
+                return fut.result(timeout=self._timeout)
+            except FuturesTimeoutError:
+                fut.cancel()
+                logger.warning(
+                    "%s call timed out after %ds", label, self._timeout
+                )
+                return ReasoningResult(
+                    answer="",
+                    confidence=0.0,
+                    latency_ms=float(self._timeout * 1000),
+                    source=f"{label.lower()}/timeout",
+                    raw={"error": f"timeout after {self._timeout}s"},
+                )
+            except Exception as exc:
+                logger.warning("%s call failed: %s", label, exc)
+                return ReasoningResult(
+                    answer="",
+                    confidence=0.0,
+                    latency_ms=0.0,
+                    source=f"{label.lower()}/error",
+                    raw={"error": str(exc)},
+                )
 
     @staticmethod
     def _select_answer(
         trm_res: ReasoningResult,
         p6_res: ReasoningResult,
         verification,
-    ):
+    ) -> Tuple[str, str]:
         """Pick the verified answer and status string."""
         if verification.match:
-            # Agreement — prefer higher-confidence source
             if verification.preferred == "trm":
                 return trm_res.answer, "verified"
             return p6_res.answer, "verified"
-        # Conflict — return both answers concatenated so the conversation
-        # LLM can reconcile; flag status as "conflict"
+        # Conflict — return both answers so the conversation LLM can reconcile
         parts = []
         if trm_res.answer:
             parts.append(f"[Reasoner A] {trm_res.answer}")
