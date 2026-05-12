@@ -62,20 +62,18 @@ def _adapt_phase2_to_p3(p2: Any, original_text: str = "") -> P3FinalDecisionResu
     """Bridge the Phase 2 output into the FinalDecisionResult shape
     that Phase 3 expects.
 
-    FinalDecisionResult fields:
-        decision, confidence, reasoning, action, expert_name, domain, metadata
-
-    Phase 2 uses different names for several of these concepts.  This
-    adapter resolves the mismatch without modifying either pipeline.
+    NOTE: As of the unified-decision fix this adapter is no longer the
+    primary source for building phase3_input.  It is still called to
+    harvest Phase-2-only fields (reasoning_chain, expert_predictions,
+    action_details, etc.) whose values are merged into the metadata of
+    the unified-decision-based FinalDecisionResult before Phase 3 runs.
 
     Args:
         p2: The object returned by ``Phase2Pipeline.run()``.
-        original_text: The raw user query string.  Stored in metadata so
-            Phase 3 can recover it when building ``original_input``.
+        original_text: The raw user query string.
 
     Returns:
-        A ``FinalDecisionResult`` populated from whatever fields are
-        available on *p2*, with safe defaults for anything missing.
+        A ``FinalDecisionResult`` populated from Phase 2 fields.
     """
     def _get(*attrs: str, default: Any = "") -> Any:
         for attr in attrs:
@@ -86,16 +84,12 @@ def _adapt_phase2_to_p3(p2: Any, original_text: str = "") -> P3FinalDecisionResu
                 return val
         return default
 
-    # reasoning_chain may be a list — join it into a single string so it
-    # fits the `reasoning: str` field without raising a type error.
     reasoning_raw = _get("reasoning_chain", "reasoning", default=[])
     if isinstance(reasoning_raw, list):
         reasoning_str = " ".join(str(r) for r in reasoning_raw)
     else:
         reasoning_str = str(reasoning_raw)
 
-    # Collect any extra Phase-2-only fields into metadata so no
-    # information is silently dropped.
     extra_fields = ("original_text", "input_text", "query", "sentence",
                     "action_details", "expert_predictions")
     metadata: Dict[str, Any] = {}
@@ -106,13 +100,9 @@ def _adapt_phase2_to_p3(p2: Any, original_text: str = "") -> P3FinalDecisionResu
         if val is not None:
             metadata[f] = val
 
-    # FIX (Bug A): always store the real user query in metadata so that
-    # Phase 3's pipeline.py can set `original_input` to the actual text
-    # rather than the Phase 2 decision label (e.g. "create_new_expert").
     if original_text:
         metadata["original_query"] = original_text
     elif not metadata.get("original_query"):
-        # Best-effort fallback: pull from whatever field Phase 2 stored it in
         for fallback_key in ("original_text", "input_text", "query", "sentence"):
             if metadata.get(fallback_key):
                 metadata["original_query"] = metadata[fallback_key]
@@ -125,6 +115,65 @@ def _adapt_phase2_to_p3(p2: Any, original_text: str = "") -> P3FinalDecisionResu
         action=_get("action_type", "action", "recommended_action", default="use_existing"),
         expert_name=_get("selected_expert", "expert_name", "expert"),
         domain=_get("domain", "selected_domain", default=""),
+        metadata=metadata,
+    )
+
+
+def _adapt_unified_to_p3(
+    expert_decision: Any,
+    original_text: str,
+    phase2_metadata: Dict[str, Any],
+) -> P3FinalDecisionResult:
+    """Build the FinalDecisionResult Phase 3 consumes from the authoritative
+    unified expert decision rather than Phase 2's intermediate guess.
+
+    This ensures that Phase 3's action execution, feedback collection, and
+    all downstream phases operate on the same decision that the API trace
+    and UI surface to the user — eliminating the USE_EXISTING_EXPERT vs
+    create_new_expert conflict between logs and the UI.
+
+    Args:
+        expert_decision: The combined ExpertDecision returned by
+            ``combine_routing_and_expert_decisions()``.
+        original_text: The raw user query string.
+        phase2_metadata: ``metadata`` dict harvested from Phase 2 via
+            ``_adapt_phase2_to_p3()``.  Merged in so Phase 3 retains
+            reasoning chains, expert_predictions, etc.
+
+    Returns:
+        A FinalDecisionResult whose ``decision`` / ``action`` / ``confidence``
+        / ``expert_name`` / ``domain`` fields all reflect the unified decision.
+    """
+    decision_type: str = getattr(expert_decision, "decision_type", "") or ""
+
+    # Map unified decision_type to the action string Phase 3 recognises.
+    action_map = {
+        "USE_EXISTING_EXPERT": "use_existing",
+        "CREATE_NEW_PATCH": "create_new_patch",
+        "CREATE_NEW_EXPERT": "create_new_expert",
+    }
+    action = action_map.get(decision_type.upper(), "use_existing")
+
+    selected_experts: List[str] = list(
+        getattr(expert_decision, "selected_experts", []) or []
+    )
+    expert_name = selected_experts[0] if selected_experts else ""
+    domain = expert_name  # domain == selected expert name in the current schema
+    confidence = float(getattr(expert_decision, "expert_confidence", 0.0) or 0.0)
+    reasoning = str(getattr(expert_decision, "reasoning", "") or "")
+
+    metadata: Dict[str, Any] = dict(phase2_metadata)
+    metadata["original_query"] = original_text
+    metadata["unified_decision_type"] = decision_type
+    metadata["unified_selected_experts"] = selected_experts
+
+    return P3FinalDecisionResult(
+        decision=decision_type,
+        confidence=confidence,
+        reasoning=reasoning,
+        action=action,
+        expert_name=expert_name,
+        domain=domain,
         metadata=metadata,
     )
 
@@ -311,22 +360,26 @@ def run_mycelium_workflow(
             if domain in expert_system.experts
         }
 
+        # ------------------------------------------------------------------
+        # FIX (Bug C — ordering): run unified_decision_analysis() BEFORE
+        # Phase 3 so that Phase 3 is driven by the authoritative decision
+        # rather than Phase 2's intermediate guess.
+        #
+        # Old order:  Phase2 → adapt_phase2_to_p3 → Phase3 → unified_decision
+        # New order:  Phase2 → unified_decision → adapt_unified_to_p3 → Phase3
+        #
+        # Phase 2 is still run first because unified_decision_analysis()
+        # may internally rely on Phase 2 signals (calibration scores,
+        # expert predictions) that are only available after Phase 2 runs.
+        # Its output is stored unchanged in phase2_result for the record.
+        # ------------------------------------------------------------------
         phase2_result = phase2_pipeline.run(
             text,
             routing_context=routing_context,
             filtered_experts=filtered_experts,
         )
 
-        # ----------------------------------------------------------------
-        # Adapt the Phase 2 output to the FinalDecisionResult shape that
-        # Phase 3 expects.  Pass `original_text=text` so the adapter
-        # stores the real query string in metadata["original_query"],
-        # preventing Phase 3 from using the Phase 2 decision label
-        # (e.g. "create_new_expert") as the input text.
-        # ----------------------------------------------------------------
-        phase3_input = _adapt_phase2_to_p3(phase2_result, original_text=text)
-        phase3_result = phase3_pipeline.run_complete_pipeline(phase3_input)
-
+        # Step 2b: Get the authoritative unified decision now, before Phase 3.
         expert_decision = expert_system.unified_decision_analysis(
             text,
             routing_result=routing_context,
@@ -337,6 +390,21 @@ def run_mycelium_workflow(
             routing_context,
             expert_decision,
         )
+
+        # Harvest Phase-2-only metadata (reasoning chain, expert_predictions,
+        # etc.) so it is merged into the unified FinalDecisionResult and
+        # flows through to Phase 3 and the trace record without being lost.
+        p2_fdr = _adapt_phase2_to_p3(phase2_result, original_text=text)
+        phase2_extra_metadata: Dict[str, Any] = dict(p2_fdr.metadata or {})
+
+        # Build the FinalDecisionResult from the unified decision.
+        phase3_input = _adapt_unified_to_p3(
+            expert_decision,
+            original_text=text,
+            phase2_metadata=phase2_extra_metadata,
+        )
+        phase3_result = phase3_pipeline.run_complete_pipeline(phase3_input)
+
         metrics.expert_decisions[expert_decision.decision_type] += 1
 
         for dom in getattr(expert_decision, "selected_experts", []) or []:
