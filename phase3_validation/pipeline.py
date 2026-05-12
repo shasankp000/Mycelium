@@ -45,6 +45,26 @@ class PipelineError(Exception):
     """Raised when the Phase 3-to-5 pipeline encounters a critical error."""
 
 
+def _original_input_from(fdr: FinalDecisionResult) -> str:
+    """Return the real user query string from a FinalDecisionResult.
+
+    Prefers ``metadata["original_query"]`` (set by _adapt_phase2_to_p3
+    in run_workflow.py) and falls back to other metadata keys before
+    resorting to the Phase 2 decision label stored in ``.decision``.
+    This prevents the label string (e.g. ``"create_new_expert"``) from
+    leaking into ``SystemExecutionResult.original_input`` and the Phase
+    4.1 feedback record.
+    """
+    meta = getattr(fdr, "metadata", {}) or {}
+    for key in ("original_query", "original_text", "input_text", "query", "sentence"):
+        val = meta.get(key)
+        if val and isinstance(val, str):
+            return val
+    # Last resort: the decision field itself (may be a label, but better
+    # than silently using an empty string).
+    return getattr(fdr, "decision", "") or ""
+
+
 class Phase3To5Pipeline:
     """Complete pipeline orchestrating Phases 3.1 through 5.2.
 
@@ -135,6 +155,11 @@ class Phase3To5Pipeline:
         phase_latencies: Dict[str, float] = {}
         improvement_plan: Optional[ImprovementPlan] = None
 
+        # FIX (Bug B): resolve the real query text once up-front so every
+        # code path below uses it consistently instead of falling back to
+        # the Phase 2 decision label stored in final_decision_result.decision.
+        original_query: str = _original_input_from(final_decision_result)
+
         try:
             # ---- Phase 3 Validation Gate ----
             phase_start = time.perf_counter()
@@ -175,9 +200,7 @@ class Phase3To5Pipeline:
                     (time.perf_counter() - phase_start) * 1000.0
                 )
                 return SystemExecutionResult(
-                    original_input=getattr(
-                        final_decision_result, "decision", ""
-                    ),
+                    original_input=original_query,
                     decision_result=final_decision_result,
                     action_result=None,
                     feedback_data=None,
@@ -195,6 +218,9 @@ class Phase3To5Pipeline:
                 final_decision_result = (
                     validation_decision.failure_info.original_decision
                 )
+                # Re-resolve after replacement so the rest of the run is
+                # consistent with the recovered decision object.
+                original_query = _original_input_from(final_decision_result) or original_query
             phase_latencies["phase_3_validation"] = (
                 (time.perf_counter() - phase_start) * 1000.0
             )
@@ -209,9 +235,7 @@ class Phase3To5Pipeline:
                 )
                 logger.warning(error_msg)
                 return SystemExecutionResult(
-                    original_input=getattr(
-                        final_decision_result, "decision", ""
-                    ),
+                    original_input=original_query,
                     decision_result=final_decision_result,
                     action_result=None,
                     feedback_data=None,
@@ -239,7 +263,9 @@ class Phase3To5Pipeline:
             phase_start = time.perf_counter()
             total_latency_ms = sum(phase_latencies.values())
             execution_results: Dict[str, Any] = {
-                "input_text": final_decision_result.decision,
+                # FIX (Bug B): use the resolved query text, not the Phase 2
+                # decision label, so feedback records reference the real input.
+                "input_text": original_query,
                 "prediction": action_result.executed_action,
                 "ground_truth": ground_truth,
                 "user_rating": user_rating,
@@ -293,7 +319,7 @@ class Phase3To5Pipeline:
             }
 
             return SystemExecutionResult(
-                original_input=final_decision_result.decision,
+                original_input=original_query,
                 decision_result=final_decision_result,
                 action_result=action_result,
                 feedback_data=feedback_data,

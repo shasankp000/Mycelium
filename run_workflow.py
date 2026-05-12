@@ -58,7 +58,7 @@ def _to_jsonable(obj: Any) -> Any:
     return obj
 
 
-def _adapt_phase2_to_p3(p2: Any) -> P3FinalDecisionResult:
+def _adapt_phase2_to_p3(p2: Any, original_text: str = "") -> P3FinalDecisionResult:
     """Bridge the Phase 2 output into the FinalDecisionResult shape
     that Phase 3 expects.
 
@@ -70,6 +70,8 @@ def _adapt_phase2_to_p3(p2: Any) -> P3FinalDecisionResult:
 
     Args:
         p2: The object returned by ``Phase2Pipeline.run()``.
+        original_text: The raw user query string.  Stored in metadata so
+            Phase 3 can recover it when building ``original_input``.
 
     Returns:
         A ``FinalDecisionResult`` populated from whatever fields are
@@ -103,6 +105,18 @@ def _adapt_phase2_to_p3(p2: Any) -> P3FinalDecisionResult:
             val = p2.get(f)
         if val is not None:
             metadata[f] = val
+
+    # FIX (Bug A): always store the real user query in metadata so that
+    # Phase 3's pipeline.py can set `original_input` to the actual text
+    # rather than the Phase 2 decision label (e.g. "create_new_expert").
+    if original_text:
+        metadata["original_query"] = original_text
+    elif not metadata.get("original_query"):
+        # Best-effort fallback: pull from whatever field Phase 2 stored it in
+        for fallback_key in ("original_text", "input_text", "query", "sentence"):
+            if metadata.get(fallback_key):
+                metadata["original_query"] = metadata[fallback_key]
+                break
 
     return P3FinalDecisionResult(
         decision=_get("decision_label", "prediction", "final_decision", "decision"),
@@ -305,11 +319,12 @@ def run_mycelium_workflow(
 
         # ----------------------------------------------------------------
         # Adapt the Phase 2 output to the FinalDecisionResult shape that
-        # Phase 3 expects.  The adapter maps Phase 2 field names to the
-        # correct FinalDecisionResult fields (decision, confidence,
-        # reasoning, action, expert_name, domain, metadata).
+        # Phase 3 expects.  Pass `original_text=text` so the adapter
+        # stores the real query string in metadata["original_query"],
+        # preventing Phase 3 from using the Phase 2 decision label
+        # (e.g. "create_new_expert") as the input text.
         # ----------------------------------------------------------------
-        phase3_input = _adapt_phase2_to_p3(phase2_result)
+        phase3_input = _adapt_phase2_to_p3(phase2_result, original_text=text)
         phase3_result = phase3_pipeline.run_complete_pipeline(phase3_input)
 
         expert_decision = expert_system.unified_decision_analysis(

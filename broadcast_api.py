@@ -101,7 +101,16 @@ async def query(req: QueryRequest) -> MyceliumRunSummary:
     phase2_raw = _to_jsonable(record.get("phase2_result", {}) or {})
     phase3_raw = _to_jsonable(record.get("phase3_result", {}) or {})
 
-    validation_decision = phase3_raw.get("validation_decision", {}) or {}
+    # FIX (Bug C): SystemExecutionResult stores the validation decision
+    # under "validation_result", not "validation_decision".  The wrong key
+    # caused Phase3Summary.validation_decision to always be {}, which is why
+    # the UI showed "no specific validation result recorded".
+    # We try both keys for forwards/backwards compatibility.
+    validation_decision = (
+        phase3_raw.get("validation_result")
+        or phase3_raw.get("validation_decision")
+        or {}
+    )
     action_result = phase3_raw.get("action_result", {}) or {}
     phase_latencies = phase3_raw.get("phase_latencies", {}) or {}
 
