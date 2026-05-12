@@ -20,7 +20,7 @@ dispatch once the stub is replaced.
 PostCheckResult fields
 ----------------------
     verified_answer     : str    -- best answer to hand to conversation LLM
-    verification_status : str    -- "verified" | "conflict" | "trm_only" | "p6_only"
+    verification_status : str    -- "verified" | "conflict" | "trm_only" | "p6_only" | "degraded"
     trm_answer          : str
     p6_answer           : str
     similarity          : float
@@ -53,9 +53,19 @@ from expert_post_check.rl_weight import RLWeightStore
 logger = logging.getLogger(__name__)
 
 # Wall-clock budget per reasoner call (seconds).
-# If a single LLM call exceeds this, it is abandoned and an empty
-# ReasoningResult is returned so the pipeline can still complete.
-REASONER_TIMEOUT_S = 60
+#
+# Raised from 60 s → 150 s to accommodate Qwen3.5 cold-start inference
+# time (~113 s observed in logs).  The 60 s budget was firing before the
+# model finished loading, returning an empty result; the background thread
+# then completed 53 s later and the orphaned result was discarded, which
+# caused run_workflow.py to treat the empty verified_answer as a signal
+# to re-invoke the entire phase — producing the infinite loop visible in
+# logs at 21:03:40 → 21:05:33 → 21:06:27.
+#
+# 150 s provides enough headroom for cold-start on consumer-grade GPUs
+# while still bounding truly stalled calls.  Raise to 240 s if inference
+# on larger Qwen3 variants still exceeds this budget.
+REASONER_TIMEOUT_S = 150
 
 
 @dataclass
@@ -188,6 +198,17 @@ class PostCheckRunner:
         Uses a single-thread executor so the timeout works on all
         platforms (signal.alarm is UNIX-only and cannot be used inside
         threads).
+
+        Note on fut.cancel():
+        ---------------------
+        For a ThreadPoolExecutor future that is already *running*,
+        cancel() is a no-op -- the underlying thread cannot be
+        interrupted mid-call.  This is intentional: we return the empty
+        result immediately so the pipeline can proceed, while the
+        background thread finishes harmlessly and its result is discarded
+        when the executor context exits.  The timeout value must therefore
+        be set high enough that legitimate slow calls (e.g. Qwen3.5
+        cold-start) are not prematurely abandoned.
         """
         with ThreadPoolExecutor(max_workers=1) as pool:
             fut: Future = pool.submit(fn, query, domain)

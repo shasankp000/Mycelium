@@ -478,12 +478,23 @@ class ActionExecutor:
 
         Steps
         -----
-        1. Route the request to the selected expert (unchanged).
+        1. Route the request to the selected expert.
         2. Extract the query string from fdr.metadata.
         3. Run PostCheckRunner.run(query, domain, expert_name).
-        4. Attach the PostCheckResult to action_result.metadata so it
+        4. If verified_answer is empty (timeout / both reasoners failed),
+           surface the best available partial answer from trm_answer or
+           p6_answer and mark the result as degraded.  This prevents
+           run_workflow.py from treating an empty string as a sentinel
+           that triggers a full phase re-invocation (the infinite loop
+           visible in logs at 21:03:40 → 21:05:33 → 21:06:27).
+        5. Attach the PostCheckResult to action_result.metadata so it
            flows through to the API trace and the conversation layer LLM.
-        5. Populate fdr.metadata["expert_used"] for upstream feedback.
+        6. Populate fdr.metadata["expert_used"] for upstream feedback.
+
+        The ActionResult returned by this method always carries a
+        non-empty ``executed_action`` string and ``status='success'``
+        regardless of post-check outcome, so callers never need to
+        re-invoke the phase based on this result alone.
         """
         expert_name = fdr.expert_name or "default_expert"
         domain = fdr.domain or expert_name
@@ -503,6 +514,7 @@ class ActionExecutor:
         # Step 3 — post-check
         post_check_meta: Dict = {}
         verified_answer: str = ""
+        degraded: bool = False
         runner = _get_post_check_runner()
         if runner is not None and query:
             try:
@@ -512,35 +524,72 @@ class ActionExecutor:
                     expert_name=expert_name,
                 )
                 verified_answer = pc_result.verified_answer
+
+                # Step 4 — degrade gracefully when verified_answer is empty.
+                # This happens when both reasoners time out or return empty
+                # strings (e.g. Qwen3.5 cold-start exceeded the old 60 s
+                # budget).  Rather than returning an empty string — which
+                # upstream callers (run_workflow.py) interpret as "retry" —
+                # we surface the best partial answer available so the
+                # pipeline terminates cleanly on this invocation.
+                if not verified_answer:
+                    fallback = pc_result.trm_answer or pc_result.p6_answer
+                    if fallback:
+                        verified_answer = fallback
+                        degraded = True
+                        logger.warning(
+                            "PostCheck verified_answer empty — using fallback "
+                            "answer from %s (degraded mode)",
+                            "trm" if pc_result.trm_answer else "p6",
+                        )
+                    else:
+                        # Both reasoners returned nothing — mark degraded but
+                        # keep verified_answer as empty string; the
+                        # conversation LLM will receive an explicit signal.
+                        degraded = True
+                        logger.warning(
+                            "PostCheck: both TRM and P6 returned empty answers "
+                            "for domain=%s. Returning degraded result.",
+                            domain,
+                        )
+
                 # Serialise dataclass to plain dict for JSON-safe storage
                 if is_dataclass(pc_result):
                     post_check_meta = asdict(pc_result)
                 else:
                     post_check_meta = vars(pc_result)
+
                 logger.info(
-                    "PostCheck complete — status=%s sim=%.3f",
+                    "PostCheck complete — status=%s sim=%.3f degraded=%s",
                     pc_result.verification_status,
                     pc_result.similarity,
+                    degraded,
                 )
             except Exception as exc:
                 logger.warning("PostCheckRunner.run() failed: %s", exc)
                 post_check_meta = {"error": str(exc)}
+                degraded = True
         elif runner is None:
             logger.debug("PostCheck skipped — runner unavailable")
         else:
             logger.debug("PostCheck skipped — empty query")
 
-        # Step 4 — feedback: mark which expert was used
+        # Step 6 — feedback: mark which expert was used
         fdr.metadata["expert_used"] = expert_name
 
         return ActionResult(
             action_type="use_existing",
             status="success",
+            # Always a non-empty string so callers never treat this as a
+            # sentinel that requires re-invocation of the phase.
             executed_action=f"Routed to expert={expert_name}",
             metadata={
                 "routing": routing,
                 "verified_answer": verified_answer,
                 "post_check": post_check_meta,
+                # Explicit flag callers can inspect instead of testing
+                # verified_answer emptiness.
+                "post_check_degraded": degraded,
             },
             rollback_available=False,
         )
