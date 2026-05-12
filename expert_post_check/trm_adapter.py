@@ -12,6 +12,7 @@ Interface contract
 ------------------
     adapter = TRMAdapter()
     result  = adapter.reason(query, domain)   # -> ReasoningResult
+    adapter.unload()                           # evict model from VRAM
 
 ReasoningResult fields
 ----------------------
@@ -29,6 +30,8 @@ import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +73,10 @@ class TRMAdapter:
 
     Swap the body of ``reason()`` when the real TRM weights are ready.
     The constructor and public interface are intentionally frozen.
+
+    Call ``unload()`` after ``reason()`` returns to evict the model from
+    GPU VRAM immediately.  PostCheckRunner._run_serial() does this
+    automatically -- callers outside that class should do the same.
     """
 
     def __init__(
@@ -123,6 +130,41 @@ class TRMAdapter:
                 latency_ms=latency_ms,
                 source=f"ollama/{self._model}",
                 raw={"error": str(exc)},
+            )
+
+    def unload(self) -> None:
+        """Evict the model from GPU VRAM via Ollama's keep_alive=0 mechanism.
+
+        Ollama keeps a loaded model resident in VRAM until keep_alive
+        expires (default 5 minutes).  Sending a generate request with
+        keep_alive=0 and an empty prompt forces the model runner to
+        unload synchronously, freeing VRAM for the next stage.
+
+        This is the correct eviction path -- ``ollama stop`` / the
+        DELETE endpoint does not reliably release VRAM on all Ollama
+        versions.  The keep_alive=0 trick is documented in the Ollama
+        API reference and works on all versions >= 0.1.24.
+
+        Failures are logged as warnings and swallowed; a failed unload
+        is not fatal -- the model will eventually expire on its own.
+        """
+        try:
+            url = f"{self._base_url}/api/generate"
+            payload = {
+                "model": self._model,
+                "prompt": "",
+                "keep_alive": 0,
+            }
+            with httpx.Client(timeout=10.0) as client:
+                resp = client.post(url, json=payload)
+            logger.info(
+                "TRMAdapter.unload: %s evicted from VRAM (status=%d)",
+                self._model, resp.status_code,
+            )
+        except Exception as exc:
+            logger.warning(
+                "TRMAdapter.unload: could not evict %s -- %s",
+                self._model, exc,
             )
 
     # ------------------------------------------------------------------

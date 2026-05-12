@@ -89,6 +89,13 @@ DOMAIN_LIST: List[str] = cfg.layer1_domain_list()
 
 
 def embed_tags_transformer(tags, model_name: str = ""):
+    """Embed *tags* using SentenceTransformer on CPU.
+
+    The model is intentionally pinned to CPU (device='cpu') so it never
+    competes for GPU VRAM with the LLM running in the same process.
+    all-mpnet-base-v2 is ~420 MB; CPU inference for a handful of tags
+    takes < 200 ms and is not a bottleneck.
+    """
     model_name = model_name or cfg.layer1_embed_model()
     if SentenceTransformer is None:
         # Graceful fallback: simple bag-of-words vectorization into unit vectors per tag
@@ -96,7 +103,7 @@ def embed_tags_transformer(tags, model_name: str = ""):
         import numpy as np
         embeddings = np.eye(len(tags))
         return embeddings
-    model = SentenceTransformer(model_name)
+    model = SentenceTransformer(model_name, device="cpu")
     embeddings = model.encode(tags)
     return embeddings
 
@@ -420,8 +427,13 @@ def _lens1_embedding_candidates(
     model_name: str = "",
 ) -> List[Tuple[str, float]]:
     """Lens 1: Embedding-based permissive candidate selection.
-    Returns top-k domains by cosine similarity to domain anchors. Gracefully
-    degrades to lexical scoring if sentence-transformers is unavailable.
+
+    Returns top-k domains by cosine similarity to domain anchors.
+    Gracefully degrades to lexical scoring if sentence-transformers is
+    unavailable.
+
+    The SentenceTransformer model is pinned to CPU (device='cpu') so it
+    never competes with the LLM for GPU VRAM.
     """
     if top_k is None:
         top_k = cfg.layer1_lens1_top_k()
@@ -448,9 +460,9 @@ def _lens1_embedding_candidates(
         scored.sort(key=lambda x: x[1], reverse=True)
         return [s for s in scored[:top_k] if s[1] > 0]
 
-    # Embedding scoring
+    # Embedding scoring — pinned to CPU to avoid VRAM contention with LLM
     try:
-        model = SentenceTransformer(model_name)
+        model = SentenceTransformer(model_name, device="cpu")
         text_emb = model.encode([text])[0]
         dom_embs = {d: model.encode([a])[0] for d, a in anchors.items()}
         scores = []

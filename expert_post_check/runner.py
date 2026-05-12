@@ -6,16 +6,23 @@ Top-level orchestrator for the Expert Post-Check System.
 Flow
 ----
 1. Run TRM-slot (qwen3.5:9b stub) with per-call timeout
-2. Run 6-phase pipeline with per-call timeout
-3. Fuzzy verify both answers with cosine-sim
-4. Apply RL weight update for the domain
-5. Return PostCheckResult with verified_answer + full metadata
+2. Unload TRM model from GPU VRAM immediately after TRM finishes
+3. Run 6-phase pipeline with per-call timeout
+4. Fuzzy verify both answers with cosine-sim
+5. Apply RL weight update for the domain
+6. Return PostCheckResult with verified_answer + full metadata
 
 NOTE: Parallel mode is intentionally disabled until the TRM architecture
 replaces the qwen3.5 stub.  Running two LLM inferences concurrently on
 a single GPU saturates VRAM and causes runaway timeout loops.  Re-enable
 by swapping the _run_serial() call in run() back to a hardware-probed
 dispatch once the stub is replaced.
+
+NOTE on VRAM management:
+After TRM inference completes, _run_serial() calls self._trm.unload() to
+evict qwen3.5 from GPU VRAM before P6 (Phase2Pipeline) starts.  This
+frees ~4.8 GiB, which is enough headroom for all-mpnet-base-v2 (420 MB,
+always CPU) and Phase2Pipeline's own memory needs.
 
 PostCheckResult fields
 ----------------------
@@ -90,6 +97,11 @@ class PostCheckRunner:
     Both reasoners run sequentially: TRM first, then P6.  Each call has
     an independent wall-clock timeout so a stalled LLM cannot block the
     entire request indefinitely.
+
+    VRAM discipline: TRM (qwen3.5:9b, ~4.8 GiB) is unloaded from the GPU
+    immediately after its future resolves, before P6 starts.  P6 uses
+    Phase2Pipeline which itself uses all-mpnet-base-v2 pinned to CPU, so
+    no VRAM is consumed after the unload.
     """
 
     def __init__(
@@ -177,10 +189,19 @@ class PostCheckRunner:
     def _run_serial(
         self, query: str, domain: str
     ) -> Tuple[ReasoningResult, ReasoningResult]:
-        """Run TRM-slot then P6 sequentially, each guarded by a timeout."""
+        """Run TRM-slot then P6 sequentially, each guarded by a timeout.
+
+        TRM is unloaded from GPU VRAM immediately after its future
+        resolves so that P6 and any downstream embedders start with a
+        clean VRAM budget.  The unload is best-effort: a failure is
+        logged as a warning and does not abort the pipeline.
+        """
         trm_res = self._call_with_timeout(
             self._trm.reason, query, domain, label="TRM"
         )
+        # Evict qwen3.5 from VRAM before starting P6 / embedding stages.
+        self._trm.unload()
+
         p6_res = self._call_with_timeout(
             self._p6.reason, query, domain, label="P6"
         )
