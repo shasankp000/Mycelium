@@ -5,7 +5,7 @@ TRM-slot adapter.
 
 Currently backed by a local Ollama instance running ``qwen3.5:9b``.
 When the TRM architecture is retrained on Mycelium's domain corpora,
-swap the internals of ``TRMAdapter.reason()`` only — nothing else
+swap the internals of ``TRMAdapter.reason()`` only -- nothing else
 in the post-check system needs to change.
 
 Interface contract
@@ -15,11 +15,11 @@ Interface contract
 
 ReasoningResult fields
 ----------------------
-    answer      : str    — the reasoned text answer
-    confidence  : float  — self-reported or heuristic confidence [0, 1]
-    latency_ms  : float  — wall-clock inference time
-    source      : str    — identifier for which backend produced the answer
-    raw         : dict   — full raw response payload for tracing
+    answer      : str    -- the reasoned text answer
+    confidence  : float  -- self-reported or heuristic confidence [0, 1]
+    latency_ms  : float  -- wall-clock inference time
+    source      : str    -- identifier for which backend produced the answer
+    raw         : dict   -- full raw response payload for tracing
 """
 
 from __future__ import annotations
@@ -35,10 +35,15 @@ logger = logging.getLogger(__name__)
 OLLAMA_MODEL = "qwen3.5:9b"
 OLLAMA_BASE_URL = "http://localhost:11434"
 
-# Hard caps — prevent Qwen3 thinking-mode from generating unbounded tokens
-# and saturating RAM.  Raise these once TRM weights replace the stub.
-OLLAMA_NUM_PREDICT = 512   # max output tokens
-OLLAMA_NUM_CTX = 2048      # context window
+# Hard caps -- prevent Qwen3 thinking-mode from generating unbounded tokens
+# and saturating RAM.
+#
+# OLLAMA_NUM_PREDICT is set to 1024 rather than 512 because Qwen3.5's
+# <think>...</think> block alone can consume 400-500 tokens, leaving nothing
+# for the actual answer at 512.  Raise further if answers are still truncated.
+# Once TRM weights replace the stub this constant becomes irrelevant.
+OLLAMA_NUM_PREDICT = 1024   # max output tokens (think block + answer)
+OLLAMA_NUM_CTX = 2048       # context window
 
 SYSTEM_PROMPT = (
     "You are a precise domain reasoning engine. "
@@ -77,7 +82,7 @@ class TRMAdapter:
         self._client = self._build_client()
 
     # ------------------------------------------------------------------
-    # Public interface (frozen — do not rename)
+    # Public interface (frozen -- do not rename)
     # ------------------------------------------------------------------
 
     def reason(self, query: str, domain: str) -> ReasoningResult:
@@ -177,10 +182,28 @@ class TRMAdapter:
         return {"content": str(response)}
 
     def _extract_answer(self, raw: Dict[str, Any]) -> str:
-        """Extract and clean the answer, stripping Qwen3 <think> blocks."""
+        """Extract and clean the answer, stripping Qwen3 <think> blocks.
+
+        Logs a DEBUG message showing raw vs stripped lengths so that
+        empty-answer cases (think block consumed all num_predict tokens)
+        are immediately visible without printing the full model output.
+        """
         content = raw.get("content", "").strip()
+        raw_len = len(content)
         # Remove internal chain-of-thought blocks emitted by Qwen3 thinking mode
         content = _THINK_RE.sub("", content).strip()
+        stripped_len = len(content)
+        logger.debug(
+            "TRM _extract_answer: raw_len=%d stripped_len=%d empty=%s",
+            raw_len, stripped_len, stripped_len == 0,
+        )
+        if stripped_len == 0 and raw_len > 0:
+            logger.warning(
+                "TRM answer is empty after stripping <think> block "
+                "(raw_len=%d). num_predict=%d may be too low -- "
+                "consider raising OLLAMA_NUM_PREDICT.",
+                raw_len, OLLAMA_NUM_PREDICT,
+            )
         return content
 
     def _heuristic_confidence(self, answer: str) -> float:
