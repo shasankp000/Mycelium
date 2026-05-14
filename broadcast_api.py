@@ -1,6 +1,7 @@
 import json
 import logging
 import time
+import threading
 from uuid import uuid4
 from datetime import datetime
 from typing import Any, Dict, Generator, List, Optional
@@ -33,7 +34,7 @@ import config_loader as cfg
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Mycelium Broadcast API", version="0.5.0")
+app = FastAPI(title="Mycelium Broadcast API", version="0.5.1")
 
 origins = [
     "http://localhost:3000",
@@ -271,7 +272,7 @@ def _full_pipeline_generator(
         except Exception as exc:
             logger.warning("patch_logger.log_query failed — %s", exc)
 
-    # ── Phase: sandbox ──────────────────────────────────────────────────────
+    # ── Phase: sandbox ──────────────────────────────────────────────────────────
     sandbox_events: List[str] = []
     tool_counter = {"n": 0}
 
@@ -298,7 +299,7 @@ def _full_pipeline_generator(
         trace_id, len(sandbox_result.steps), elapsed(),
     )
 
-    # ── Phase: conversation ─────────────────────────────────────────────────
+    # ── Phase: conversation ─────────────────────────────────────────────────────
     yield _sse_event("conversation", "Generating answer…", elapsed())
     logger.info("[SSE %s] phase=conversation elapsed=%dms", trace_id, elapsed())
 
@@ -307,11 +308,11 @@ def _full_pipeline_generator(
         answer = agent.answer(req_text, summary, sandbox_result=sandbox_result)
     except Exception as exc:
         logger.warning("ConversationAgent failed — %s", exc)
-        answer = "Mycelium processed your query but the conversational agent is currently unavailable."
+        answer = "I processed your query but my conversational agent is currently unavailable."
 
     logger.info("[SSE %s] phase=conversation done elapsed=%dms", trace_id, elapsed())
 
-    # ── Persist trace ───────────────────────────────────────────────────────
+    # ── Persist trace ────────────────────────────────────────────────────────────
     sandbox_dict = _to_jsonable(sandbox_result.model_dump())
     trace = ReasoningTrace(
         trace_id=trace_id,
@@ -328,7 +329,7 @@ def _full_pipeline_generator(
         except Exception as exc:
             logger.warning("patch_logger.fill_response failed — %s", exc)
 
-    # ── Phase: done — send complete payload ─────────────────────────────────
+    # ── Phase: done ──────────────────────────────────────────────────────────────
     sandbox_out = _sandbox_result_to_out(sandbox_result)
     response_payload = ChatResponse(
         trace=summary, answer=answer, sandbox=sandbox_out
@@ -439,6 +440,23 @@ async def chat_stream(text: str) -> StreamingResponse:
 
     The frontend connects via EventSource, updates the phase indicator,
     then reads the final `done` payload as the chat response.
+
+    SSE bridge design
+    -----------------
+    _full_pipeline_generator is a synchronous generator (it calls blocking
+    Ollama/BERT/MCP code). It runs inside a ThreadPoolExecutor so it never
+    blocks the event loop.
+
+    The bridge uses asyncio.get_running_loop() — NOT get_event_loop() —
+    to obtain the loop that is *actually* executing this coroutine. This
+    is critical for long-running pipelines: get_event_loop() can return a
+    different or stale loop after 60-150 s, causing call_soon_threadsafe
+    to post into a dead loop, the sentinel to be lost, the StreamingResponse
+    to time out, and EventSource.onerror to fire — restarting the pipeline.
+
+    A threading.Event (_cancel) signals early exit to the producer thread
+    when the client disconnects (GeneratorExit on the async side), so we
+    don't burn GPU for 2 minutes after a browser tab closes.
     """
     if not text or not text.strip():
         async def _empty():
@@ -448,33 +466,55 @@ async def chat_stream(text: str) -> StreamingResponse:
     trace_id = str(uuid4())
     logger.info("[SSE] new stream trace_id=%s query=%r", trace_id, text[:80])
 
-    def _sync_gen():
-        yield from _full_pipeline_generator(text.strip(), trace_id)
-
-    # Run the synchronous generator inside a thread so the event loop isn't blocked
     import asyncio
     from concurrent.futures import ThreadPoolExecutor
 
-    executor = ThreadPoolExecutor(max_workers=1)
-    loop = asyncio.get_event_loop()
+    # get_running_loop() always returns the loop executing this coroutine.
+    # get_event_loop() is NOT safe to call here in Python 3.10+.
+    loop = asyncio.get_running_loop()
     queue: asyncio.Queue = asyncio.Queue()
     _sentinel = object()
+    _cancel = threading.Event()   # set by consumer on client disconnect
 
-    def _producer():
+    def _sync_gen():
+        yield from _full_pipeline_generator(text.strip(), trace_id)
+
+    def _producer(cancel: threading.Event) -> None:
+        """Run in a worker thread. Posts SSE chunks into the async queue.
+        Respects _cancel so a disconnected client doesn't keep the GPU busy.
+        """
         try:
             for chunk in _sync_gen():
-                loop.call_soon_threadsafe(queue.put_nowait, chunk)
+                if cancel.is_set():
+                    logger.info("[SSE %s] producer cancelled by client disconnect", trace_id)
+                    break
+                try:
+                    loop.call_soon_threadsafe(queue.put_nowait, chunk)
+                except RuntimeError:
+                    # Loop is closing (server shutdown race). Give up cleanly.
+                    logger.warning("[SSE %s] call_soon_threadsafe: loop closed, aborting producer", trace_id)
+                    return
         finally:
-            loop.call_soon_threadsafe(queue.put_nowait, _sentinel)
+            try:
+                loop.call_soon_threadsafe(queue.put_nowait, _sentinel)
+            except RuntimeError:
+                pass  # loop already gone; consumer will eventually time out
 
-    executor.submit(_producer)
+    executor = ThreadPoolExecutor(max_workers=1)
+    executor.submit(_producer, _cancel)
+    executor.shutdown(wait=False)  # don't leak thread references on repeated requests
 
     async def _async_gen():
-        while True:
-            item = await queue.get()
-            if item is _sentinel:
-                break
-            yield item
+        try:
+            while True:
+                item = await queue.get()
+                if item is _sentinel:
+                    break
+                yield item
+        except GeneratorExit:
+            # Client disconnected mid-stream. Signal the producer to stop.
+            _cancel.set()
+            logger.info("[SSE %s] client disconnected, cancel signal sent", trace_id)
 
     return StreamingResponse(
         _async_gen(),
@@ -534,7 +574,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
         answer = agent.answer(req.text, summary, sandbox_result=sandbox_result)
     except Exception as exc:
         logger.warning("ConversationAgent failed — %s", exc)
-        answer = "Mycelium processed your query but the conversational agent is currently unavailable."
+        answer = "I processed your query but my conversational agent is currently unavailable."
 
     trace = ReasoningTrace(
         trace_id=trace_id,
