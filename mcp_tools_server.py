@@ -9,10 +9,18 @@ the MCP JSON-RPC protocol.
 
 Tools
 -----
-  web_search        — DuckDuckGo text search (ddgs preferred, HTML fallback)
+  web_search        — DuckDuckGo text search (ddgs preferred, instant-answer fallback, HTML fallback)
   academic_search   — Semantic Scholar paper search
-  knowledge_base    — Wikidata entity lookup via SPARQL
+  knowledge_base    — Wikidata entity lookup via wbsearchentities REST API
   calculator        — Safe arithmetic / math expression evaluator
+
+Changes (2026-05-14)
+---------------------
+  web_search    : added region='wt-wt', safesearch='off' to DDGS call;
+                  added DuckDuckGo instant-answer fallback before HTML scrape.
+  knowledge_base: replaced SERVICE wikibase:mwapi SPARQL (unreliable for
+                  non-browser UAs) with wbsearchentities REST API which is
+                  stable, fast, and never rate-limits on this query volume.
 
 Usage (standalone test)
 -----------------------
@@ -46,26 +54,75 @@ _TOOL_TIMEOUT_S = 8.0
 # ---------------------------------------------------------------------------
 
 def _web_search(query: str) -> Dict[str, Any]:
-    """DuckDuckGo search — ddgs preferred, HTML scrape fallback."""
+    """DuckDuckGo search — ddgs preferred, instant-answer fallback, HTML scrape last resort."""
+    # ── primary: duckduckgo-search library ──────────────────────────────────
     try:
         from duckduckgo_search import DDGS  # type: ignore[import]
         with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=4))
-        snippets = [
-            {
-                "title": r.get("title", ""),
-                "snippet": r.get("body", ""),
-                "url": r.get("href", ""),
-            }
-            for r in results
-        ]
-        return {"results": snippets, "source": "duckduckgo"}
+            results = list(
+                ddgs.text(
+                    query,
+                    max_results=5,
+                    region="wt-wt",
+                    safesearch="off",
+                )
+            )
+        if results:
+            snippets = [
+                {
+                    "title": r.get("title", ""),
+                    "snippet": r.get("body", ""),
+                    "url": r.get("href", ""),
+                }
+                for r in results
+            ]
+            return {"results": snippets, "source": "duckduckgo"}
+        # fall through on empty list
     except ImportError:
         pass
     except Exception as exc:
-        return {"error": str(exc), "source": "web_search"}
+        logger.warning("_web_search ddgs error: %s", exc)
 
-    # HTML fallback
+    # ── secondary: DuckDuckGo instant-answer API ────────────────────────────
+    try:
+        resp = requests.get(
+            "https://api.duckduckgo.com/",
+            params={
+                "q": query,
+                "format": "json",
+                "no_html": "1",
+                "skip_disambig": "1",
+                "no_redirect": "1",
+            },
+            headers={"User-Agent": "MyceliumPoC/0.4"},
+            timeout=_TOOL_TIMEOUT_S,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        results_list = []
+        # AbstractText is the main snippet
+        if data.get("AbstractText"):
+            results_list.append({
+                "title": data.get("Heading", ""),
+                "snippet": data["AbstractText"],
+                "url": data.get("AbstractURL", ""),
+                "source": "duckduckgo_instant",
+            })
+        # RelatedTopics can have additional snippets
+        for t in data.get("RelatedTopics", [])[:4]:
+            if isinstance(t, dict) and t.get("Text"):
+                results_list.append({
+                    "title": t.get("Text", "")[:80],
+                    "snippet": t.get("Text", ""),
+                    "url": t.get("FirstURL", ""),
+                    "source": "duckduckgo_instant",
+                })
+        if results_list:
+            return {"results": results_list, "source": "duckduckgo_instant"}
+    except Exception as exc:
+        logger.warning("_web_search instant-answer error: %s", exc)
+
+    # ── tertiary: HTML scrape ───────────────────────────────────────────────
     try:
         import re
         resp = requests.get(
@@ -86,11 +143,14 @@ def _web_search(query: str) -> Dict[str, Any]:
                 "title": re.sub(r"<[^>]+>", "", t).strip(),
                 "snippet": re.sub(r"<[^>]+>", "", s).strip(),
             }
-            for t, s in zip(titles_raw[:4], snippets_raw[:4])
+            for t, s in zip(titles_raw[:5], snippets_raw[:5])
         ]
-        return {"results": results_list, "source": "duckduckgo_html"}
+        if results_list:
+            return {"results": results_list, "source": "duckduckgo_html"}
     except Exception as exc:
-        return {"error": str(exc), "source": "web_search"}
+        logger.warning("_web_search html-scrape error: %s", exc)
+
+    return {"results": [], "error": "all web_search backends returned empty", "source": "web_search"}
 
 
 def _academic_search(query: str) -> Dict[str, Any]:
@@ -122,43 +182,38 @@ def _academic_search(query: str) -> Dict[str, Any]:
 
 
 def _knowledge_base(query: str) -> Dict[str, Any]:
-    """Wikidata SPARQL entity lookup."""
-    sparql = f"""
-SELECT ?item ?itemLabel ?description WHERE {{
-  SERVICE wikibase:mwapi {{
-    bd:serviceParam wikibase:endpoint "www.wikidata.org";
-                    wikibase:api "EntitySearch";
-                    mwapi:search "{query}";
-                    mwapi:language "en".
-    ?item wikibase:apiOutputItem mwapi:item.
-  }}
-  OPTIONAL {{
-    ?item schema:description ?description
-    FILTER(LANG(?description) = "en")
-  }}
-  SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en". }}
-}}
-LIMIT 4
-"""
+    """
+    Wikidata entity lookup via the wbsearchentities REST API.
+
+    Replaces the previous SERVICE wikibase:mwapi SPARQL approach which
+    was silently returning empty bindings for non-browser User-Agent strings
+    on the public SPARQL endpoint.
+    """
     try:
         resp = requests.get(
-            "https://query.wikidata.org/sparql",
-            params={"query": sparql, "format": "json"},
-            headers={
-                "Accept": "application/sparql-results+json",
-                "User-Agent": "MyceliumPoC/0.4",
+            "https://www.wikidata.org/w/api.php",
+            params={
+                "action": "wbsearchentities",
+                "search": query,
+                "language": "en",
+                "limit": 5,
+                "format": "json",
+                "type": "item",
             },
+            headers={"User-Agent": "MyceliumPoC/0.4 (https://github.com/shasankp000/Mycelium)"},
             timeout=_TOOL_TIMEOUT_S,
         )
         resp.raise_for_status()
-        bindings = resp.json().get("results", {}).get("bindings", [])
+        data = resp.json()
+        search_results = data.get("search", [])
         entities = [
             {
-                "label": b.get("itemLabel", {}).get("value", ""),
-                "description": b.get("description", {}).get("value", ""),
-                "id": b.get("item", {}).get("value", "").split("/")[-1],
+                "id": item.get("id", ""),
+                "label": item.get("label", ""),
+                "description": item.get("description", ""),
+                "url": item.get("url", ""),
             }
-            for b in bindings
+            for item in search_results
         ]
         return {"entities": entities, "source": "wikidata"}
     except Exception as exc:
@@ -219,7 +274,7 @@ async def list_tools() -> list[mcp_types.Tool]:
         ),
         mcp_types.Tool(
             name="knowledge_base",
-            description="Structured entity facts via Wikidata SPARQL. Use for entity definitions, taxonomy, and factual attributes.",
+            description="Structured entity facts via Wikidata. Use for entity definitions, taxonomy, and factual attributes.",
             inputSchema={
                 "type": "object",
                 "properties": {

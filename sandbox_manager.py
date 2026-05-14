@@ -10,15 +10,17 @@ Architecture
         └─ SandboxManager.run(task, on_progress=...)
                 ├─ DomainToolPlanner.plan()   ← deterministic, no LLM
                 │       (TRM seam: swap for TRM.plan_tools() when ready)
-                ├─ MCPClient.call_tool()      ← MCP stdio transport
-                │       (mcp_tools_server.py subprocess)
-                └─ LLMClient.generate()       ← evidence summary ONLY
-                        (ConversationAgent handles user-facing language)
+                └─ MCPClient.call_tool()      ← MCP stdio transport
+                        (mcp_tools_server.py subprocess)
 
-The LLM is invoked exactly once per sandbox run — to write a 3-5 sentence
-evidence summary from the raw tool results.  It is never asked to decide
-which tools to call; that is the exclusive responsibility of DomainToolPlanner
-(and eventually the real TRM).
+The LLM is NO LONGER called inside SandboxManager.  All synthesis
+(evidence summary + plain-language explanation) is done in a single
+Ollama round-trip inside ConversationAgent.answer().
+
+This means:
+  - Zero cold-starts inside the sandbox path.
+  - ConversationAgent receives the raw SandboxResult and does both jobs.
+  - Total LLM calls per request: exactly 1 (down from 2).
 
 on_progress callback
 --------------------
@@ -31,19 +33,15 @@ Phases emitted from inside SandboxManager:
   sandbox_tool/<n>    — MCP call n started
   sandbox_tool/<n>_ok — MCP call n succeeded
   sandbox_tool/<n>_err— MCP call n failed
-  sandbox_summary_start — LLM summary call starting (this is the slow step)
-  sandbox_summary_done  — LLM summary call complete
 """
 from __future__ import annotations
 
-import json
 import logging
 import time
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
 from domain_tool_planner import DomainToolPlanner, ToolCall, get_planner
-from llm_providers import LLMClient
 from mcp_client import MCPClient, get_mcp_client
 from sandbox_models import SandboxResult, SandboxStep, SandboxTask
 
@@ -58,29 +56,6 @@ _DEFAULT_WALL_TIMEOUT_S = 30.0
 # Type alias for the progress callback
 ProgressCallback = Callable[[str, str], None]
 
-# ---------------------------------------------------------------------------
-# LLM prompt
-# ---------------------------------------------------------------------------
-
-_SUMMARY_SYSTEM = """\
-You are the Mycelium sandbox summariser. Given a user query and a list of
-tool results, write a concise evidence summary (3-5 sentences). Rules:
-- Only reference facts actually present in the tool results.
-- Note source names (e.g. "Semantic Scholar", "Wikidata", "DuckDuckGo").
-- Flag if evidence is sparse or contradictory.
-- Do not invent facts.
-- Do not suggest further tool calls.
-"""
-
-_SUMMARY_USER_TMPL = """\
-User query: {query}
-
-Tool results:
-{results_block}
-
-Write the evidence summary now.
-"""
-
 
 # ---------------------------------------------------------------------------
 # Manager
@@ -92,18 +67,20 @@ class SandboxManager:
 
     Planning is fully deterministic (DomainToolPlanner).  Execution goes
     through the MCP stdio client (MCPClient → mcp_tools_server subprocess).
-    The LLM is used only to summarise collected evidence.
+
+    The LLM is NOT invoked here.  SandboxResult.summary is always ""
+    (empty string).  ConversationAgent.answer() performs both evidence
+    synthesis and plain-language explanation in a single LLM call.
     """
 
     def __init__(
         self,
-        llm: Optional[LLMClient] = None,
         planner: Optional[DomainToolPlanner] = None,
         mcp: Optional[MCPClient] = None,
         max_steps: int = _DEFAULT_MAX_STEPS,
         wall_timeout_s: float = _DEFAULT_WALL_TIMEOUT_S,
     ) -> None:
-        self._llm = llm or LLMClient()
+        # Note: llm parameter removed — SandboxManager no longer owns an LLMClient.
         self._planner = planner or get_planner()
         self._mcp = mcp or get_mcp_client()
         self._max_steps = max_steps
@@ -132,10 +109,11 @@ class SandboxManager:
         -----
         1. DomainToolPlanner produces a minimal ToolCallPlan (no LLM).
         2. Each ToolCall is dispatched via MCPClient (MCP stdio transport).
-        3. LLM writes a 3-5 sentence evidence summary from raw results.
+        3. SandboxResult returned with summary="".
+           ConversationAgent.answer() handles LLM synthesis downstream.
 
         Never raises — all exceptions are caught and returned as error
-        SandboxStep records or an error summary string.
+        SandboxStep records.
         """
         def _emit(phase: str, detail: str) -> None:
             if on_progress:
@@ -197,21 +175,15 @@ class SandboxManager:
                 f"{call.tool} {'✓' if step.status == 'ok' else '✗'} in {duration_ms:.0f}ms",
             )
 
-        # ── Step 3: LLM evidence summary ────────────────────────────────
-        _emit(
-            "sandbox_summary_start",
-            f"Asking LLM to summarise {len([s for s in steps if s.status == 'ok'])} evidence result(s)…",
-        )
-        summary = self._synthesise_summary(task.user_query, steps)
-        _emit("sandbox_summary_done", "Evidence summary ready")
         finished = datetime.utcnow()
 
+        # summary is intentionally empty — ConversationAgent does synthesis
         return SandboxResult(
             trace_id=task.trace_id,
             started_at=started,
             finished_at=finished,
             steps=steps,
-            summary=summary,
+            summary="",
         )
 
     # ------------------------------------------------------------------
@@ -256,53 +228,6 @@ class SandboxManager:
             started_at=step_start,
             finished_at=step_end,
         )
-
-    def _synthesise_summary(self, query: str, steps: List[SandboxStep]) -> str:
-        """Ask the LLM to write a 3-5 sentence evidence summary."""
-        if not steps:
-            return "No tool calls were executed; no evidence was gathered."
-
-        ok_steps = [s for s in steps if s.status == "ok"]
-        if not ok_steps:
-            return (
-                f"All {len(steps)} tool call(s) failed. "
-                "No external evidence could be retrieved for this query."
-            )
-
-        results_lines: List[str] = []
-        for i, s in enumerate(ok_steps, 1):
-            out_str = json.dumps(s.output, ensure_ascii=False)[:600]
-            results_lines.append(
-                f"[{i}] tool={s.tool} input={s.input.get('query', '')}\n"
-                f"    output={out_str}"
-            )
-        results_block = "\n\n".join(results_lines)
-
-        user_msg = _SUMMARY_USER_TMPL.format(
-            query=query, results_block=results_block
-        )
-        logger.info(
-            "SandboxManager._synthesise_summary: calling LLM for %d ok step(s)",
-            len(ok_steps),
-        )
-        t0 = time.monotonic()
-        try:
-            result = self._llm.generate(user_msg, system=_SUMMARY_SYSTEM)
-            logger.info(
-                "SandboxManager._synthesise_summary: LLM done in %.1fs",
-                time.monotonic() - t0,
-            )
-            return result
-        except Exception as exc:
-            logger.warning(
-                "SandboxManager._synthesise_summary: LLM call failed in %.1fs — %s",
-                time.monotonic() - t0, exc,
-            )
-            return (
-                f"Sandbox ran {len(steps)} tool call(s), "
-                f"{len(ok_steps)} succeeded. "
-                "LLM summary unavailable — see individual steps for raw evidence."
-            )
 
     @staticmethod
     def _stub_result(

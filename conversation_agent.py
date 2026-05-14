@@ -1,7 +1,18 @@
 """conversation_agent.py  (Milestone 4)
 
 Conversational agent that explains a Mycelium run in plain language.
-Now enriched with sandbox evidence when available.
+
+Changes (2026-05-14)
+--------------------
+- Single LLM round-trip per request.  Previously SandboxManager called
+  the LLM once for a 3-5 sentence evidence summary, then ConversationAgent
+  called it again for the explanation — two cold-starts per query.
+  Now SandboxManager returns summary="" and this agent receives the raw
+  SandboxResult steps, synthesises the evidence AND produces the
+  explanation in one prompt.
+- Graceful degradation: if the LLM call fails, the fallback string now
+  includes a readable summary of the raw tool results so the frontend
+  always shows something useful.
 """
 from __future__ import annotations
 
@@ -14,24 +25,25 @@ _SYSTEM_PROMPT = """\
 You are Mycelium's reasoning assistant. Your job is to explain, in plain
 language, what Mycelium found when it processed the user's query.
 
-Rules:
-- Be concise but complete. 2-4 paragraphs is ideal.
-- Only use facts from the pipeline summary and sandbox evidence provided.
-  Do not invent new facts.
-- Explain the Layer 0 route, what domain(s) were selected, which expert(s)
-  handled the query, and what the final validation result was.
-- If sandbox evidence is present, summarise the key findings and cite the
-  tool that produced them (e.g. "Semantic Scholar found...",
-  "Wikidata reports...").
-- If sandbox steps ran but all failed, state that external evidence could
-  not be retrieved and flag INSUFFICIENT_EVIDENCE.
+You will receive:
+  1. A pipeline summary (Layer 0 route, routing, expert decision, validation).
+  2. Raw sandbox tool results (if the sandbox ran).
+
+Your response must:
+- Be 2-4 paragraphs. Concise but complete.
+- First paragraph: explain what Mycelium did — route, domains, experts, validation.
+- Second paragraph (if sandbox ran): synthesise the key findings from the tool
+  results. Cite the tool that produced each fact (e.g. "DuckDuckGo found...",
+  "Wikidata reports...", "Semantic Scholar found...").
+  If all tool calls returned empty or failed, state clearly that external
+  evidence was unavailable and flag INSUFFICIENT_EVIDENCE.
+- If the expert decision was CREATE_NEW_PATCH, explain that no trained domain
+  expert exists yet for this query, so Mycelium used its general reasoning
+  path and sandbox research.
 - If latency data is available, briefly mention the slowest phase.
-- If the pipeline decision was CREATE_NEW_PATCH, explain that no trained
-  domain expert exists yet for this query, so Mycelium relied on its
-  general reasoning path and sandbox research.
+- Only use facts from the pipeline summary and tool results. Do not invent facts.
 - Write in second person: address the user directly.
-- Do not mention internal implementation details (class names, JSON keys,
-  etc.).
+- Do not mention internal implementation details (class names, JSON keys, etc.).
 """
 
 
@@ -45,7 +57,7 @@ class ConversationAgent:
         run: object,
         sandbox_result: Optional[object] = None,
     ) -> str:
-        """Generate a plain-language explanation.
+        """Generate a plain-language explanation in a single LLM call.
 
         Parameters
         ----------
@@ -54,9 +66,9 @@ class ConversationAgent:
         run:
             A MyceliumRunSummary (or compatible dict/object).
         sandbox_result:
-            Optional SandboxResult.  When provided, its steps and summary
-            are appended to the LLM context so the agent can reference
-            real external evidence.
+            Optional SandboxResult.  When provided, its raw steps are
+            included in the prompt so the agent synthesises evidence AND
+            explanation together — one Ollama round-trip total.
         """
         try:
             run_dict = run.model_dump()  # type: ignore[attr-defined]
@@ -89,60 +101,123 @@ class ConversationAgent:
             slowest = max(latencies.items(), key=lambda kv: kv[1])
             lines.append(f"Slowest phase: {slowest[0]} ({slowest[1]} ms)")
 
-        # --- sandbox evidence ---
+        # --- sandbox tool results (raw, for single-pass synthesis) ---
         if sandbox_result is not None:
             try:
                 sr_dict = sandbox_result.model_dump()  # type: ignore[attr-defined]
             except AttributeError:
                 sr_dict = dict(sandbox_result) if not isinstance(sandbox_result, dict) else sandbox_result  # type: ignore
 
-            lines.append("")
-            lines.append("=== Sandbox Evidence ===")
             steps = sr_dict.get("steps", []) or []
+            lines.append("")
+            lines.append("=== Sandbox Tool Results ===")
+
             if not steps:
                 lines.append("No sandbox steps were executed.")
             else:
                 ok_steps = [s for s in steps if s.get("status") == "ok"]
                 err_steps = [s for s in steps if s.get("status") != "ok"]
                 lines.append(
-                    f"Tool calls: {len(steps)} total, "
+                    f"{len(steps)} tool call(s) total: "
                     f"{len(ok_steps)} succeeded, {len(err_steps)} failed."
                 )
-                for i, step in enumerate(ok_steps[:4], 1):  # cap at 4 for prompt budget
+                for i, step in enumerate(steps[:5], 1):
                     tool = step.get("tool", "unknown")
                     inp = (step.get("input") or {}).get("query", "")
+                    status = step.get("status", "unknown")
                     out = step.get("output", {})
-                    # Produce a compact representation of the output
-                    if "results" in out:
+
+                    if status != "ok":
+                        out_str = f"FAILED — {out.get('error', 'unknown error')}"
+                    elif "results" in out:
                         snippets = [
-                            r.get("snippet") or r.get("abstract") or ""
-                            for r in (out["results"][:2])
+                            r.get("snippet") or r.get("body") or ""
+                            for r in (out["results"][:3])
                         ]
-                        out_str = " | ".join(s[:200] for s in snippets if s)
+                        out_str = " | ".join(s[:250] for s in snippets if s) or "(empty results list)"
                     elif "papers" in out:
-                        papers = out["papers"][:2]
+                        papers = out["papers"][:3]
                         out_str = "; ".join(
-                            f"{p.get('title','')} ({p.get('year','?')})"
+                            f"{p.get('title', '')} ({p.get('year', '?')}): {(p.get('abstract') or '')[:150]}"
                             for p in papers
-                        )
+                        ) or "(no papers found)"
                     elif "entities" in out:
-                        entities = out["entities"][:2]
+                        entities = out["entities"][:3]
                         out_str = "; ".join(
-                            f"{e.get('label','')}: {e.get('description','')}"
+                            f"{e.get('label', '')}: {e.get('description', '')}"
                             for e in entities
-                        )
+                        ) or "(no entities found)"
                     elif "result" in out:
                         out_str = str(out["result"])
+                    elif "error" in out:
+                        out_str = f"ERROR — {out['error']}"
                     else:
-                        out_str = json.dumps(out, ensure_ascii=False)[:200]
-                    lines.append(f"  [{i}] {tool}('{inp}'): {out_str}")
+                        out_str = json.dumps(out, ensure_ascii=False)[:300]
 
-            summary = sr_dict.get("summary", "")
-            if summary:
-                lines.append(f"\nSandbox summary: {summary}")
+                    lines.append(f"  [{i}] {tool}('{inp}') [{status}]: {out_str}")
 
         prompt = "\n".join(lines)
-        return self._llm.generate(prompt, system=_SYSTEM_PROMPT)
+
+        try:
+            return self._llm.generate(prompt, system=_SYSTEM_PROMPT)
+        except Exception as exc:
+            # Graceful fallback — build a readable response from raw data
+            # so the frontend is never left with an opaque error message.
+            fallback_lines = [
+                f"Mycelium processed your query but the language model is currently unavailable ({exc}).",
+                "",
+                "Here is what the pipeline found:",
+            ]
+
+            # Pipeline facts
+            route = run_dict.get("layer0", {}).get("route", "n/a")
+            cls_ = run_dict.get("routing", {}).get("classification", "n/a")
+            domains = ", ".join(run_dict.get("routing", {}).get("selected_domains", []) or ["n/a"])
+            dec = run_dict.get("expert_decision", {}).get("decision_type", "n/a")
+            experts = ", ".join(run_dict.get("expert_decision", {}).get("selected_experts", []) or ["n/a"])
+            vr = run_dict.get("phase3", {}).get("validation_decision", {}).get("result_class", "n/a")
+            fallback_lines += [
+                f"  Route: {route}  |  Classification: {cls_}  |  Domains: {domains}",
+                f"  Expert decision: {dec}  |  Experts: {experts}  |  Validation: {vr}",
+            ]
+
+            # Sandbox raw step summaries
+            if sandbox_result is not None:
+                try:
+                    sr_dict2 = sandbox_result.model_dump()  # type: ignore[attr-defined]
+                except AttributeError:
+                    sr_dict2 = dict(sandbox_result) if not isinstance(sandbox_result, dict) else sandbox_result  # type: ignore
+                steps2 = sr_dict2.get("steps", []) or []
+                if steps2:
+                    fallback_lines.append("")
+                    fallback_lines.append("Sandbox evidence (raw):")
+                    for s in steps2:
+                        tool = s.get("tool", "?")
+                        status = s.get("status", "?")
+                        out = s.get("output", {})
+                        if "results" in out:
+                            preview = " | ".join(
+                                (r.get("snippet") or r.get("body") or "")[:120]
+                                for r in out["results"][:2]
+                                if r.get("snippet") or r.get("body")
+                            ) or "(empty)"
+                        elif "entities" in out:
+                            preview = "; ".join(
+                                f"{e.get('label', '')}: {e.get('description', '')}"
+                                for e in out["entities"][:2]
+                            ) or "(empty)"
+                        elif "papers" in out:
+                            preview = "; ".join(
+                                f"{p.get('title', '')} ({p.get('year', '?')})"
+                                for p in out["papers"][:2]
+                            ) or "(empty)"
+                        elif "error" in out:
+                            preview = f"error: {out['error']}"
+                        else:
+                            preview = json.dumps(out, ensure_ascii=False)[:150]
+                        fallback_lines.append(f"  {tool} [{status}]: {preview}")
+
+            return "\n".join(fallback_lines)
 
 
 _agent: Optional[ConversationAgent] = None
