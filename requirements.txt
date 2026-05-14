@@ -27,6 +27,11 @@ requests>=2.31.0
 # duckduckgo-search is tried first; sandbox falls back to HTML scrape if absent
 duckduckgo-search>=6.1.0
 
+# MCP tool server / client
+# mcp_tools_server.py runs as an MCP stdio subprocess; mcp_client.py connects to it.
+# The mcp package bundles both the server SDK and the client SDK.
+mcp>=1.0.0
+
 # Data utils
 tqdm>=4.66.0
 matplotlib>=3.8.0
