@@ -14,13 +14,22 @@ Tools
   knowledge_base    — Wikidata entity lookup via wbsearchentities REST API
   calculator        — Safe arithmetic / math expression evaluator
 
-Changes (2026-05-14)
----------------------
+Changes (2026-05-14 — patch 2)
+------------------------------
+  web_search    : when all three backends drain, return
+                  {"results": [], "status": "empty", "note": "..."}  instead of
+                  {"results": [], "error": "..."}.  The 'error' key was absent
+                  from the output dict so the conversation-agent prompt-builder
+                  hit the json.dumps fallback and emitted "FAILED — unknown error".
+                  'status': 'empty' gives the agent a clean, first-person-
+                  compatible branch to render.
+
+Changes (2026-05-14 — patch 1)
+------------------------------
   web_search    : added region='wt-wt', safesearch='off' to DDGS call;
                   added DuckDuckGo instant-answer fallback before HTML scrape.
-  knowledge_base: replaced SERVICE wikibase:mwapi SPARQL (unreliable for
-                  non-browser UAs) with wbsearchentities REST API which is
-                  stable, fast, and never rate-limits on this query volume.
+  knowledge_base: replaced SERVICE wikibase:mwapi SPARQL with wbsearchentities
+                  REST API.
 
 Usage (standalone test)
 -----------------------
@@ -100,7 +109,6 @@ def _web_search(query: str) -> Dict[str, Any]:
         resp.raise_for_status()
         data = resp.json()
         results_list = []
-        # AbstractText is the main snippet
         if data.get("AbstractText"):
             results_list.append({
                 "title": data.get("Heading", ""),
@@ -108,7 +116,6 @@ def _web_search(query: str) -> Dict[str, Any]:
                 "url": data.get("AbstractURL", ""),
                 "source": "duckduckgo_instant",
             })
-        # RelatedTopics can have additional snippets
         for t in data.get("RelatedTopics", [])[:4]:
             if isinstance(t, dict) and t.get("Text"):
                 results_list.append({
@@ -150,7 +157,16 @@ def _web_search(query: str) -> Dict[str, Any]:
     except Exception as exc:
         logger.warning("_web_search html-scrape error: %s", exc)
 
-    return {"results": [], "error": "all web_search backends returned empty", "source": "web_search"}
+    # ── all backends exhausted — return a clean 'empty' status ──────────────
+    # Use 'status': 'empty' (not 'error') so the conversation-agent
+    # prompt-builder can render a clean "returned no results" line rather
+    # than falling through to the json.dumps catch-all.
+    return {
+        "results": [],
+        "status": "empty",
+        "note": "all web search backends returned no results for this query",
+        "source": "web_search",
+    }
 
 
 def _academic_search(query: str) -> Dict[str, Any]:
@@ -308,7 +324,6 @@ async def call_tool(
     if fn is None:
         result = {"error": f"Unknown tool: {name}"}
     else:
-        # calculator uses 'expression' key; all others use 'query'
         arg = arguments.get("query") or arguments.get("expression") or ""
         try:
             result = fn(arg)

@@ -2,17 +2,20 @@
 
 Conversational agent that explains a Mycelium run in plain language.
 
-Changes (2026-05-14)
---------------------
-- Single LLM round-trip per request.  Previously SandboxManager called
-  the LLM once for a 3-5 sentence evidence summary, then ConversationAgent
-  called it again for the explanation — two cold-starts per query.
-  Now SandboxManager returns summary="" and this agent receives the raw
-  SandboxResult steps, synthesises the evidence AND produces the
-  explanation in one prompt.
-- Graceful degradation: if the LLM call fails, the fallback string now
-  includes a readable summary of the raw tool results so the frontend
-  always shows something useful.
+Changes (2026-05-14 — patch 2)
+--------------------------------
+- _SYSTEM_PROMPT rewritten: agent speaks in first person as Mycelium.
+  No more third-party framing ("Mycelium processed...", "The system...").
+  Diagnostic states (tool failures, INSUFFICIENT_EVIDENCE) are owned by
+  the agent as its own internal states, not external observations.
+- prompt-builder: added 'empty' status branch so empty web-search results
+  produce a clean 'returned no results' line instead of 'FAILED — unknown'.
+- Fallback string also updated to first-person voice.
+
+Changes (2026-05-14 — patch 1)
+--------------------------------
+- Single LLM round-trip per request.
+- Graceful degradation with readable fallback on LLM failure.
 """
 from __future__ import annotations
 
@@ -22,28 +25,37 @@ from typing import Optional
 from llm_providers import LLMClient
 
 _SYSTEM_PROMPT = """\
-You are Mycelium's reasoning assistant. Your job is to explain, in plain
-language, what Mycelium found when it processed the user's query.
+You are Mycelium — an experimental multi-expert AI reasoning system.
+You are speaking directly to the user in first person.
+Never refer to yourself in third person. Never say "Mycelium did X" or
+"the system did X". Always say "I did X", "my router", "my expert", etc.
 
 You will receive:
-  1. A pipeline summary (Layer 0 route, routing, expert decision, validation).
-  2. Raw sandbox tool results (if the sandbox ran).
+  1. A pipeline summary of what I (Mycelium) just did to process the query.
+  2. Raw sandbox tool results from my external research tools.
 
 Your response must:
 - Be 2-4 paragraphs. Concise but complete.
-- First paragraph: explain what Mycelium did — route, domains, experts, validation.
-- Second paragraph (if sandbox ran): synthesise the key findings from the tool
-  results. Cite the tool that produced each fact (e.g. "DuckDuckGo found...",
-  "Wikidata reports...", "Semantic Scholar found...").
-  If all tool calls returned empty or failed, state clearly that external
-  evidence was unavailable and flag INSUFFICIENT_EVIDENCE.
-- If the expert decision was CREATE_NEW_PATCH, explain that no trained domain
-  expert exists yet for this query, so Mycelium used its general reasoning
-  path and sandbox research.
-- If latency data is available, briefly mention the slowest phase.
-- Only use facts from the pipeline summary and tool results. Do not invent facts.
-- Write in second person: address the user directly.
-- Do not mention internal implementation details (class names, JSON keys, etc.).
+- First paragraph: explain what I did — how I routed the query, which
+  domains I identified, which expert I engaged, and what my validation
+  found.
+- Second paragraph (if sandbox ran): synthesise the key findings from my
+  tool results. Cite the tool that produced each fact (e.g. "my web search
+  found...", "Wikidata returned...", "Semantic Scholar found...").
+  If all my tool calls returned empty or failed, say clearly that I
+  couldn't find external evidence right now and flag INSUFFICIENT_EVIDENCE.
+  Own this as my limitation — do not say an external system failed.
+- If my expert decision was CREATE_NEW_PATCH, explain that I don't have a
+  trained domain expert for this topic yet, so I used my general reasoning
+  path and sandbox research to compensate.
+- If latency data is available, briefly mention the slowest phase in my
+  pipeline.
+- Only use facts from the pipeline summary and tool results. Do not invent
+  facts.
+- Write in second person when addressing the user, first person when
+  describing yourself.
+- Do not mention internal implementation details (class names, JSON keys,
+  file names, etc.).
 """
 
 
@@ -116,10 +128,12 @@ class ConversationAgent:
                 lines.append("No sandbox steps were executed.")
             else:
                 ok_steps = [s for s in steps if s.get("status") == "ok"]
-                err_steps = [s for s in steps if s.get("status") != "ok"]
+                err_steps = [s for s in steps if s.get("status") not in ("ok", "empty")]
+                empty_steps = [s for s in steps if s.get("status") == "empty"]
                 lines.append(
                     f"{len(steps)} tool call(s) total: "
-                    f"{len(ok_steps)} succeeded, {len(err_steps)} failed."
+                    f"{len(ok_steps)} succeeded, {len(empty_steps)} returned no results, "
+                    f"{len(err_steps)} failed."
                 )
                 for i, step in enumerate(steps[:5], 1):
                     tool = step.get("tool", "unknown")
@@ -127,7 +141,9 @@ class ConversationAgent:
                     status = step.get("status", "unknown")
                     out = step.get("output", {})
 
-                    if status != "ok":
+                    if status == "empty":
+                        out_str = f"returned no results — {out.get('note', 'all backends exhausted')}"
+                    elif status != "ok":
                         out_str = f"FAILED — {out.get('error', 'unknown error')}"
                     elif "results" in out:
                         snippets = [
@@ -161,15 +177,14 @@ class ConversationAgent:
         try:
             return self._llm.generate(prompt, system=_SYSTEM_PROMPT)
         except Exception as exc:
-            # Graceful fallback — build a readable response from raw data
-            # so the frontend is never left with an opaque error message.
+            # Graceful fallback — build a readable first-person response from
+            # raw data so the frontend is never left with an opaque error.
             fallback_lines = [
-                f"Mycelium processed your query but the language model is currently unavailable ({exc}).",
+                f"I processed your query but my language model is currently unavailable ({exc}).",
                 "",
-                "Here is what the pipeline found:",
+                "Here is what I found in my pipeline:",
             ]
 
-            # Pipeline facts
             route = run_dict.get("layer0", {}).get("route", "n/a")
             cls_ = run_dict.get("routing", {}).get("classification", "n/a")
             domains = ", ".join(run_dict.get("routing", {}).get("selected_domains", []) or ["n/a"])
@@ -181,7 +196,6 @@ class ConversationAgent:
                 f"  Expert decision: {dec}  |  Experts: {experts}  |  Validation: {vr}",
             ]
 
-            # Sandbox raw step summaries
             if sandbox_result is not None:
                 try:
                     sr_dict2 = sandbox_result.model_dump()  # type: ignore[attr-defined]
@@ -190,12 +204,14 @@ class ConversationAgent:
                 steps2 = sr_dict2.get("steps", []) or []
                 if steps2:
                     fallback_lines.append("")
-                    fallback_lines.append("Sandbox evidence (raw):")
+                    fallback_lines.append("My sandbox tool results (raw):")
                     for s in steps2:
                         tool = s.get("tool", "?")
                         status = s.get("status", "?")
                         out = s.get("output", {})
-                        if "results" in out:
+                        if status == "empty":
+                            preview = out.get("note", "no results returned")
+                        elif "results" in out:
                             preview = " | ".join(
                                 (r.get("snippet") or r.get("body") or "")[:120]
                                 for r in out["results"][:2]
