@@ -77,6 +77,50 @@ interface HistoryTrace {
   sandbox_result?: Record<string, unknown>;
 }
 
+// SSE event from /api/v1/chat/stream
+interface SseEvent {
+  phase: string;
+  detail: string;
+  elapsed_ms: number;
+  payload?: ChatApiResponse;
+}
+
+// ---------------------------------------------------------------------------
+// Phase display config
+// ---------------------------------------------------------------------------
+
+const PHASE_META: Record<string, { label: string; progress: number }> = {
+  routing:           { label: 'Running reasoning pipeline…',    progress: 15 },
+  expert_decision:   { label: 'Expert decision resolved',       progress: 30 },
+  sandbox_plan:      { label: 'Planning sandbox tools…',        progress: 40 },
+  sandbox_summary_start: { label: 'Summarising evidence (LLM)…', progress: 75 },
+  sandbox_summary:   { label: 'Sandbox complete',               progress: 80 },
+  conversation:      { label: 'Generating answer…',             progress: 90 },
+  done:              { label: 'Done',                           progress: 100 },
+  error:             { label: 'Error',                          progress: 100 },
+};
+
+function phaseLabel(phase: string): string {
+  if (PHASE_META[phase]) return PHASE_META[phase].label;
+  // sandbox_tool/1, sandbox_tool/1_ok, etc.
+  if (phase.startsWith('sandbox_tool/')) {
+    const rest = phase.replace('sandbox_tool/', '');
+    if (rest.endsWith('_ok'))  return `Tool call ${rest.replace('_ok', '')} ✓`;
+    if (rest.endsWith('_err')) return `Tool call ${rest.replace('_err', '')} ✗`;
+    return `Running tool call ${rest}…`;
+  }
+  return phase;
+}
+
+function phaseProgress(phase: string): number {
+  if (PHASE_META[phase]) return PHASE_META[phase].progress;
+  if (phase.startsWith('sandbox_tool/')) {
+    const n = parseInt(phase.replace(/\D/g, '') || '1', 10);
+    return Math.min(40 + n * 10, 72);
+  }
+  return 50;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -134,6 +178,40 @@ function outputPreview(output: Record<string, unknown>): string {
   }
   if (output.result !== undefined) return String(output.result);
   return JSON.stringify(output).slice(0, 200);
+}
+
+// ---------------------------------------------------------------------------
+// PhaseIndicator — replaces the static three-dot bubble while loading
+// ---------------------------------------------------------------------------
+
+function PhaseIndicator({
+  phase,
+  detail,
+  elapsedMs,
+}: {
+  phase: string;
+  detail: string;
+  elapsedMs: number;
+}) {
+  const label = phaseLabel(phase);
+  const progress = phaseProgress(phase);
+  const secs = (elapsedMs / 1000).toFixed(1);
+
+  return (
+    <div className={styles.phaseIndicator}>
+      <div className={styles.phaseHeader}>
+        <span className={styles.phaseLabel}>{label}</span>
+        <span className={styles.phaseElapsed}>{secs}s</span>
+      </div>
+      {detail && <p className={styles.phaseDetail}>{detail}</p>}
+      <div className={styles.phaseBarTrack}>
+        <div
+          className={styles.phaseBarFill}
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -378,13 +456,30 @@ export default function Home() {
   const [history, setHistory] = useState<HistoryTrace[]>([]);
   const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
   const [historySidebarOpen, setHistorySidebarOpen] = useState(true);
+
+  // Live phase state for the PhaseIndicator
+  const [currentPhase, setCurrentPhase] = useState<string>('routing');
+  const [currentDetail, setCurrentDetail] = useState<string>('');
+  const [elapsedMs, setElapsedMs] = useState<number>(0);
+
   const bottomRef = useRef<HTMLDivElement>(null);
+  const esRef = useRef<EventSource | null>(null);
+  // Tick timer — increments elapsed counter while loading
+  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startTimeRef = useRef<number>(0);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
-  // Load trace history on mount
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      esRef.current?.close();
+      if (tickRef.current) clearInterval(tickRef.current);
+    };
+  }, []);
+
   const loadHistory = useCallback(async () => {
     try {
       const res = await axios.get<HistoryTrace[]>(
@@ -392,7 +487,7 @@ export default function Home() {
       );
       setHistory(res.data ?? []);
     } catch {
-      // History is optional — don't block the UI
+      // History is optional
     }
   }, []);
 
@@ -406,48 +501,118 @@ export default function Home() {
     );
   }
 
+  function startElapsedTick() {
+    startTimeRef.current = Date.now();
+    setElapsedMs(0);
+    if (tickRef.current) clearInterval(tickRef.current);
+    tickRef.current = setInterval(() => {
+      setElapsedMs(Date.now() - startTimeRef.current);
+    }, 250);
+  }
+
+  function stopElapsedTick() {
+    if (tickRef.current) {
+      clearInterval(tickRef.current);
+      tickRef.current = null;
+    }
+  }
+
+  function finishWithResponse(data: ChatApiResponse) {
+    const answer: string =
+      data.answer ??
+      'Mycelium returned no answer text. Check the pipeline trace below.';
+    const trace = extractTrace(data);
+    const sandbox = data.sandbox ?? null;
+
+    setMessages((prev) => [
+      ...prev,
+      { role: 'assistant', content: answer, trace, traceOpen: false, sandbox },
+    ]);
+    if (sandbox) setActiveSandbox(sandbox);
+    setLoading(false);
+    stopElapsedTick();
+    loadHistory();
+  }
+
+  function finishWithError(detail: string) {
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: 'assistant',
+        content: `⚠ Error contacting Mycelium backend: ${detail}\n\nIs the FastAPI server running at ${API_BASE}?`,
+      },
+    ]);
+    setLoading(false);
+    stopElapsedTick();
+  }
+
   async function handleSend() {
     if (!input.trim() || loading) return;
     const text = input.trim();
     setMessages((prev) => [...prev, { role: 'user', content: text }]);
     setInput('');
     setLoading(true);
+    setCurrentPhase('routing');
+    setCurrentDetail('Connecting to Mycelium…');
+    startElapsedTick();
+
+    // ── Try SSE stream first ──────────────────────────────────────────────
+    const sseUrl = `${API_BASE}/api/v1/chat/stream?text=${encodeURIComponent(text)}`;
 
     try {
-      const res = await axios.post<ChatApiResponse>(`${API_BASE}/api/v1/chat`, {
-        text,
-      });
-      const data = res.data;
-      const answer: string =
-        data.answer ??
-        'Mycelium returned no answer text. Check the pipeline trace below.';
-      const trace = extractTrace(data);
-      const sandbox = data.sandbox ?? null;
+      const es = new EventSource(sseUrl);
+      esRef.current = es;
+      let gotDone = false;
 
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: answer, trace, traceOpen: false, sandbox },
-      ]);
+      es.onmessage = (ev) => {
+        try {
+          const event: SseEvent = JSON.parse(ev.data);
+          setCurrentPhase(event.phase);
+          setCurrentDetail(event.detail);
+          setElapsedMs(event.elapsed_ms);
 
-      if (sandbox) setActiveSandbox(sandbox);
+          if (event.phase === 'done' && event.payload) {
+            gotDone = true;
+            es.close();
+            esRef.current = null;
+            finishWithResponse(event.payload);
+          } else if (event.phase === 'error') {
+            gotDone = true;
+            es.close();
+            esRef.current = null;
+            finishWithError(event.detail || 'Unknown SSE error');
+          }
+        } catch {
+          // malformed SSE line — ignore
+        }
+      };
 
-      // Refresh history after each successful query
-      await loadHistory();
+      es.onerror = () => {
+        if (gotDone) return; // already finished cleanly
+        es.close();
+        esRef.current = null;
+        // SSE failed — fall back to plain POST
+        fallbackPost(text);
+      };
+    } catch {
+      // EventSource constructor threw (very unusual) — fall back
+      fallbackPost(text);
+    }
+  }
+
+  async function fallbackPost(text: string) {
+    setCurrentPhase('routing');
+    setCurrentDetail('SSE unavailable — using fallback POST…');
+    try {
+      const res = await axios.post<ChatApiResponse>(`${API_BASE}/api/v1/chat`, { text });
+      finishWithResponse(res.data);
     } catch (err) {
       const axiosErr = err as AxiosError<{ detail?: string }>;
       const detail =
         axiosErr?.response?.data?.detail ??
         axiosErr?.message ??
         'Unknown error';
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: `⚠ Error contacting Mycelium backend: ${detail}\n\nIs the FastAPI server running at ${API_BASE}?`,
-        },
-      ]);
-    } finally {
-      setLoading(false);
+      finishWithError(detail);
     }
   }
 
@@ -460,22 +625,6 @@ export default function Home() {
 
   function handleHistoryClick(item: HistoryTrace) {
     setActiveHistoryId(item.trace_id);
-    // Surface this trace's pipeline data as an info message
-    const t = item.run_summary;
-    const trace: PipelineTrace = {
-      layer0_route: t?.layer0?.route,
-      routing_classification: t?.routing?.classification,
-      routing_domains: t?.routing?.selected_domains ?? [],
-      expert_decision_type: t?.expert_decision?.decision_type,
-      selected_experts: t?.expert_decision?.selected_experts ?? [],
-      expert_confidence: t?.expert_decision?.expert_confidence ?? null,
-      validation_result: t?.phase3?.validation_decision?.result_class,
-      phase_latencies: t?.phase3?.phase_latencies_ms ?? {},
-      trace_id: item.trace_id,
-    };
-    // Show trace in the sandbox panel area (reuse state)
-    // We don't push a new chat message — just highlight the item
-    // and update sandbox panel with whatever sandbox_result we have
     const sr = item.sandbox_result as SandboxResult | undefined;
     if (sr) setActiveSandbox(sr);
   }
@@ -526,7 +675,7 @@ export default function Home() {
         </div>
       </header>
 
-      {/* ── Body: sidebar + chat + sandbox ────────────────── */}
+      {/* ── Body ──────────────────────────────────────────── */}
       <div className={styles.body}>
 
         {/* History sidebar */}
@@ -653,12 +802,15 @@ export default function Home() {
               </div>
             ))}
 
+            {/* Live phase indicator replaces the static three-dot bubble */}
             {loading && (
               <div className={styles.assistantBubbleWrap}>
-                <div className={`${styles.assistantBubble} ${styles.typingBubble}`}>
-                  <span className={styles.dot} />
-                  <span className={styles.dot} />
-                  <span className={styles.dot} />
+                <div className={styles.assistantBubble}>
+                  <PhaseIndicator
+                    phase={currentPhase}
+                    detail={currentDetail}
+                    elapsedMs={elapsedMs}
+                  />
                 </div>
               </div>
             )}

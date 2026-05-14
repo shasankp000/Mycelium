@@ -7,7 +7,7 @@ Architecture
 ------------
 
     broadcast_api
-        └─ SandboxManager.run(task)
+        └─ SandboxManager.run(task, on_progress=...)
                 ├─ DomainToolPlanner.plan()   ← deterministic, no LLM
                 │       (TRM seam: swap for TRM.plan_tools() when ready)
                 ├─ MCPClient.call_tool()      ← MCP stdio transport
@@ -20,9 +20,19 @@ evidence summary from the raw tool results.  It is never asked to decide
 which tools to call; that is the exclusive responsibility of DomainToolPlanner
 (and eventually the real TRM).
 
-This eliminates the KeyError: 'tool' crash that occurred when the LLM plan
-loop returned objects with non-standard key names (e.g. 'function', 'name',
-'action') instead of the expected 'tool' key.
+on_progress callback
+--------------------
+An optional callable(phase: str, detail: str) is accepted by run().
+It is called synchronously at every meaningful sub-step so callers
+(broadcast_api SSE generator) can forward progress to the frontend.
+
+Phases emitted from inside SandboxManager:
+  sandbox_plan        — tool plan produced, tools listed
+  sandbox_tool/<n>    — MCP call n started
+  sandbox_tool/<n>_ok — MCP call n succeeded
+  sandbox_tool/<n>_err— MCP call n failed
+  sandbox_summary_start — LLM summary call starting (this is the slow step)
+  sandbox_summary_done  — LLM summary call complete
 """
 from __future__ import annotations
 
@@ -30,7 +40,7 @@ import json
 import logging
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from domain_tool_planner import DomainToolPlanner, ToolCall, get_planner
 from llm_providers import LLMClient
@@ -42,11 +52,14 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Budget constants
 # ---------------------------------------------------------------------------
-_DEFAULT_MAX_STEPS = 4          # cap: DomainToolPlanner already minimises
-_DEFAULT_WALL_TIMEOUT_S = 30.0  # seconds for the whole sandbox run
+_DEFAULT_MAX_STEPS = 4
+_DEFAULT_WALL_TIMEOUT_S = 30.0
+
+# Type alias for the progress callback
+ProgressCallback = Callable[[str, str], None]
 
 # ---------------------------------------------------------------------------
-# LLM prompt — evidence summary only
+# LLM prompt
 # ---------------------------------------------------------------------------
 
 _SUMMARY_SYSTEM = """\
@@ -100,9 +113,20 @@ class SandboxManager:
     # Public
     # ------------------------------------------------------------------
 
-    def run(self, task: SandboxTask) -> SandboxResult:
+    def run(
+        self,
+        task: SandboxTask,
+        on_progress: Optional[ProgressCallback] = None,
+    ) -> SandboxResult:
         """
         Execute the full sandbox pipeline for *task*.
+
+        Parameters
+        ----------
+        task : SandboxTask
+        on_progress : optional callable(phase, detail)
+            Called synchronously at each sub-step so the SSE generator in
+            broadcast_api can forward live progress events to the frontend.
 
         Steps
         -----
@@ -113,11 +137,19 @@ class SandboxManager:
         Never raises — all exceptions are caught and returned as error
         SandboxStep records or an error summary string.
         """
+        def _emit(phase: str, detail: str) -> None:
+            if on_progress:
+                try:
+                    on_progress(phase, detail)
+                except Exception:
+                    pass  # never let a progress callback crash the sandbox
+            logger.info("[sandbox] phase=%-28s  %s", phase, detail)
+
         wall_start = time.monotonic()
         started = datetime.utcnow()
         steps: List[SandboxStep] = []
 
-        # --- Step 1: deterministic planning ---
+        # ── Step 1: deterministic planning ──────────────────────────────
         decision_type = task.decision_type if hasattr(task, "decision_type") else ""
         plan: List[ToolCall] = self._planner.plan(
             query=task.user_query,
@@ -126,25 +158,52 @@ class SandboxManager:
         )
 
         if not plan:
+            _emit("sandbox_plan", "DomainToolPlanner returned empty plan")
             return self._stub_result(task, started, reason="DomainToolPlanner returned empty plan")
 
+        tool_names = [c.tool for c in plan]
+        _emit(
+            "sandbox_plan",
+            f"Plan ready — {len(plan)} tool(s): {', '.join(tool_names)}",
+        )
         logger.info(
             "SandboxManager: plan for trace=%s domains=%s → tools=%s",
-            task.trace_id, task.domains, [c.tool for c in plan],
+            task.trace_id, task.domains, tool_names,
         )
 
-        # --- Step 2: MCP execution ---
-        for call in plan[: self._max_steps]:
-            if time.monotonic() - wall_start > self._wall_timeout_s * 0.85:
-                logger.warning(
-                    "SandboxManager: wall timeout approaching, stopping early"
-                )
+        # ── Step 2: MCP execution ────────────────────────────────────────
+        for idx, call in enumerate(plan[: self._max_steps], start=1):
+            elapsed_s = time.monotonic() - wall_start
+            if elapsed_s > self._wall_timeout_s * 0.85:
+                warn = f"Wall timeout approaching ({elapsed_s:.1f}s / {self._wall_timeout_s}s), stopping early"
+                logger.warning("SandboxManager: %s", warn)
+                _emit(f"sandbox_tool/{idx}", f"⚠ {warn}")
                 break
+
+            _emit(
+                f"sandbox_tool/{idx}",
+                f"Calling {call.tool} — query: {call.query[:80]}",
+            )
             step = self._execute_step(call)
             steps.append(step)
 
-        # --- Step 3: LLM evidence summary ---
+            duration_ms = (
+                (step.finished_at - step.started_at).total_seconds() * 1000
+                if step.finished_at and step.started_at else 0
+            )
+            status_phase = f"sandbox_tool/{idx}_{'ok' if step.status == 'ok' else 'err'}"
+            _emit(
+                status_phase,
+                f"{call.tool} {'✓' if step.status == 'ok' else '✗'} in {duration_ms:.0f}ms",
+            )
+
+        # ── Step 3: LLM evidence summary ────────────────────────────────
+        _emit(
+            "sandbox_summary_start",
+            f"Asking LLM to summarise {len([s for s in steps if s.status == 'ok'])} evidence result(s)…",
+        )
         summary = self._synthesise_summary(task.user_query, steps)
+        _emit("sandbox_summary_done", "Evidence summary ready")
         finished = datetime.utcnow()
 
         return SandboxResult(
@@ -163,16 +222,23 @@ class SandboxManager:
         """Dispatch a single ToolCall via MCP and record the result."""
         step_start = datetime.utcnow()
 
-        # Build the arguments dict expected by the MCP server
-        # calculator uses 'expression'; all others use 'query'
         if call.tool == "calculator":
             arguments: Dict[str, Any] = {"expression": call.query}
         else:
             arguments = {"query": call.query}
 
+        logger.debug(
+            "SandboxManager._execute_step: tool=%s arguments=%s",
+            call.tool, arguments,
+        )
+
         try:
             output = self._mcp.call_tool(call.tool, arguments)
             status = "error" if "error" in output else "ok"
+            logger.debug(
+                "SandboxManager._execute_step: tool=%s status=%s output_keys=%s",
+                call.tool, status, list(output.keys())[:6],
+            )
         except Exception as exc:
             output = {"error": str(exc)}
             status = "error"
@@ -185,7 +251,7 @@ class SandboxManager:
             tool=call.tool,
             input={"query": call.query},
             output=output,
-            commentary=f"Planned by DomainToolPlanner for domains: {call.tool}",
+            commentary=f"Planned by DomainToolPlanner for tool: {call.tool}",
             status=status,
             started_at=step_start,
             finished_at=step_end,
@@ -215,10 +281,23 @@ class SandboxManager:
         user_msg = _SUMMARY_USER_TMPL.format(
             query=query, results_block=results_block
         )
+        logger.info(
+            "SandboxManager._synthesise_summary: calling LLM for %d ok step(s)",
+            len(ok_steps),
+        )
+        t0 = time.monotonic()
         try:
-            return self._llm.generate(user_msg, system=_SUMMARY_SYSTEM)
+            result = self._llm.generate(user_msg, system=_SUMMARY_SYSTEM)
+            logger.info(
+                "SandboxManager._synthesise_summary: LLM done in %.1fs",
+                time.monotonic() - t0,
+            )
+            return result
         except Exception as exc:
-            logger.warning("SandboxManager: summary LLM call failed — %s", exc)
+            logger.warning(
+                "SandboxManager._synthesise_summary: LLM call failed in %.1fs — %s",
+                time.monotonic() - t0, exc,
+            )
             return (
                 f"Sandbox ran {len(steps)} tool call(s), "
                 f"{len(ok_steps)} succeeded. "

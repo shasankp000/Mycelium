@@ -1,89 +1,79 @@
-/* ================================================================
-   Home.module.css  —  Mycelium Console  (Milestones 5 + earlier)
-   Three-column shell: history sidebar | chat | sandbox evidence
-   ================================================================ */
+/* ============================================================
+   Home.module.css  — Mycelium Console
+   ============================================================ */
 
-/* ----------------------------------------------------------------
-   Shell — full-viewport root
-   ---------------------------------------------------------------- */
+/* ── Reset / base ─────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ── Shell ────────────────────────────────────────────────── */
 .shell {
   display: flex;
   flex-direction: column;
   height: 100dvh;
-  background: #0f0f0f;
-  color: #e2e2e2;
-  font-family: 'Inter', 'Segoe UI', sans-serif;
   overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  background: #0e0e10;
+  color: #d4d3d0;
 }
 
-/* ----------------------------------------------------------------
-   Header
-   ---------------------------------------------------------------- */
+/* ── Header ───────────────────────────────────────────────── */
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 1rem;
-  height: 52px;
-  border-bottom: 1px solid #1e1e1e;
+  padding: 0 16px;
+  height: 48px;
+  border-bottom: 1px solid #1e1e20;
+  background: #111113;
   flex-shrink: 0;
-  background: #0f0f0f;
+  gap: 12px;
 }
 
 .headerLeft {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 10px;
   min-width: 0;
-}
-
-.sidebarToggle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  background: none;
-  border: none;
-  color: #555;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: color 150ms ease, background 150ms ease;
-}
-.sidebarToggle:hover {
-  color: #a3d9a5;
-  background: #161f19;
 }
 
 .headerLogo {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  color: #a3d9a5;
-  flex-shrink: 0;
+  gap: 8px;
+  color: #d4d3d0;
 }
 
+.sidebarToggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #888;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  transition: color 140ms;
+}
+.sidebarToggle:hover { color: #d4d3d0; }
+
 .headerTitle {
-  font-size: 0.95rem;
+  font-size: 14px;
   font-weight: 600;
-  letter-spacing: 0.02em;
-  color: #e2e2e2;
+  letter-spacing: 0.01em;
+  color: #e8e7e4;
+  white-space: nowrap;
 }
 
 .headerSubtitle {
-  font-size: 0.68rem;
-  color: #444;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-size: 11px;
+  color: #555;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* ----------------------------------------------------------------
-   Body — three-column flex row
-   ---------------------------------------------------------------- */
+/* ── Body ─────────────────────────────────────────────────── */
 .body {
   display: flex;
   flex: 1;
@@ -91,16 +81,14 @@
   overflow: hidden;
 }
 
-/* ----------------------------------------------------------------
-   History sidebar (left)
-   ---------------------------------------------------------------- */
+/* ── History sidebar ─────────────────────────────────────── */
 .historySidebar {
   width: 220px;
-  flex-shrink: 0;
+  min-width: 220px;
+  border-right: 1px solid #1e1e20;
+  background: #0c0c0e;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #1a1a1a;
-  background: #0c0c0c;
   overflow: hidden;
 }
 
@@ -108,538 +96,470 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.6rem 0.85rem;
-  border-bottom: 1px solid #1a1a1a;
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid #1a1a1c;
   flex-shrink: 0;
 }
 
 .sidebarTitle {
-  font-size: 0.68rem;
+  font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: #444;
+  letter-spacing: 0.08em;
+  color: #666;
 }
 
 .sidebarRefresh {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 4px;
   background: none;
   border: none;
-  color: #444;
   cursor: pointer;
-  transition: color 150ms ease;
+  color: #555;
+  padding: 2px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  transition: color 140ms;
 }
-.sidebarRefresh:hover { color: #a3d9a5; }
+.sidebarRefresh:hover { color: #aaa; }
 
 .historyList {
   flex: 1;
   overflow-y: auto;
-  padding: 0.35rem 0;
+  padding: 4px 0;
 }
-.historyList::-webkit-scrollbar { width: 3px; }
-.historyList::-webkit-scrollbar-thumb { background: #1e1e1e; border-radius: 2px; }
 
 .historyItem {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
   width: 100%;
+  padding: 7px 12px;
   text-align: left;
   background: none;
   border: none;
   cursor: pointer;
-  padding: 0.45rem 0.85rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
+  color: #999;
   border-left: 2px solid transparent;
-  transition: background 120ms ease, border-color 120ms ease;
+  transition: background 120ms, color 120ms, border-color 120ms;
 }
-.historyItem:hover {
-  background: #121212;
-}
+.historyItem:hover { background: #13131a; color: #d4d3d0; }
 .historyItemActive {
-  background: #111a13;
-  border-left-color: #3a7a4a;
+  background: #13131a;
+  color: #d4d3d0;
+  border-left-color: #4f98a3;
 }
 
 .historyQuery {
-  font-size: 0.78rem;
-  color: #ccc;
-  white-space: nowrap;
+  font-size: 12px;
+  line-height: 1.4;
   overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .historyMeta {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 6px;
 }
 
 .historyBadge {
-  font-size: 0.6rem;
+  font-size: 9px;
   font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 99px;
   letter-spacing: 0.05em;
-  padding: 0.1rem 0.35rem;
-  border-radius: 3px;
-  text-transform: uppercase;
 }
-.historyBadgeNormal {
-  background: #1a2e1a;
-  color: #5a9a6a;
-}
-.historyBadgePatch {
-  background: #2e1a0a;
-  color: #c87a3a;
-}
+.historyBadgeNormal { background: #1f3a2e; color: #6daa45; }
+.historyBadgePatch  { background: #3a2010; color: #fdab43; }
 
 .historyTs {
-  font-size: 0.65rem;
-  color: #3a3a3a;
+  font-size: 10px;
+  color: #555;
   margin-left: auto;
 }
 
 .historyEmpty {
-  font-size: 0.75rem;
-  color: #333;
-  text-align: center;
-  padding: 1.5rem 1rem;
+  font-size: 12px;
+  color: #444;
+  padding: 16px 12px;
 }
 
-/* ----------------------------------------------------------------
-   Chat pane (centre)
-   ---------------------------------------------------------------- */
+/* ── Chat pane ───────────────────────────────────────────── */
 .chatPane {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-width: 0;
-  min-height: 0;
-  max-width: 820px;
-  width: 100%;
-  margin: 0 auto;
-  padding: 0 1rem;
+  overflow: hidden;
+  border-right: 1px solid #1e1e20;
 }
 
 .chatWindow {
   flex: 1;
   overflow-y: auto;
-  padding: 1.5rem 0 0.5rem;
+  padding: 20px 16px;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-  scroll-behavior: smooth;
+  gap: 12px;
 }
-.chatWindow::-webkit-scrollbar { width: 4px; }
-.chatWindow::-webkit-scrollbar-track { background: transparent; }
-.chatWindow::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
 
-/* ----------------------------------------------------------------
-   Sandbox evidence panel (right)
-   ---------------------------------------------------------------- */
+/* ── Empty state ─────────────────────────────────────────── */
+.emptyState {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  color: #444;
+  text-align: center;
+  padding: 40px 24px;
+}
+.emptyState p { font-size: 13px; max-width: 320px; line-height: 1.6; }
+
+/* ── Bubbles ─────────────────────────────────────────────── */
+.userBubbleWrap {
+  display: flex;
+  justify-content: flex-end;
+}
+.assistantBubbleWrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  max-width: 90%;
+}
+
+.userBubble {
+  background: #1c2e3a;
+  color: #cde4f0;
+  border-radius: 14px 14px 4px 14px;
+  padding: 9px 14px;
+  max-width: 75%;
+  word-break: break-word;
+}
+
+.assistantBubble {
+  background: #161618;
+  border: 1px solid #222224;
+  border-radius: 4px 14px 14px 14px;
+  padding: 10px 14px;
+  word-break: break-word;
+  min-width: 200px;
+}
+
+.bubbleText {
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  margin: 0;
+}
+
+/* ── Phase indicator (replaces three-dot bubble) ─────────── */
+.phaseIndicator {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 240px;
+  max-width: 360px;
+}
+
+.phaseHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.phaseLabel {
+  font-size: 12px;
+  font-weight: 500;
+  color: #b0afac;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.phaseElapsed {
+  font-size: 11px;
+  color: #555;
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.phaseDetail {
+  font-size: 11px;
+  color: #666;
+  line-height: 1.4;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.phaseBarTrack {
+  height: 2px;
+  background: #222224;
+  border-radius: 99px;
+  overflow: hidden;
+  margin-top: 2px;
+}
+
+.phaseBarFill {
+  height: 100%;
+  background: #4f98a3;
+  border-radius: 99px;
+  transition: width 400ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ── Typing bubble (legacy — kept for CSS reference) ──────── */
+.typingBubble {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 10px 14px;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #4f98a3;
+  opacity: 0.6;
+  animation: blink 1.4s infinite both;
+}
+.dot:nth-child(2) { animation-delay: 0.2s; }
+.dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes blink {
+  0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
+  40%           { opacity: 0.9; transform: scale(1.1); }
+}
+
+/* ── Trace toggle row ────────────────────────────────────── */
+.traceToggleRow {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-left: 2px;
+}
+
+.traceToggleBtn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: 1px solid #222224;
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: 11px;
+  color: #666;
+  cursor: pointer;
+  transition: border-color 140ms, color 140ms;
+}
+.traceToggleBtn:hover { border-color: #3a3a3c; color: #aaa; }
+
+/* ── Trace panel ─────────────────────────────────────────── */
+.tracePanel {
+  background: #111113;
+  border: 1px solid #1e1e20;
+  border-radius: 6px;
+  padding: 10px;
+  margin-top: 2px;
+}
+
+.traceGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+}
+
+.traceCell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.traceCellFull { grid-column: 1 / -1; }
+
+.traceLabel {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #555;
+}
+
+.traceValue {
+  font-size: 12px;
+  color: #b0afac;
+  word-break: break-word;
+}
+
+.traceValuePatch { color: #fdab43; }
+
+.traceId {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 10px;
+  color: #555;
+}
+
+/* ── Input row ───────────────────────────────────────────── */
+.inputRow {
+  display: flex;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid #1a1a1c;
+  background: #0e0e10;
+  flex-shrink: 0;
+}
+
+.input {
+  flex: 1;
+  background: #161618;
+  border: 1px solid #2a2a2c;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: #d4d3d0;
+  outline: none;
+  transition: border-color 140ms;
+}
+.input:focus { border-color: #4f98a3; }
+.input::placeholder { color: #444; }
+
+.sendButton {
+  background: #4f98a3;
+  border: none;
+  border-radius: 8px;
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #fff;
+  transition: background 140ms;
+  flex-shrink: 0;
+}
+.sendButton:hover:not(:disabled) { background: #227f8b; }
+.sendButton:disabled { background: #1e3a3e; color: #3a6a70; cursor: not-allowed; }
+
+/* ── Sandbox pane ────────────────────────────────────────── */
 .sandboxPane {
   width: 300px;
-  flex-shrink: 0;
+  min-width: 260px;
   display: flex;
   flex-direction: column;
-  border-left: 1px solid #1a1a1a;
-  background: #0c0c0c;
   overflow: hidden;
+  background: #0c0c0e;
 }
-
-.sandboxPanel {
-  flex: 1;
-  overflow-y: auto;
-  padding: 0.75rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-}
-.sandboxPanel::-webkit-scrollbar { width: 3px; }
-.sandboxPanel::-webkit-scrollbar-thumb { background: #1e1e1e; border-radius: 2px; }
 
 .sandboxEmpty {
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 2rem 1rem;
-  font-size: 0.78rem;
-  color: #333;
+  padding: 24px;
+  color: #444;
+  font-size: 12px;
   text-align: center;
+}
+
+.sandboxPanel {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .sandboxStats {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
-.sandboxStatOk {
-  font-size: 0.68rem;
-  font-weight: 700;
-  color: #5a9a6a;
-  background: #1a2e1a;
-  padding: 0.15rem 0.45rem;
-  border-radius: 3px;
-}
-
-.sandboxStatErr {
-  font-size: 0.68rem;
-  font-weight: 700;
-  color: #c07a4a;
-  background: #2e1a0a;
-  padding: 0.15rem 0.45rem;
-  border-radius: 3px;
-}
-
-.sandboxStatId {
-  font-size: 0.65rem;
-  color: #333;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  margin-left: auto;
-}
+.sandboxStatOk  { font-size: 11px; color: #6daa45; font-weight: 600; }
+.sandboxStatErr { font-size: 11px; color: #dd6974; font-weight: 600; }
+.sandboxStatId  { font-size: 10px; color: #555; font-family: monospace; margin-left: auto; }
 
 .sandboxSummary {
-  font-size: 0.78rem;
-  color: #999;
-  line-height: 1.55;
-  padding: 0.5rem 0.65rem;
-  background: #111;
-  border: 1px solid #1e1e1e;
-  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #b0afac;
+  border-left: 2px solid #4f98a3;
+  padding-left: 8px;
 }
 
-.sandboxSteps {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
+.sandboxSteps { display: flex; flex-direction: column; gap: 4px; }
 
 .sandboxStep {
-  border-radius: 6px;
+  border-radius: 5px;
   overflow: hidden;
-  border: 1px solid #1e1e1e;
+  border: 1px solid #1e1e20;
 }
-
-.sandboxStepOk  { border-color: #1a2e1a; }
-.sandboxStepErr { border-color: #2e1a0a; }
+.sandboxStepOk  { border-color: #1f3a2e; }
+.sandboxStepErr { border-color: #3a1a1a; }
 
 .sandboxStepHeader {
-  width: 100%;
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.45rem 0.6rem;
-  background: #111;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 8px;
+  background: #111113;
   border: none;
   cursor: pointer;
   text-align: left;
-  color: #ccc;
-  transition: background 120ms ease;
+  font-size: 11px;
+  color: #888;
+  transition: background 120ms;
 }
-.sandboxStepHeader:hover { background: #161616; }
+.sandboxStepHeader:hover { background: #161618; color: #aaa; }
 
 .sandboxToolBadge {
-  font-size: 0.62rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #a3d9a5;
-  background: #1a2e1a;
-  padding: 0.1rem 0.35rem;
+  font-size: 10px;
+  font-weight: 600;
+  background: #1a2a2e;
+  color: #4f98a3;
+  padding: 1px 5px;
   border-radius: 3px;
+  white-space: nowrap;
   flex-shrink: 0;
 }
 
-.sandboxStatusOk {
-  font-size: 0.62rem;
-  color: #5a9a6a;
-  flex-shrink: 0;
-}
-
-.sandboxStatusErr {
-  font-size: 0.62rem;
-  color: #c07a4a;
-  flex-shrink: 0;
-}
+.sandboxStatusOk  { color: #6daa45; font-size: 10px; flex-shrink: 0; }
+.sandboxStatusErr { color: #dd6974; font-size: 10px; flex-shrink: 0; }
 
 .sandboxStepInput {
-  font-size: 0.72rem;
-  color: #888;
-  white-space: nowrap;
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
-  flex: 1;
-  min-width: 0;
+  white-space: nowrap;
+  font-size: 11px;
 }
 
 .sandboxStepDuration {
-  font-size: 0.62rem;
-  color: #444;
+  font-size: 10px;
+  color: #555;
+  white-space: nowrap;
   flex-shrink: 0;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-variant-numeric: tabular-nums;
 }
 
 .sandboxStepBody {
-  padding: 0.5rem 0.65rem;
-  background: #0e0e0e;
-  border-top: 1px solid #1a1a1a;
+  padding: 6px 8px;
+  background: #0e0e10;
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: 4px;
 }
 
-.sandboxCommentary {
-  font-size: 0.72rem;
-  color: #666;
-  font-style: italic;
-  line-height: 1.45;
-}
-
-.sandboxOutput {
-  font-size: 0.73rem;
-  color: #aaa;
-  line-height: 1.5;
-  word-break: break-word;
-}
-
-/* ----------------------------------------------------------------
-   Empty state (chat)
-   ---------------------------------------------------------------- */
-.emptyState {
-  margin: auto;
-  text-align: center;
-  color: #333;
-  font-size: 0.88rem;
-  max-width: 36ch;
-  line-height: 1.65;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-/* ----------------------------------------------------------------
-   Message bubbles
-   ---------------------------------------------------------------- */
-.userBubbleWrap {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-}
-
-.assistantBubbleWrap {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-}
-
-.userBubble {
-  background: #1c3a2a;
-  border: 1px solid #254d35;
-  border-radius: 16px 16px 4px 16px;
-  padding: 0.65rem 1rem;
-  max-width: 75%;
-}
-
-.assistantBubble {
-  background: #161616;
-  border: 1px solid #232323;
-  border-radius: 16px 16px 16px 4px;
-  padding: 0.65rem 1rem;
-  max-width: 85%;
-}
-
-.bubbleText {
-  font-family: inherit;
-  font-size: 0.9rem;
-  line-height: 1.65;
-  white-space: pre-wrap;
-  word-break: break-word;
-  margin: 0;
-  color: #e2e2e2;
-}
-
-/* ----------------------------------------------------------------
-   Typing indicator
-   ---------------------------------------------------------------- */
-.typingBubble {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0.75rem 1rem;
-  min-width: 56px;
-}
-
-.dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #4a9a6a;
-  animation: blink 1.2s infinite ease-in-out;
-}
-.dot:nth-child(2) { animation-delay: 0.2s; }
-.dot:nth-child(3) { animation-delay: 0.4s; }
-
-@keyframes blink {
-  0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
-  40%           { opacity: 1;   transform: scale(1); }
-}
-
-/* ----------------------------------------------------------------
-   Pipeline trace toggle
-   ---------------------------------------------------------------- */
-.traceToggleRow {
-  margin-top: 0.3rem;
-  margin-left: 0.2rem;
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  flex-wrap: wrap;
-}
-
-.traceToggleBtn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.72rem;
-  color: #555;
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 0.2rem 0.35rem;
-  border-radius: 4px;
-  transition: color 150ms ease, background 150ms ease;
-  letter-spacing: 0.02em;
-}
-.traceToggleBtn:hover {
-  color: #a3d9a5;
-  background: #161f19;
-}
-
-/* ----------------------------------------------------------------
-   Trace panel
-   ---------------------------------------------------------------- */
-.tracePanel {
-  margin-top: 0.4rem;
-  background: #111;
-  border: 1px solid #1e1e1e;
-  border-radius: 8px;
-  padding: 0.75rem 1rem;
-  max-width: 85%;
-}
-
-.traceGrid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.5rem 1.5rem;
-}
-
-.traceCell {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-}
-
-.traceCellFull {
-  grid-column: 1 / -1;
-}
-
-.traceLabel {
-  font-size: 0.65rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #444;
-  font-weight: 600;
-}
-
-.traceValue {
-  font-size: 0.78rem;
-  color: #a3d9a5;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  word-break: break-all;
-}
-
-.traceValuePatch {
-  color: #c87a3a;
-}
-
-.traceId {
-  color: #555;
-  font-size: 0.7rem;
-}
-
-/* ----------------------------------------------------------------
-   Input row
-   ---------------------------------------------------------------- */
-.inputRow {
-  display: flex;
-  gap: 0.5rem;
-  padding: 0.75rem 0 1rem;
-  flex-shrink: 0;
-}
-
-.input {
-  flex: 1;
-  background: #161616;
-  border: 1px solid #2a2a2a;
-  border-radius: 10px;
-  padding: 0.65rem 1rem;
-  font-size: 0.9rem;
-  color: #e2e2e2;
-  outline: none;
-  transition: border-color 150ms ease;
-}
-.input::placeholder { color: #444; }
-.input:focus { border-color: #3a7a4a; }
-.input:disabled { opacity: 0.5; cursor: not-allowed; }
-
-.sendButton {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 42px;
-  height: 42px;
-  border-radius: 10px;
-  background: #1c3a2a;
-  border: 1px solid #254d35;
-  color: #a3d9a5;
-  cursor: pointer;
-  transition: background 150ms ease, border-color 150ms ease;
-  flex-shrink: 0;
-}
-.sendButton:hover:not(:disabled) {
-  background: #254d35;
-  border-color: #3a7a4a;
-}
-.sendButton:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-
-/* ================================================================
-   Responsive
-   ================================================================ */
-
-/* Hide sandbox panel on narrower screens */
-@media (max-width: 1100px) {
-  .sandboxPane { display: none; }
-}
-
-/* Hide history sidebar on small screens */
-@media (max-width: 800px) {
-  .historySidebar { display: none; }
-  .chatPane { padding: 0 0.75rem; }
-}
-
-/* Narrow mobile — loosen the bubble max-widths */
-@media (max-width: 480px) {
-  .userBubble, .assistantBubble { max-width: 92%; }
-  .tracePanel { max-width: 92%; }
-}
+.sandboxCommentary { font-size: 11px; color: #666; font-style: italic; }
+.sandboxOutput     { font-size: 11px; color: #999; line-height: 1.5; word-break: break-word; }
