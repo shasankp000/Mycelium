@@ -9,6 +9,7 @@ This module provides a BERT-compatible version of UnifiedExpert that:
 3. Maintains identical decision flags and behavior as SVM experts
 """
 
+import logging
 import torch
 from transformers import BertTokenizer, BertForSequenceClassification
 import numpy as np
@@ -16,6 +17,55 @@ import pandas as pd
 from unified_expert_system import UnifiedExpert
 import warnings
 warnings.filterwarnings('ignore')
+
+logger = logging.getLogger(__name__)
+
+# Minimum free VRAM (bytes) required before we attempt to place BERT on the
+# GPU.  BERT-base-uncased is ~420 MiB; 512 MiB gives a small safety margin.
+# If less than this is free we fall back to CPU automatically.
+_MIN_VRAM_BYTES = 512 * 1024 * 1024   # 512 MiB
+
+
+def _safe_device() -> torch.device:
+    """Return the safest device for BERT inference.
+
+    Logic:
+      1. If CUDA is unavailable -> CPU
+      2. Query Ollama for resident models and evict them all (best-effort)
+      3. Flush PyTorch's VRAM cache
+      4. If free VRAM >= _MIN_VRAM_BYTES -> CUDA
+      5. Otherwise -> CPU (fast enough on Zen 4 for BERT-base at seq=128)
+    """
+    if not torch.cuda.is_available():
+        return torch.device('cpu')
+
+    # Best-effort: evict any Ollama model from VRAM before measuring headroom.
+    try:
+        from expert_post_check.ollama_guard import evict_all
+        evicted = evict_all()
+        if evicted:
+            logger.info("_safe_device: evicted Ollama models before BERT load: %s", evicted)
+    except Exception as exc:
+        logger.warning("_safe_device: ollama_guard.evict_all failed -- %s", exc)
+
+    # Release any cached (but unused) VRAM back to the OS allocator.
+    torch.cuda.empty_cache()
+
+    free_bytes, _ = torch.cuda.mem_get_info(0)
+    logger.info(
+        "_safe_device: free VRAM = %.1f MiB (threshold = %.1f MiB)",
+        free_bytes / 1024**2, _MIN_VRAM_BYTES / 1024**2,
+    )
+
+    if free_bytes >= _MIN_VRAM_BYTES:
+        return torch.device('cuda')
+
+    logger.warning(
+        "_safe_device: insufficient free VRAM (%.1f MiB < %.1f MiB) -- "
+        "falling back to CPU for BERT inference.",
+        free_bytes / 1024**2, _MIN_VRAM_BYTES / 1024**2,
+    )
+    return torch.device('cpu')
 
 
 class UnifiedBERTExpert(UnifiedExpert):
@@ -39,7 +89,9 @@ class UnifiedBERTExpert(UnifiedExpert):
             enable_calibration: Whether to enable calibration system
             enable_ood_detection: Whether to enable OOD detection
         """
-        # Store BERT-specific attributes
+        # device is resolved lazily at model-load time via _safe_device();
+        # set a placeholder here so the parent constructor does not crash if
+        # it references self.device before _ensure_model_loaded() is called.
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.tokenizer = None
         self.bert_model = None
@@ -83,10 +135,25 @@ class UnifiedBERTExpert(UnifiedExpert):
     def _ensure_model_loaded(self):
         """
         Lazy-load the full BERT model when actually needed.
-        This is called only when use_existing_expert is the decision.
+
+        Before pushing weights to the GPU we:
+          1. Query Ollama /api/ps and evict any resident model (ollama_guard)
+          2. Flush PyTorch's VRAM cache
+          3. Re-evaluate the safest device (_safe_device)
+
+        If free VRAM is still below the 512 MiB threshold after eviction,
+        BERT is placed on CPU instead.  On a Ryzen 9 8945HX inference at
+        max_length=128 takes ~50-150 ms on CPU, which is acceptable.
         """
         if not self.model_loaded:
-            print(f"   📦 Loading full BERT model for {self.domain} (on-demand)...")
+            # Re-evaluate device at load time (not at __init__ time) so we
+            # always get an accurate picture of current VRAM availability.
+            self.device = _safe_device()
+            logger.info(
+                "_ensure_model_loaded: loading BERT for domain '%s' on %s",
+                self.domain, self.device,
+            )
+            print(f"   📦 Loading full BERT model for {self.domain} (on-demand) on {self.device}...")
             self.bert_model = BertForSequenceClassification.from_pretrained(self.model_path)
             self.bert_model.to(self.device)
             self.bert_model.eval()

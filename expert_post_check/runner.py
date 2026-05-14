@@ -5,12 +5,13 @@ Top-level orchestrator for the Expert Post-Check System.
 
 Flow
 ----
-1. Run TRM-slot (qwen3.5:9b stub) with per-call timeout
-2. Unload TRM model from GPU VRAM immediately after TRM finishes
-3. Run 6-phase pipeline with per-call timeout
-4. Fuzzy verify both answers with cosine-sim
-5. Apply RL weight update for the domain
-6. Return PostCheckResult with verified_answer + full metadata
+1. Evict any stale Ollama model from VRAM (ollama_guard)
+2. Run TRM-slot (qwen3.5:9b stub) with per-call timeout
+3. Unload TRM model from GPU VRAM immediately after TRM finishes
+4. Run 6-phase pipeline with per-call timeout
+5. Fuzzy verify both answers with cosine-sim
+6. Apply RL weight update for the domain
+7. Return PostCheckResult with verified_answer + full metadata
 
 NOTE: Parallel mode is intentionally disabled until the TRM architecture
 replaces the qwen3.5 stub.  Running two LLM inferences concurrently on
@@ -19,9 +20,11 @@ by swapping the _run_serial() call in run() back to a hardware-probed
 dispatch once the stub is replaced.
 
 NOTE on VRAM management:
-After TRM inference completes, _run_serial() calls self._trm.unload() to
-evict qwen3.5 from GPU VRAM before P6 (Phase2Pipeline) starts.  This
-frees ~4.8 GiB, which is enough headroom for all-mpnet-base-v2 (420 MB,
+At the top of _run_serial(), ollama_guard.evict_all() clears any model
+that was left resident from a previous crashed request.  After TRM
+inference completes, _run_serial() calls self._trm.unload() to evict
+qwen3.5 from GPU VRAM before P6 (Phase2Pipeline) starts.  This frees
+~4.8 GiB, which is enough headroom for all-mpnet-base-v2 (420 MB,
 always CPU) and Phase2Pipeline's own memory needs.
 
 PostCheckResult fields
@@ -56,6 +59,7 @@ from expert_post_check.trm_adapter import TRMAdapter, ReasoningResult
 from expert_post_check.p6_adapter import P6Adapter
 from expert_post_check.fuzzy_verifier import FuzzyVerifier
 from expert_post_check.rl_weight import RLWeightStore
+from expert_post_check.ollama_guard import evict_all as _evict_ollama
 
 logger = logging.getLogger(__name__)
 
@@ -98,10 +102,13 @@ class PostCheckRunner:
     an independent wall-clock timeout so a stalled LLM cannot block the
     entire request indefinitely.
 
-    VRAM discipline: TRM (qwen3.5:9b, ~4.8 GiB) is unloaded from the GPU
-    immediately after its future resolves, before P6 starts.  P6 uses
-    Phase2Pipeline which itself uses all-mpnet-base-v2 pinned to CPU, so
-    no VRAM is consumed after the unload.
+    VRAM discipline:
+      - _run_serial() calls ollama_guard.evict_all() at the very start to
+        flush any model left resident from a previous crashed request.
+      - TRM (qwen3.5:9b, ~4.8 GiB) is unloaded from the GPU immediately
+        after its future resolves, before P6 starts.
+      - P6 uses Phase2Pipeline which itself uses all-mpnet-base-v2 pinned
+        to CPU, so no VRAM is consumed after the unload.
     """
 
     def __init__(
@@ -191,11 +198,29 @@ class PostCheckRunner:
     ) -> Tuple[ReasoningResult, ReasoningResult]:
         """Run TRM-slot then P6 sequentially, each guarded by a timeout.
 
+        Starts with a best-effort VRAM flush via ollama_guard.evict_all()
+        so that stale models from a previous crashed request do not eat
+        into the GPU budget before Qwen3.5 loads.
+
         TRM is unloaded from GPU VRAM immediately after its future
         resolves so that P6 and any downstream embedders start with a
         clean VRAM budget.  The unload is best-effort: a failure is
         logged as a warning and does not abort the pipeline.
         """
+        # --- VRAM pre-flight: evict any stale Ollama resident ---------------
+        try:
+            evicted = _evict_ollama()
+            if evicted:
+                logger.info(
+                    "_run_serial: pre-flight evicted stale Ollama models: %s",
+                    evicted,
+                )
+        except Exception as exc:
+            logger.warning(
+                "_run_serial: ollama pre-flight eviction failed (non-fatal): %s", exc
+            )
+        # --------------------------------------------------------------------
+
         trm_res = self._call_with_timeout(
             self._trm.reason, query, domain, label="TRM"
         )
