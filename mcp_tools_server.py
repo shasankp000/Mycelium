@@ -14,6 +14,13 @@ Tools
   knowledge_base    — Wikidata entity lookup via wbsearchentities REST API
   calculator        — Safe arithmetic / math expression evaluator
 
+Changes (2026-05-16 — patch 4b)
+--------------------------------
+  mcp_tools_server  : fix typo mcp_tools_Tool → mcp_types.Tool in
+                      list_tools() knowledge_base entry (would have caused
+                      NameError on server startup, preventing MCP
+                      initialisation).
+
 Changes (2026-05-16 — patch 4)
 ------------------------------
   web_search    : broaden DDGS retry except clause to include
@@ -389,7 +396,7 @@ async def list_tools() -> list[mcp_types.Tool]:
                 "required": ["query"],
             },
         ),
-        mcp_tools_Tool(
+        mcp_types.Tool(
             name="knowledge_base",
             description="Structured entity facts via Wikidata. Use for entity definitions, taxonomy, and factual attributes.",
             inputSchema={
