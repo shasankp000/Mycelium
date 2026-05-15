@@ -14,6 +14,17 @@ Tools
   knowledge_base    — Wikidata entity lookup via wbsearchentities REST API
   calculator        — Safe arithmetic / math expression evaluator
 
+Changes (2026-05-16 — patch 4)
+------------------------------
+  web_search    : broaden DDGS retry except clause to include
+                  httpx.ConnectError / httpx.TimeoutException /
+                  httpx.HTTPStatusError — duckduckgo_search >=6 uses
+                  httpx internally so requests.ConnectionError never fires
+                  for DDGS-level network failures.
+                  Guard DDGS(headers=...) constructor: older library
+                  versions do not accept a headers kwarg; fall back to
+                  DDGS() with no kwargs if TypeError is raised.
+
 Changes (2026-05-15 — patch 3)
 ------------------------------
   web_search    : exponential back-off retry (3 attempts, 1-2-4 s) on
@@ -95,6 +106,42 @@ def _ua() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Build the tuple of retryable DDGS exceptions at import time.
+# duckduckgo_search >=6 uses httpx; older versions use requests.
+# We collect whichever exception classes are actually importable so the
+# except clause covers both without crashing on either version.
+# ---------------------------------------------------------------------------
+
+def _build_ddgs_retryable() -> tuple:
+    """Return a tuple of exception types that warrant a DDGS retry."""
+    retryable = [requests.ConnectionError, requests.Timeout]
+
+    # httpx errors (duckduckgo_search >= 6)
+    try:
+        import httpx  # noqa: PLC0415
+        retryable += [
+            httpx.ConnectError,
+            httpx.TimeoutException,
+            httpx.HTTPStatusError,
+            httpx.RemoteProtocolError,
+        ]
+    except ImportError:
+        pass
+
+    # duckduckgo_search rate-limit exception (present in most versions)
+    try:
+        from duckduckgo_search.exceptions import RateLimitException  # noqa: PLC0415
+        retryable.append(RateLimitException)
+    except ImportError:
+        pass
+
+    return tuple(set(retryable))  # deduplicate in case of overlap
+
+
+_DDGS_RETRYABLE = _build_ddgs_retryable()
+
+
+# ---------------------------------------------------------------------------
 # Tool implementations
 # ---------------------------------------------------------------------------
 
@@ -104,26 +151,32 @@ def _web_search(query: str) -> Dict[str, Any]:
 
     Attempt order:
       1. duckduckgo-search library (DDGS) — retried up to 3× with
-         exponential back-off on RateException / ConnectionError
+         exponential back-off on network / rate-limit errors.
+         Both the headers= kwarg form and the no-kwarg form are tried
+         so the function works across all installed library versions.
       2. DuckDuckGo instant-answer JSON API
       3. DuckDuckGo HTML scrape
 
     All code paths return a consistent shape:
       {results: [...], status: 'ok'|'empty', source: str, note?: str}
     """
-    # ── primary: DDGS library with retry ────────────────────────────────────
     try:
         from duckduckgo_search import DDGS
-        from duckduckgo_search.exceptions import RateLimitException  # type: ignore[attr-defined]
     except ImportError:
-        RateLimitException = Exception  # type: ignore[assignment,misc]
         DDGS = None  # type: ignore[assignment]
 
     if DDGS is not None:
         last_exc: Exception | None = None
         for attempt in range(1, _DDGS_MAX_RETRIES + 1):
             try:
-                with DDGS(headers={"User-Agent": _ua()}) as ddgs:
+                # Try with headers kwarg first (duckduckgo_search >=5.3);
+                # fall back to no-kwarg constructor for older versions.
+                try:
+                    ddgs_instance = DDGS(headers={"User-Agent": _ua()})
+                except TypeError:
+                    ddgs_instance = DDGS()
+
+                with ddgs_instance as ddgs:
                     results = list(
                         ddgs.text(
                             query,
@@ -144,7 +197,7 @@ def _web_search(query: str) -> Dict[str, Any]:
                     return {"results": snippets, "status": "ok", "source": "duckduckgo"}
                 # Empty result list — no point retrying
                 break
-            except (RateLimitException, requests.ConnectionError) as exc:
+            except _DDGS_RETRYABLE as exc:
                 last_exc = exc
                 wait = 2 ** (attempt - 1)  # 1, 2, 4 s
                 logger.warning(
@@ -336,7 +389,7 @@ async def list_tools() -> list[mcp_types.Tool]:
                 "required": ["query"],
             },
         ),
-        mcp_types.Tool(
+        mcp_tools_Tool(
             name="knowledge_base",
             description="Structured entity facts via Wikidata. Use for entity definitions, taxonomy, and factual attributes.",
             inputSchema={

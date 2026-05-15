@@ -560,3 +560,119 @@
 
 .sandboxCommentary { font-size: 11px; color: #666; font-style: italic; }
 .sandboxOutput     { font-size: 11px; color: #999; line-height: 1.5; word-break: break-word; }
+
+/* ── Live tool feed (sandbox pane while loading) ─────────── */
+
+/* Pane header LIVE badge */
+.sandboxLiveBadge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #4f98a3;
+  background: #0e2a2e;
+  border: 1px solid #1a4a50;
+  border-radius: 99px;
+  padding: 1px 6px;
+  animation: livePulse 1.8s ease-in-out infinite;
+}
+@keyframes livePulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.45; }
+}
+
+/* Waiting dots (shown before the first tool event arrives) */
+.sandboxWaiting {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  justify-content: center;
+  padding: 8px 0;
+}
+
+.sandboxDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #4f98a3;
+  opacity: 0.4;
+  animation: blink 1.4s infinite both;
+}
+.sandboxDot:nth-child(2) { animation-delay: 0.2s; }
+.sandboxDot:nth-child(3) { animation-delay: 0.4s; }
+
+/* Feed container */
+.liveToolFeed {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px 0;
+}
+
+/* Individual row */
+.liveToolRow {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  border: 1px solid transparent;
+  transition: background 120ms;
+}
+
+/* Row variants */
+.liveToolRunning {
+  background: #0f1e20;
+  border-color: #1a3a3e;
+  color: #7ab8c0;
+}
+.liveToolRunning .liveToolIcon {
+  animation: spinCcw 1s linear infinite;
+  display: inline-block;
+}
+@keyframes spinCcw {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(-360deg); }
+}
+
+.liveToolOk {
+  background: #0c1e14;
+  border-color: #1a3a24;
+  color: #7abf7a;
+}
+
+.liveToolErr {
+  background: #1e0c0c;
+  border-color: #3a1a1a;
+  color: #c07a7a;
+}
+
+.liveToolPlan {
+  background: #111113;
+  border-color: #2a2a2e;
+  color: #888;
+}
+
+/* Row slots */
+.liveToolIcon {
+  flex-shrink: 0;
+  font-size: 11px;
+  width: 14px;
+  text-align: center;
+}
+
+.liveToolDetail {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.liveToolElapsed {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: #555;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

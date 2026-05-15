@@ -33,6 +33,16 @@ Phases emitted from inside SandboxManager:
   sandbox_tool/<n>    — MCP call n started
   sandbox_tool/<n>_ok — MCP call n succeeded
   sandbox_tool/<n>_err— MCP call n failed
+
+Changes (2026-05-16 — patch 4)
+------------------------------
+  _execute_step: fix step status detection — was checking
+  `"error" in output` (dict key membership) which fires True whenever
+  the output dict contains an "error" key regardless of its value,
+  causing false-positive error status on successful web_search results
+  that also carry a "note" field.  Changed to
+  `output.get("status") == "error"` which aligns with the structured
+  {status, source, note} shape all four MCP tools now emit.
 """
 from __future__ import annotations
 
@@ -80,7 +90,6 @@ class SandboxManager:
         max_steps: int = _DEFAULT_MAX_STEPS,
         wall_timeout_s: float = _DEFAULT_WALL_TIMEOUT_S,
     ) -> None:
-        # Note: llm parameter removed — SandboxManager no longer owns an LLMClient.
         self._planner = planner or get_planner()
         self._mcp = mcp or get_mcp_client()
         self._max_steps = max_steps
@@ -206,13 +215,18 @@ class SandboxManager:
 
         try:
             output = self._mcp.call_tool(call.tool, arguments)
-            status = "error" if "error" in output else "ok"
+            # Use output.status field for reliable error detection.
+            # Avoid `"error" in output` (dict key check) which fires on any
+            # output dict that happens to contain an "error" key, even when
+            # the call succeeded (e.g. web_search returning a "note" key
+            # alongside valid results).
+            status = "error" if output.get("status") == "error" else "ok"
             logger.debug(
                 "SandboxManager._execute_step: tool=%s status=%s output_keys=%s",
                 call.tool, status, list(output.keys())[:6],
             )
         except Exception as exc:
-            output = {"error": str(exc)}
+            output = {"error": str(exc), "status": "error", "source": call.tool}
             status = "error"
             logger.warning(
                 "SandboxManager: MCP call '%s' raised — %s", call.tool, exc
