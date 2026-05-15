@@ -50,6 +50,44 @@ app.add_middleware(
 )
 
 
+# ---------------------------------------------------------------------------
+# Model warmup — runs once at startup in a thread pool so the event loop
+# is not blocked and the first real request hits a warm model cache.
+# ---------------------------------------------------------------------------
+
+@app.on_event("startup")
+async def preload_models() -> None:
+    """
+    Pre-load all HuggingFace / SentenceTransformer models used by Mycelium
+    into the ModelRegistry singleton cache.
+
+    All subsequent calls to get_model() with the same key are O(1) dict
+    lookups — no disk I/O, no GPU allocation.
+    """
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+    from model_registry import warmup
+
+    specs = [
+        # FuzzyVerifier (expert_post_check)
+        {"model_name": "all-mpnet-base-v2",  "model_type": "sentence_transformer", "device": "cpu"},
+        # RuntimeSpectralAnalyzer + SpectralSignatureGenerator (spectral_analyzer)
+        {"model_name": "all-MiniLM-L6-v2",   "model_type": "sentence_transformer", "device": "cpu"},
+        # Add any additional HF models used in multi_lens_router / layer_1 here:
+        # {"model_name": "<model-id>", "model_type": "sentence_transformer", "device": "cpu"},
+    ]
+
+    loop = asyncio.get_running_loop()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        await loop.run_in_executor(pool, warmup, specs)
+
+    logger.info("broadcast_api: model warmup complete")
+
+
+# ---------------------------------------------------------------------------
+# Request / response models
+# ---------------------------------------------------------------------------
+
 class QueryRequest(BaseModel):
     text: str
 
@@ -274,7 +312,6 @@ def _full_pipeline_generator(
 
     # ── Phase: sandbox ──────────────────────────────────────────────────────────
     sandbox_events: List[str] = []
-    tool_counter = {"n": 0}
 
     def on_sandbox_progress(phase: str, detail: str) -> None:
         """Callback fired by SandboxManager at each sub-step."""
@@ -284,7 +321,6 @@ def _full_pipeline_generator(
 
     sandbox_result = _run_sandbox(summary, req_text, on_progress=on_sandbox_progress)
 
-    # Drain any events the sandbox queued synchronously
     for ev in sandbox_events:
         yield ev
     sandbox_events.clear()
@@ -346,6 +382,7 @@ def _full_pipeline_generator(
 @app.get("/health")
 async def health() -> Dict[str, Any]:
     """Health check — also probes Ollama reachability."""
+    from model_registry import loaded_models
     ollama_url = cfg.ollama_base_url()
     ollama_ok = False
     try:
@@ -357,6 +394,7 @@ async def health() -> Dict[str, Any]:
         "status": "ok",
         "ollama_reachable": ollama_ok,
         "ollama_url": ollama_url,
+        "models_loaded": loaded_models(),
     }
 
 
@@ -469,20 +507,16 @@ async def chat_stream(text: str) -> StreamingResponse:
     import asyncio
     from concurrent.futures import ThreadPoolExecutor
 
-    # get_running_loop() always returns the loop executing this coroutine.
-    # get_event_loop() is NOT safe to call here in Python 3.10+.
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue = asyncio.Queue()
     _sentinel = object()
-    _cancel = threading.Event()   # set by consumer on client disconnect
+    _cancel = threading.Event()
 
     def _sync_gen():
         yield from _full_pipeline_generator(text.strip(), trace_id)
 
     def _producer(cancel: threading.Event) -> None:
-        """Run in a worker thread. Posts SSE chunks into the async queue.
-        Respects _cancel so a disconnected client doesn't keep the GPU busy.
-        """
+        """Run in a worker thread. Posts SSE chunks into the async queue."""
         try:
             for chunk in _sync_gen():
                 if cancel.is_set():
@@ -491,18 +525,17 @@ async def chat_stream(text: str) -> StreamingResponse:
                 try:
                     loop.call_soon_threadsafe(queue.put_nowait, chunk)
                 except RuntimeError:
-                    # Loop is closing (server shutdown race). Give up cleanly.
                     logger.warning("[SSE %s] call_soon_threadsafe: loop closed, aborting producer", trace_id)
                     return
         finally:
             try:
                 loop.call_soon_threadsafe(queue.put_nowait, _sentinel)
             except RuntimeError:
-                pass  # loop already gone; consumer will eventually time out
+                pass
 
     executor = ThreadPoolExecutor(max_workers=1)
     executor.submit(_producer, _cancel)
-    executor.shutdown(wait=False)  # don't leak thread references on repeated requests
+    executor.shutdown(wait=False)
 
     async def _async_gen():
         try:
@@ -512,7 +545,6 @@ async def chat_stream(text: str) -> StreamingResponse:
                     break
                 yield item
         except GeneratorExit:
-            # Client disconnected mid-stream. Signal the producer to stop.
             _cancel.set()
             logger.info("[SSE %s] client disconnected, cancel signal sent", trace_id)
 

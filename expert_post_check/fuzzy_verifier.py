@@ -131,17 +131,30 @@ class FuzzyVerifier:
     # ------------------------------------------------------------------
 
     def _load_encoder(self):
+        """Delegate to ModelRegistry — free on every call after the first."""
         try:
-            from sentence_transformers import SentenceTransformer
-            model = SentenceTransformer(self._embed_model)
-            logger.debug("FuzzyVerifier loaded encoder: %s", self._embed_model)
-            return model
-        except ImportError:
-            logger.warning(
-                "sentence-transformers not available. "
-                "Falling back to character-level overlap similarity."
+            from model_registry import get_model
+            encoder = get_model(
+                self._embed_model,
+                model_type="sentence_transformer",
+                device="cpu",
             )
-            return None
+            logger.debug("FuzzyVerifier: encoder resolved from ModelRegistry (%s)", self._embed_model)
+            return encoder
+        except ImportError:
+            # model_registry not available; fall back to direct load
+            logger.warning(
+                "model_registry not found — FuzzyVerifier loading SentenceTransformer directly."
+            )
+            try:
+                from sentence_transformers import SentenceTransformer
+                return SentenceTransformer(self._embed_model)
+            except ImportError:
+                logger.warning(
+                    "sentence-transformers not available. "
+                    "Falling back to character-level overlap similarity."
+                )
+                return None
 
     def _cosine_similarity(self, a: str, b: str) -> float:
         if self._encoder is not None:
