@@ -34,7 +34,7 @@ import config_loader as cfg
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Mycelium Broadcast API", version="0.5.1")
+app = FastAPI(title="Mycelium Broadcast API", version="0.5.2")
 
 origins = [
     "http://localhost:3000",
@@ -51,9 +51,13 @@ app.add_middleware(
 
 
 # ---------------------------------------------------------------------------
-# Model warmup — runs once at startup in a thread pool so the event loop
-# is not blocked and the first real request hits a warm model cache.
+# Warmup state — visible to the SSE generator so it can emit a
+# 'setting_up' phase while models are still loading.
 # ---------------------------------------------------------------------------
+
+_warmup_done = threading.Event()   # set() when warmup finishes
+_warmup_lock = threading.Lock()
+
 
 @app.on_event("startup")
 async def preload_models() -> None:
@@ -61,8 +65,9 @@ async def preload_models() -> None:
     Pre-load all HuggingFace / SentenceTransformer models used by Mycelium
     into the ModelRegistry singleton cache.
 
-    All subsequent calls to get_model() with the same key are O(1) dict
-    lookups — no disk I/O, no GPU allocation.
+    Runs in a ThreadPoolExecutor so the event loop is not blocked.
+    Sets _warmup_done when complete so in-flight SSE streams know the
+    environment is ready.
     """
     import asyncio
     from concurrent.futures import ThreadPoolExecutor
@@ -71,17 +76,16 @@ async def preload_models() -> None:
     specs = [
         # FuzzyVerifier (expert_post_check)
         {"model_name": "all-mpnet-base-v2",  "model_type": "sentence_transformer", "device": "cpu"},
-        # RuntimeSpectralAnalyzer + SpectralSignatureGenerator (spectral_analyzer)
+        # RuntimeSpectralAnalyzer + SpectralSignatureGenerator
         {"model_name": "all-MiniLM-L6-v2",   "model_type": "sentence_transformer", "device": "cpu"},
-        # Add any additional HF models used in multi_lens_router / layer_1 here:
-        # {"model_name": "<model-id>", "model_type": "sentence_transformer", "device": "cpu"},
     ]
 
     loop = asyncio.get_running_loop()
     with ThreadPoolExecutor(max_workers=1) as pool:
         await loop.run_in_executor(pool, warmup, specs)
 
-    logger.info("broadcast_api: model warmup complete")
+    _warmup_done.set()
+    logger.info("broadcast_api: model warmup complete — _warmup_done set")
 
 
 # ---------------------------------------------------------------------------
@@ -248,17 +252,27 @@ def _sandbox_result_to_out(sr: Any) -> SandboxResultOut:
 def _full_pipeline_generator(
     req_text: str,
     trace_id: str,
+    sse_queue: Optional[Any] = None,
+    loop: Optional[Any] = None,
 ) -> Generator[str, None, None]:
     """
     Run the full chat pipeline and yield SSE events at each phase boundary.
 
+    When sse_queue + loop are provided (SSE path), sandbox progress events
+    are posted directly into the queue via call_soon_threadsafe so the
+    frontend sees each tool call as it starts/finishes rather than waiting
+    for the whole sandbox block to complete.
+
     Phase sequence
     --------------
-    routing          — Mycelium multi-lens router + Phase 1/2 running
+    setting_up       — warmup still in progress when request arrives
+    environment_ready — warmup finished (only emitted if setting_up was sent)
+    routing          — multi-lens router + Phase 1/2 running
     expert_decision  — unified decision analysis + expert selection done
     sandbox_plan     — DomainToolPlanner produced tool plan
-    sandbox_tool/<n> — each MCP tool call completed
-    sandbox_summary  — LLM evidence summary complete
+    sandbox_tool/<n> — each MCP tool call started
+    sandbox_tool/<n>_ok / _err — each MCP tool call completed
+    sandbox_summary  — all tool calls done
     conversation     — ConversationAgent generating user-facing answer
     done             — complete ChatResponse payload attached
     """
@@ -266,6 +280,22 @@ def _full_pipeline_generator(
 
     def elapsed() -> int:
         return int((time.monotonic() - wall_start) * 1000)
+
+    # ── Phase: setting_up (if warmup is still running) ──────────────────────
+    sent_setting_up = False
+    if not _warmup_done.is_set():
+        sent_setting_up = True
+        yield _sse_event(
+            "setting_up",
+            "Loading model weights into memory — first request may take a moment…",
+            elapsed(),
+        )
+        logger.info("[SSE %s] phase=setting_up — waiting for warmup", trace_id)
+        _warmup_done.wait()  # block producer thread until warmup completes
+
+    if sent_setting_up:
+        yield _sse_event("environment_ready", "Environment ready — starting pipeline", elapsed())
+        logger.info("[SSE %s] phase=environment_ready elapsed=%dms", trace_id, elapsed())
 
     # ── Phase: routing + pipeline ───────────────────────────────────────────
     yield _sse_event("routing", "Running multi-lens router and reasoning pipeline…", elapsed())
@@ -310,20 +340,31 @@ def _full_pipeline_generator(
         except Exception as exc:
             logger.warning("patch_logger.log_query failed — %s", exc)
 
-    # ── Phase: sandbox ──────────────────────────────────────────────────────────
-    sandbox_events: List[str] = []
+    # ── Phase: sandbox — live forwarding ───────────────────────────────────
+    # If we have direct access to the SSE queue + event loop, post sandbox
+    # progress events there immediately (bypassing the generator yield cycle)
+    # so the frontend sees each tool call as it starts, not all at once.
+    sandbox_buffer: List[str] = []  # fallback for non-SSE path
 
     def on_sandbox_progress(phase: str, detail: str) -> None:
-        """Callback fired by SandboxManager at each sub-step."""
-        nonlocal sandbox_events
-        sandbox_events.append(_sse_event(phase, detail, elapsed()))
+        ev = _sse_event(phase, detail, elapsed())
         logger.info("[SSE %s] phase=%s detail=%r elapsed=%dms", trace_id, phase, detail, elapsed())
+        if sse_queue is not None and loop is not None:
+            # Live path: post directly into the async queue
+            try:
+                loop.call_soon_threadsafe(sse_queue.put_nowait, ev)
+            except RuntimeError:
+                sandbox_buffer.append(ev)
+        else:
+            # Fallback (non-SSE path): buffer for later yield
+            sandbox_buffer.append(ev)
 
     sandbox_result = _run_sandbox(summary, req_text, on_progress=on_sandbox_progress)
 
-    for ev in sandbox_events:
+    # Flush any buffered sandbox events (non-SSE path or queue-not-available)
+    for ev in sandbox_buffer:
         yield ev
-    sandbox_events.clear()
+    sandbox_buffer.clear()
 
     yield _sse_event(
         "sandbox_summary",
@@ -335,7 +376,7 @@ def _full_pipeline_generator(
         trace_id, len(sandbox_result.steps), elapsed(),
     )
 
-    # ── Phase: conversation ─────────────────────────────────────────────────────
+    # ── Phase: conversation ─────────────────────────────────────────────────
     yield _sse_event("conversation", "Generating answer…", elapsed())
     logger.info("[SSE %s] phase=conversation elapsed=%dms", trace_id, elapsed())
 
@@ -348,7 +389,7 @@ def _full_pipeline_generator(
 
     logger.info("[SSE %s] phase=conversation done elapsed=%dms", trace_id, elapsed())
 
-    # ── Persist trace ────────────────────────────────────────────────────────────
+    # ── Persist trace ────────────────────────────────────────────────────────
     sandbox_dict = _to_jsonable(sandbox_result.model_dump())
     trace = ReasoningTrace(
         trace_id=trace_id,
@@ -365,7 +406,7 @@ def _full_pipeline_generator(
         except Exception as exc:
             logger.warning("patch_logger.fill_response failed — %s", exc)
 
-    # ── Phase: done ──────────────────────────────────────────────────────────────
+    # ── Phase: done ──────────────────────────────────────────────────────────
     sandbox_out = _sandbox_result_to_out(sandbox_result)
     response_payload = ChatResponse(
         trace=summary, answer=answer, sandbox=sandbox_out
@@ -395,6 +436,7 @@ async def health() -> Dict[str, Any]:
         "ollama_reachable": ollama_ok,
         "ollama_url": ollama_url,
         "models_loaded": loaded_models(),
+        "warmup_done": _warmup_done.is_set(),
     }
 
 
@@ -467,34 +509,31 @@ async def chat_stream(text: str) -> StreamingResponse:
     Event shape: { phase, detail, elapsed_ms, payload? }
 
     Phases emitted (in order):
+      setting_up       — warmup still in progress (first cold start only)
+      environment_ready — warmup just finished
       routing          — pipeline starting
       expert_decision  — decision_type + domains resolved
       sandbox_plan     — tool plan produced
-      sandbox_tool/<n> — each MCP call completed
-      sandbox_summary  — evidence summary complete
+      sandbox_tool/<n> — each MCP call started    ← forwarded live
+      sandbox_tool/<n>_ok / _err — call result    ← forwarded live
+      sandbox_summary  — all tools done
       conversation     — generating answer
       done             — complete ChatResponse in `payload`
       error            — fatal error in `detail`
 
-    The frontend connects via EventSource, updates the phase indicator,
-    then reads the final `done` payload as the chat response.
-
     SSE bridge design
     -----------------
-    _full_pipeline_generator is a synchronous generator (it calls blocking
-    Ollama/BERT/MCP code). It runs inside a ThreadPoolExecutor so it never
-    blocks the event loop.
+    _full_pipeline_generator is synchronous (calls blocking Ollama/BERT/MCP
+    code).  It runs inside a ThreadPoolExecutor so it never blocks the loop.
 
-    The bridge uses asyncio.get_running_loop() — NOT get_event_loop() —
-    to obtain the loop that is *actually* executing this coroutine. This
-    is critical for long-running pipelines: get_event_loop() can return a
-    different or stale loop after 60-150 s, causing call_soon_threadsafe
-    to post into a dead loop, the sentinel to be lost, the StreamingResponse
-    to time out, and EventSource.onerror to fire — restarting the pipeline.
+    Sandbox progress events are posted directly from the producer thread
+    into the asyncio queue via call_soon_threadsafe — not buffered — so
+    the frontend sees each tool call as it happens, not all at once after
+    the sandbox block finishes.
 
-    A threading.Event (_cancel) signals early exit to the producer thread
-    when the client disconnects (GeneratorExit on the async side), so we
-    don't burn GPU for 2 minutes after a browser tab closes.
+    Uses asyncio.get_running_loop() — NOT get_event_loop() — to get the loop
+    actually executing this coroutine, preventing stale-loop sentinel loss
+    on long pipelines (>60 s).
     """
     if not text or not text.strip():
         async def _empty():
@@ -512,13 +551,13 @@ async def chat_stream(text: str) -> StreamingResponse:
     _sentinel = object()
     _cancel = threading.Event()
 
-    def _sync_gen():
-        yield from _full_pipeline_generator(text.strip(), trace_id)
-
     def _producer(cancel: threading.Event) -> None:
         """Run in a worker thread. Posts SSE chunks into the async queue."""
         try:
-            for chunk in _sync_gen():
+            for chunk in _full_pipeline_generator(
+                text.strip(), trace_id,
+                sse_queue=queue, loop=loop,
+            ):
                 if cancel.is_set():
                     logger.info("[SSE %s] producer cancelled by client disconnect", trace_id)
                     break
@@ -564,15 +603,10 @@ async def chat(req: ChatRequest) -> ChatResponse:
 
     Identical to the SSE stream but returned as a single JSON response.
     Useful as fallback when EventSource is unavailable.
-
-    Flow:
-      1. Run the Mycelium reasoning pipeline.
-      2. If CREATE_NEW_PATCH: log the query to the patch-batch dataset (M1.5).
-      3. Run the sandbox (M3): gather evidence via tools.
-      4. Pass sandbox evidence to the conversational agent (M4).
-      5. Persist the full ReasoningTrace (with sandbox_result) to JSONL (M2).
-      6. If CREATE_NEW_PATCH: fill the patch-batch record with the final answer.
     """
+    # Wait for warmup before processing so models are ready
+    _warmup_done.wait()
+
     trace_id = str(uuid4())
     summary = _build_run_summary(req.text, trace_id)
 

@@ -77,6 +77,13 @@ interface HistoryTrace {
   sandbox_result?: Record<string, unknown>;
 }
 
+// A live sandbox event streamed before the final SandboxResult is ready
+export interface LiveToolEvent {
+  phase: string;   // e.g. 'sandbox_tool/1', 'sandbox_tool/1_ok'
+  detail: string;
+  elapsed_ms: number;
+}
+
 // SSE event from /api/v1/chat/stream
 interface SseEvent {
   phase: string;
@@ -90,24 +97,24 @@ interface SseEvent {
 // ---------------------------------------------------------------------------
 
 const PHASE_META: Record<string, { label: string; progress: number }> = {
-  routing:           { label: 'Running reasoning pipeline…',    progress: 15 },
-  expert_decision:   { label: 'Expert decision resolved',       progress: 30 },
-  sandbox_plan:      { label: 'Planning sandbox tools…',        progress: 40 },
-  sandbox_summary_start: { label: 'Summarising evidence (LLM)…', progress: 75 },
-  sandbox_summary:   { label: 'Sandbox complete',               progress: 80 },
-  conversation:      { label: 'Generating answer…',             progress: 90 },
-  done:              { label: 'Done',                           progress: 100 },
-  error:             { label: 'Error',                          progress: 100 },
+  setting_up:        { label: 'Setting up environment…',         progress: 5  },
+  environment_ready: { label: 'Environment ready',               progress: 12 },
+  routing:           { label: 'Running reasoning pipeline…',     progress: 20 },
+  expert_decision:   { label: 'Expert decision resolved',        progress: 35 },
+  sandbox_plan:      { label: 'Planning sandbox tools…',         progress: 45 },
+  sandbox_summary:   { label: 'Sandbox complete',                progress: 80 },
+  conversation:      { label: 'Generating answer…',              progress: 90 },
+  done:              { label: 'Done',                            progress: 100 },
+  error:             { label: 'Error',                           progress: 100 },
 };
 
 function phaseLabel(phase: string): string {
   if (PHASE_META[phase]) return PHASE_META[phase].label;
-  // sandbox_tool/1, sandbox_tool/1_ok, etc.
   if (phase.startsWith('sandbox_tool/')) {
     const rest = phase.replace('sandbox_tool/', '');
-    if (rest.endsWith('_ok'))  return `Tool call ${rest.replace('_ok', '')} ✓`;
-    if (rest.endsWith('_err')) return `Tool call ${rest.replace('_err', '')} ✗`;
-    return `Running tool call ${rest}…`;
+    if (rest.endsWith('_ok'))  return `Tool ${rest.replace('_ok', '')} completed ✓`;
+    if (rest.endsWith('_err')) return `Tool ${rest.replace('_err', '')} failed ✗`;
+    return `Calling tool ${rest}…`;
   }
   return phase;
 }
@@ -116,9 +123,17 @@ function phaseProgress(phase: string): number {
   if (PHASE_META[phase]) return PHASE_META[phase].progress;
   if (phase.startsWith('sandbox_tool/')) {
     const n = parseInt(phase.replace(/\D/g, '') || '1', 10);
-    return Math.min(40 + n * 10, 72);
+    return Math.min(45 + n * 8, 78);
   }
   return 50;
+}
+
+// Does this phase belong to the sandbox tool-call section?
+function isSandboxToolPhase(phase: string): boolean {
+  return (
+    phase === 'sandbox_plan' ||
+    phase.startsWith('sandbox_tool/')
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -151,6 +166,7 @@ function fmtDuration(ms: number) {
 function outputPreview(output: Record<string, unknown>): string {
   if (!output) return '';
   if (typeof output.error === 'string') return `⚠ ${output.error}`;
+  if (output.status === 'empty') return '(no results returned)';
   if (Array.isArray(output.results)) {
     const r = output.results as Array<Record<string, string>>;
     return r
@@ -180,8 +196,19 @@ function outputPreview(output: Record<string, unknown>): string {
   return JSON.stringify(output).slice(0, 200);
 }
 
+// Derive a human tool name from the tool string
+function toolDisplayName(tool: string): string {
+  const names: Record<string, string> = {
+    web_search: 'Web Search',
+    academic_search: 'Academic Search',
+    knowledge_base: 'Knowledge Base',
+    calculator: 'Calculator',
+  };
+  return names[tool] ?? tool;
+}
+
 // ---------------------------------------------------------------------------
-// PhaseIndicator — replaces the static three-dot bubble while loading
+// PhaseIndicator
 // ---------------------------------------------------------------------------
 
 function PhaseIndicator({
@@ -215,7 +242,7 @@ function PhaseIndicator({
 }
 
 // ---------------------------------------------------------------------------
-// Sub-components
+// TracePanel
 // ---------------------------------------------------------------------------
 
 function TracePanel({ trace }: { trace: PipelineTrace }) {
@@ -302,7 +329,56 @@ function TracePanel({ trace }: { trace: PipelineTrace }) {
   );
 }
 
-function SandboxPanel({ sandbox }: { sandbox: SandboxResult | null }) {
+// ---------------------------------------------------------------------------
+// LiveToolFeed — shown in the sandbox pane while tools are running
+// ---------------------------------------------------------------------------
+
+function LiveToolFeed({ events }: { events: LiveToolEvent[] }) {
+  if (events.length === 0) return null;
+  return (
+    <div className={styles.liveToolFeed}>
+      {events.map((ev, i) => {
+        const isOk  = ev.phase.endsWith('_ok');
+        const isErr = ev.phase.endsWith('_err');
+        const isPlan = ev.phase === 'sandbox_plan';
+        const isStart = !isOk && !isErr && !isPlan;
+        return (
+          <div
+            key={i}
+            className={`${styles.liveToolRow} ${
+              isOk  ? styles.liveToolOk  :
+              isErr ? styles.liveToolErr :
+              isPlan ? styles.liveToolPlan :
+              styles.liveToolRunning
+            }`}
+          >
+            <span className={styles.liveToolIcon}>
+              {isOk ? '✓' : isErr ? '✗' : isPlan ? '📋' : '⟳'}
+            </span>
+            <span className={styles.liveToolDetail}>{ev.detail}</span>
+            <span className={styles.liveToolElapsed}>
+              {(ev.elapsed_ms / 1000).toFixed(1)}s
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SandboxPanel
+// ---------------------------------------------------------------------------
+
+function SandboxPanel({
+  sandbox,
+  liveEvents,
+  isLoading,
+}: {
+  sandbox: SandboxResult | null;
+  liveEvents: LiveToolEvent[];
+  isLoading: boolean;
+}) {
   const [openSteps, setOpenSteps] = useState<Set<number>>(new Set());
 
   function toggleStep(i: number) {
@@ -311,6 +387,26 @@ function SandboxPanel({ sandbox }: { sandbox: SandboxResult | null }) {
       next.has(i) ? next.delete(i) : next.add(i);
       return next;
     });
+  }
+
+  // While loading, show the live feed
+  if (isLoading) {
+    return (
+      <div className={styles.sandboxPanel}>
+        {liveEvents.length === 0 ? (
+          <div className={styles.sandboxEmpty}>
+            <div className={styles.sandboxWaiting}>
+              <span className={styles.sandboxDot} />
+              <span className={styles.sandboxDot} />
+              <span className={styles.sandboxDot} />
+            </div>
+            <p>Waiting for tool plan…</p>
+          </div>
+        ) : (
+          <LiveToolFeed events={liveEvents} />
+        )}
+      </div>
+    );
   }
 
   if (!sandbox) {
@@ -351,7 +447,9 @@ function SandboxPanel({ sandbox }: { sandbox: SandboxResult | null }) {
               onClick={() => toggleStep(i)}
               aria-expanded={openSteps.has(i)}
             >
-              <span className={styles.sandboxToolBadge}>{step.tool}</span>
+              <span className={styles.sandboxToolBadge}>
+                {toolDisplayName(step.tool)}
+              </span>
               <span
                 className={
                   step.status === 'ok'
@@ -403,6 +501,10 @@ function SandboxPanel({ sandbox }: { sandbox: SandboxResult | null }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// HistoryItem
+// ---------------------------------------------------------------------------
+
 function HistoryItem({
   item,
   active,
@@ -453,18 +555,18 @@ export default function Home() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [activeSandbox, setActiveSandbox] = useState<SandboxResult | null>(null);
+  const [liveToolEvents, setLiveToolEvents] = useState<LiveToolEvent[]>([]);
   const [history, setHistory] = useState<HistoryTrace[]>([]);
   const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
   const [historySidebarOpen, setHistorySidebarOpen] = useState(true);
 
-  // Live phase state for the PhaseIndicator
+  // Live phase state for the PhaseIndicator in the chat pane
   const [currentPhase, setCurrentPhase] = useState<string>('routing');
   const [currentDetail, setCurrentDetail] = useState<string>('');
   const [elapsedMs, setElapsedMs] = useState<number>(0);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const esRef = useRef<EventSource | null>(null);
-  // Tick timer — increments elapsed counter while loading
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number>(0);
 
@@ -472,7 +574,6 @@ export default function Home() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       esRef.current?.close();
@@ -491,9 +592,7 @@ export default function Home() {
     }
   }, []);
 
-  useEffect(() => {
-    loadHistory();
-  }, [loadHistory]);
+  useEffect(() => { loadHistory(); }, [loadHistory]);
 
   function toggleTrace(idx: number) {
     setMessages((prev) =>
@@ -529,6 +628,7 @@ export default function Home() {
       { role: 'assistant', content: answer, trace, traceOpen: false, sandbox },
     ]);
     if (sandbox) setActiveSandbox(sandbox);
+    setLiveToolEvents([]);  // clear live feed once we have the real result
     setLoading(false);
     stopElapsedTick();
     loadHistory();
@@ -542,6 +642,7 @@ export default function Home() {
         content: `⚠ Error contacting Mycelium backend: ${detail}\n\nIs the FastAPI server running at ${API_BASE}?`,
       },
     ]);
+    setLiveToolEvents([]);
     setLoading(false);
     stopElapsedTick();
   }
@@ -552,11 +653,12 @@ export default function Home() {
     setMessages((prev) => [...prev, { role: 'user', content: text }]);
     setInput('');
     setLoading(true);
+    setLiveToolEvents([]);
+    setActiveSandbox(null);
     setCurrentPhase('routing');
     setCurrentDetail('Connecting to Mycelium…');
     startElapsedTick();
 
-    // ── Try SSE stream first ──────────────────────────────────────────────
     const sseUrl = `${API_BASE}/api/v1/chat/stream?text=${encodeURIComponent(text)}`;
 
     try {
@@ -567,9 +669,19 @@ export default function Home() {
       es.onmessage = (ev) => {
         try {
           const event: SseEvent = JSON.parse(ev.data);
+
+          // Always update the phase indicator in the chat pane
           setCurrentPhase(event.phase);
           setCurrentDetail(event.detail);
           setElapsedMs(event.elapsed_ms);
+
+          // If it's a sandbox tool/plan event, also push to the live feed
+          if (isSandboxToolPhase(event.phase)) {
+            setLiveToolEvents((prev) => [
+              ...prev,
+              { phase: event.phase, detail: event.detail, elapsed_ms: event.elapsed_ms },
+            ]);
+          }
 
           if (event.phase === 'done' && event.payload) {
             gotDone = true;
@@ -588,14 +700,12 @@ export default function Home() {
       };
 
       es.onerror = () => {
-        if (gotDone) return; // already finished cleanly
+        if (gotDone) return;
         es.close();
         esRef.current = null;
-        // SSE failed — fall back to plain POST
         fallbackPost(text);
       };
     } catch {
-      // EventSource constructor threw (very unusual) — fall back
       fallbackPost(text);
     }
   }
@@ -629,6 +739,13 @@ export default function Home() {
     if (sr) setActiveSandbox(sr);
   }
 
+  // Dynamic sandbox pane title
+  const sandboxPaneTitle = loading && liveToolEvents.length > 0
+    ? 'Running tools…'
+    : loading
+    ? 'Sandbox'
+    : 'Sandbox evidence';
+
   return (
     <div className={styles.shell}>
       <Head>
@@ -636,7 +753,7 @@ export default function Home() {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
 
-      {/* ── Header ────────────────────────────────────────── */}
+      {/* ── Header ───────────────────────────────────────── */}
       <header className={styles.header}>
         <div className={styles.headerLeft}>
           <button
@@ -675,7 +792,7 @@ export default function Home() {
         </div>
       </header>
 
-      {/* ── Body ──────────────────────────────────────────── */}
+      {/* ── Body ─────────────────────────────────────────── */}
       <div className={styles.body}>
 
         {/* History sidebar */}
@@ -760,24 +877,13 @@ export default function Home() {
                         aria-expanded={m.traceOpen}
                       >
                         <svg
-                          width="11"
-                          height="11"
-                          viewBox="0 0 12 12"
-                          fill="none"
+                          width="11" height="11" viewBox="0 0 12 12" fill="none"
                           style={{
-                            transform: m.traceOpen
-                              ? 'rotate(90deg)'
-                              : 'rotate(0deg)',
+                            transform: m.traceOpen ? 'rotate(90deg)' : 'rotate(0deg)',
                             transition: 'transform 180ms ease',
                           }}
                         >
-                          <path
-                            d="M4 2l4 4-4 4"
-                            stroke="currentColor"
-                            strokeWidth="1.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
+                          <path d="M4 2l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                         </svg>
                         Pipeline trace
                       </button>
@@ -802,7 +908,6 @@ export default function Home() {
               </div>
             ))}
 
-            {/* Live phase indicator replaces the static three-dot bubble */}
             {loading && (
               <div className={styles.assistantBubbleWrap}>
                 <div className={styles.assistantBubble}>
@@ -849,9 +954,16 @@ export default function Home() {
         {/* Sandbox evidence panel */}
         <aside className={styles.sandboxPane}>
           <div className={styles.sidebarHeader}>
-            <span className={styles.sidebarTitle}>Sandbox evidence</span>
+            <span className={styles.sidebarTitle}>{sandboxPaneTitle}</span>
+            {loading && liveToolEvents.length > 0 && (
+              <span className={styles.sandboxLiveBadge}>LIVE</span>
+            )}
           </div>
-          <SandboxPanel sandbox={activeSandbox} />
+          <SandboxPanel
+            sandbox={activeSandbox}
+            liveEvents={liveToolEvents}
+            isLoading={loading}
+          />
         </aside>
       </div>
     </div>
