@@ -91,23 +91,25 @@ interface SseEvent {
 }
 
 // ---------------------------------------------------------------------------
-// Typewriter texts
+// Typewriter texts — Mycelium's philosophy & intent, not its tech stack
 // ---------------------------------------------------------------------------
 
 const TYPEWRITER_TEXTS = [
-  'Routes your questions through a multi-layer reasoning pipeline.',
-  'Selects domain experts. Validates every answer.',
-  'Gathers real evidence with live sandbox tools.',
-  'Knows what it knows. Patches what it doesn\'t.',
-  'Built to reason, not just to respond.',
-  'Layer 0 → Routing → Experts → Validation → Synthesis.',
+  "Truth isn't assumed. It's earned.",
+  'An AI that admits when it doesn\'t know is more powerful than one that pretends it does.',
+  'Facts and values are different things. We treat them that way.',
+  'Not built to impress. Built to be honest.',
+  'Bias enters when we pretend values are facts. We don\'t pretend.',
+  'Modular by design. Honest by principle.',
+  'The no-bullshit promise: find truth where it exists, admit when it doesn\'t.',
+  'Intelligence distributed like mycelium — resilient, adaptive, no single point of failure.',
 ];
 
 // ---------------------------------------------------------------------------
 // useTypewriter hook
 // ---------------------------------------------------------------------------
 
-function useTypewriter(texts: string[], typingSpeed = 48, deletingSpeed = 22, pauseMs = 1800) {
+function useTypewriter(texts: string[], typingSpeed = 68, deletingSpeed = 32, pauseMs = 2400) {
   const [displayed, setDisplayed] = useState('');
   const [textIdx, setTextIdx] = useState(0);
   const [charIdx, setCharIdx] = useState(0);
