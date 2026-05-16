@@ -5,7 +5,137 @@
    Accents   : teal #4f98a3 · green #6daa45 · orange #fdab43 · red #dd6974
    ============================================================ */
 
-/* ── Shell ────────────────────────────────────────────────── */
+/* ============================================================
+   HOME SCREEN
+   ============================================================ */
+
+.homeScreen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  background: #000000;
+  color: #e8e8e8;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  padding: 24px;
+  animation: homeFadeIn 480ms ease both;
+}
+
+@keyframes homeFadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+
+.homeContent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  width: 100%;
+  max-width: 640px;
+}
+
+.homeLogo {
+  color: #ffffff;
+  opacity: 0.85;
+  margin-bottom: 4px;
+}
+
+.homeTitle {
+  font-size: clamp(2.2rem, 6vw, 3.4rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+  line-height: 1;
+  text-align: center;
+}
+
+.homeSubtitle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.6em;
+  font-size: clamp(0.85rem, 2vw, 1rem);
+  color: #585858;
+  text-align: center;
+  letter-spacing: 0.01em;
+}
+
+.homeTyped {
+  color: #4f98a3;
+}
+
+.homeCursor {
+  display: inline-block;
+  width: 2px;
+  height: 1.1em;
+  background: #4f98a3;
+  margin-left: 2px;
+  vertical-align: middle;
+  border-radius: 1px;
+  animation: cursorBlink 1s step-end infinite;
+}
+
+@keyframes cursorBlink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
+.homeInputWrap {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.homeInput {
+  flex: 1;
+  background: #000000;
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 15px;
+  color: #e8e8e8;
+  outline: none;
+  transition: border-color 140ms;
+}
+.homeInput:focus { border-color: #4f98a3; }
+.homeInput::placeholder { color: #2e2e2e; }
+
+.homeSendButton {
+  background: #4f98a3;
+  border: none;
+  border-radius: 10px;
+  width: 46px;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #ffffff;
+  transition: background 140ms;
+  flex-shrink: 0;
+}
+.homeSendButton:hover:not(:disabled) { background: #227f8b; }
+.homeSendButton:disabled { background: #0e2a2e; color: #2a5a60; cursor: not-allowed; }
+
+/* ============================================================
+   CHAT SHELL — fade in when transitioning from home
+   ============================================================ */
+
+.shellVisible {
+  animation: shellFadeIn 320ms ease both;
+}
+
+@keyframes shellFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ============================================================
+   SHELL
+   ============================================================ */
+
 .shell {
   display: flex;
   flex-direction: column;
@@ -205,20 +335,6 @@
   gap: 12px;
 }
 
-/* ── Empty state ─────────────────────────────────────────── */
-.emptyState {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  color: #383838;
-  text-align: center;
-  padding: 40px 24px;
-}
-.emptyState p { font-size: 13px; max-width: 320px; line-height: 1.6; }
-
 /* ── Bubbles ─────────────────────────────────────────────── */
 .userBubbleWrap {
   display: flex;
@@ -317,7 +433,7 @@
   transition: width 400ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* ── Typing bubble (legacy — kept for CSS reference) ──────── */
+/* ── Typing bubble (legacy) ───────────────────────────────── */
 .typingBubble {
   display: flex;
   align-items: center;
@@ -565,8 +681,7 @@
 .sandboxCommentary { font-size: 11px; color: #585858; font-style: italic; }
 .sandboxOutput     { font-size: 11px; color: #909090; line-height: 1.5; word-break: break-word; }
 
-/* ── Live tool feed (sandbox pane while loading) ─────────── */
-
+/* ── Live tool feed ───────────────────────────────────────── */
 .sandboxLiveBadge {
   font-size: 9px;
   font-weight: 700;
@@ -635,42 +750,10 @@
   to   { transform: rotate(-360deg); }
 }
 
-.liveToolOk {
-  background: #061408;
-  border-color: #122814;
-  color: #7abf7a;
-}
+.liveToolOk  { background: #061408; border-color: #122814; color: #7abf7a; }
+.liveToolErr { background: #140606; border-color: #281212; color: #c07a7a; }
+.liveToolPlan { background: #080808; border-color: #202020; color: #686868; }
 
-.liveToolErr {
-  background: #140606;
-  border-color: #281212;
-  color: #c07a7a;
-}
-
-.liveToolPlan {
-  background: #080808;
-  border-color: #202020;
-  color: #686868;
-}
-
-.liveToolIcon {
-  flex-shrink: 0;
-  font-size: 11px;
-  width: 14px;
-  text-align: center;
-}
-
-.liveToolDetail {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.liveToolElapsed {
-  flex-shrink: 0;
-  font-size: 10px;
-  color: #404040;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
+.liveToolIcon   { flex-shrink: 0; font-size: 11px; width: 14px; text-align: center; }
+.liveToolDetail { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.liveToolElapsed { flex-shrink: 0; font-size: 10px; color: #404040; font-variant-numeric: tabular-nums; white-space: nowrap; }

@@ -77,19 +77,76 @@ interface HistoryTrace {
   sandbox_result?: Record<string, unknown>;
 }
 
-// A live sandbox event streamed before the final SandboxResult is ready
 export interface LiveToolEvent {
-  phase: string;   // e.g. 'sandbox_tool/1', 'sandbox_tool/1_ok'
+  phase: string;
   detail: string;
   elapsed_ms: number;
 }
 
-// SSE event from /api/v1/chat/stream
 interface SseEvent {
   phase: string;
   detail: string;
   elapsed_ms: number;
   payload?: ChatApiResponse;
+}
+
+// ---------------------------------------------------------------------------
+// Typewriter texts
+// ---------------------------------------------------------------------------
+
+const TYPEWRITER_TEXTS = [
+  'Routes your questions through a multi-layer reasoning pipeline.',
+  'Selects domain experts. Validates every answer.',
+  'Gathers real evidence with live sandbox tools.',
+  'Knows what it knows. Patches what it doesn\'t.',
+  'Built to reason, not just to respond.',
+  'Layer 0 → Routing → Experts → Validation → Synthesis.',
+];
+
+// ---------------------------------------------------------------------------
+// useTypewriter hook
+// ---------------------------------------------------------------------------
+
+function useTypewriter(texts: string[], typingSpeed = 48, deletingSpeed = 22, pauseMs = 1800) {
+  const [displayed, setDisplayed] = useState('');
+  const [textIdx, setTextIdx] = useState(0);
+  const [charIdx, setCharIdx] = useState(0);
+  const [deleting, setDeleting] = useState(false);
+  const [paused, setPaused] = useState(false);
+
+  useEffect(() => {
+    if (paused) {
+      const t = setTimeout(() => { setPaused(false); setDeleting(true); }, pauseMs);
+      return () => clearTimeout(t);
+    }
+
+    const current = texts[textIdx];
+
+    if (!deleting) {
+      if (charIdx < current.length) {
+        const t = setTimeout(() => {
+          setDisplayed(current.slice(0, charIdx + 1));
+          setCharIdx((c) => c + 1);
+        }, typingSpeed);
+        return () => clearTimeout(t);
+      } else {
+        setPaused(true);
+      }
+    } else {
+      if (charIdx > 0) {
+        const t = setTimeout(() => {
+          setDisplayed(current.slice(0, charIdx - 1));
+          setCharIdx((c) => c - 1);
+        }, deletingSpeed);
+        return () => clearTimeout(t);
+      } else {
+        setDeleting(false);
+        setTextIdx((i) => (i + 1) % texts.length);
+      }
+    }
+  }, [charIdx, deleting, paused, textIdx, texts, typingSpeed, deletingSpeed, pauseMs]);
+
+  return displayed;
 }
 
 // ---------------------------------------------------------------------------
@@ -128,12 +185,8 @@ function phaseProgress(phase: string): number {
   return 50;
 }
 
-// Does this phase belong to the sandbox tool-call section?
 function isSandboxToolPhase(phase: string): boolean {
-  return (
-    phase === 'sandbox_plan' ||
-    phase.startsWith('sandbox_tool/')
-  );
+  return phase === 'sandbox_plan' || phase.startsWith('sandbox_tool/');
 }
 
 // ---------------------------------------------------------------------------
@@ -169,34 +222,20 @@ function outputPreview(output: Record<string, unknown>): string {
   if (output.status === 'empty') return '(no results returned)';
   if (Array.isArray(output.results)) {
     const r = output.results as Array<Record<string, string>>;
-    return r
-      .slice(0, 2)
-      .map((x) => x.snippet ?? x.abstract ?? x.title ?? '')
-      .filter(Boolean)
-      .join(' · ')
-      .slice(0, 200);
+    return r.slice(0, 2).map((x) => x.snippet ?? x.abstract ?? x.title ?? '').filter(Boolean).join(' · ').slice(0, 200);
   }
   if (Array.isArray(output.papers)) {
     const p = output.papers as Array<Record<string, unknown>>;
-    return p
-      .slice(0, 2)
-      .map((x) => `${x.title ?? ''} (${x.year ?? '?'})`)
-      .join('; ')
-      .slice(0, 200);
+    return p.slice(0, 2).map((x) => `${x.title ?? ''} (${x.year ?? '?'})`).join('; ').slice(0, 200);
   }
   if (Array.isArray(output.entities)) {
     const e = output.entities as Array<Record<string, string>>;
-    return e
-      .slice(0, 2)
-      .map((x) => `${x.label}: ${x.description ?? ''}`)
-      .join('; ')
-      .slice(0, 200);
+    return e.slice(0, 2).map((x) => `${x.label}: ${x.description ?? ''}`).join('; ').slice(0, 200);
   }
   if (output.result !== undefined) return String(output.result);
   return JSON.stringify(output).slice(0, 200);
 }
 
-// Derive a human tool name from the tool string
 function toolDisplayName(tool: string): string {
   const names: Record<string, string> = {
     web_search: 'Web Search',
@@ -211,19 +250,10 @@ function toolDisplayName(tool: string): string {
 // PhaseIndicator
 // ---------------------------------------------------------------------------
 
-function PhaseIndicator({
-  phase,
-  detail,
-  elapsedMs,
-}: {
-  phase: string;
-  detail: string;
-  elapsedMs: number;
-}) {
+function PhaseIndicator({ phase, detail, elapsedMs }: { phase: string; detail: string; elapsedMs: number }) {
   const label = phaseLabel(phase);
   const progress = phaseProgress(phase);
   const secs = (elapsedMs / 1000).toFixed(1);
-
   return (
     <div className={styles.phaseIndicator}>
       <div className={styles.phaseHeader}>
@@ -232,10 +262,7 @@ function PhaseIndicator({
       </div>
       {detail && <p className={styles.phaseDetail}>{detail}</p>}
       <div className={styles.phaseBarTrack}>
-        <div
-          className={styles.phaseBarFill}
-          style={{ width: `${progress}%` }}
-        />
+        <div className={styles.phaseBarFill} style={{ width: `${progress}%` }} />
       </div>
     </div>
   );
@@ -265,21 +292,13 @@ function TracePanel({ trace }: { trace: PipelineTrace }) {
         {(trace.routing_domains ?? []).length > 0 && (
           <div className={styles.traceCell}>
             <span className={styles.traceLabel}>Domains</span>
-            <span className={styles.traceValue}>
-              {(trace.routing_domains ?? []).join(', ')}
-            </span>
+            <span className={styles.traceValue}>{(trace.routing_domains ?? []).join(', ')}</span>
           </div>
         )}
         {trace.expert_decision_type && (
           <div className={styles.traceCell}>
             <span className={styles.traceLabel}>Expert decision</span>
-            <span
-              className={`${styles.traceValue} ${
-                trace.expert_decision_type === 'CREATE_NEW_PATCH'
-                  ? styles.traceValuePatch
-                  : ''
-              }`}
-            >
+            <span className={`${styles.traceValue} ${trace.expert_decision_type === 'CREATE_NEW_PATCH' ? styles.traceValuePatch : ''}`}>
               {trace.expert_decision_type}
             </span>
           </div>
@@ -287,17 +306,13 @@ function TracePanel({ trace }: { trace: PipelineTrace }) {
         {(trace.selected_experts ?? []).length > 0 && (
           <div className={styles.traceCell}>
             <span className={styles.traceLabel}>Experts used</span>
-            <span className={styles.traceValue}>
-              {(trace.selected_experts ?? []).join(', ')}
-            </span>
+            <span className={styles.traceValue}>{(trace.selected_experts ?? []).join(', ')}</span>
           </div>
         )}
         {trace.expert_confidence != null && (
           <div className={styles.traceCell}>
             <span className={styles.traceLabel}>Confidence</span>
-            <span className={styles.traceValue}>
-              {(Number(trace.expert_confidence) * 100).toFixed(1)}%
-            </span>
+            <span className={styles.traceValue}>{(Number(trace.expert_confidence) * 100).toFixed(1)}%</span>
           </div>
         )}
         {trace.validation_result && (
@@ -310,18 +325,14 @@ function TracePanel({ trace }: { trace: PipelineTrace }) {
           <div className={`${styles.traceCell} ${styles.traceCellFull}`}>
             <span className={styles.traceLabel}>Phase latencies (ms)</span>
             <span className={styles.traceValue}>
-              {Object.entries(latencies)
-                .map(([k, v]) => `${k}: ${v}`)
-                .join(' · ')}
+              {Object.entries(latencies).map(([k, v]) => `${k}: ${v}`).join(' · ')}
             </span>
           </div>
         )}
         {trace.trace_id && (
           <div className={`${styles.traceCell} ${styles.traceCellFull}`}>
             <span className={styles.traceLabel}>Trace ID</span>
-            <span className={`${styles.traceValue} ${styles.traceId}`}>
-              {trace.trace_id}
-            </span>
+            <span className={`${styles.traceValue} ${styles.traceId}`}>{trace.trace_id}</span>
           </div>
         )}
       </div>
@@ -330,7 +341,7 @@ function TracePanel({ trace }: { trace: PipelineTrace }) {
 }
 
 // ---------------------------------------------------------------------------
-// LiveToolFeed — shown in the sandbox pane while tools are running
+// LiveToolFeed
 // ---------------------------------------------------------------------------
 
 function LiveToolFeed({ events }: { events: LiveToolEvent[] }) {
@@ -338,27 +349,14 @@ function LiveToolFeed({ events }: { events: LiveToolEvent[] }) {
   return (
     <div className={styles.liveToolFeed}>
       {events.map((ev, i) => {
-        const isOk  = ev.phase.endsWith('_ok');
-        const isErr = ev.phase.endsWith('_err');
+        const isOk   = ev.phase.endsWith('_ok');
+        const isErr  = ev.phase.endsWith('_err');
         const isPlan = ev.phase === 'sandbox_plan';
-        const isStart = !isOk && !isErr && !isPlan;
         return (
-          <div
-            key={i}
-            className={`${styles.liveToolRow} ${
-              isOk  ? styles.liveToolOk  :
-              isErr ? styles.liveToolErr :
-              isPlan ? styles.liveToolPlan :
-              styles.liveToolRunning
-            }`}
-          >
-            <span className={styles.liveToolIcon}>
-              {isOk ? '✓' : isErr ? '✗' : isPlan ? '📋' : '⟳'}
-            </span>
+          <div key={i} className={`${styles.liveToolRow} ${isOk ? styles.liveToolOk : isErr ? styles.liveToolErr : isPlan ? styles.liveToolPlan : styles.liveToolRunning}`}>
+            <span className={styles.liveToolIcon}>{isOk ? '✓' : isErr ? '✗' : isPlan ? '📋' : '⟳'}</span>
             <span className={styles.liveToolDetail}>{ev.detail}</span>
-            <span className={styles.liveToolElapsed}>
-              {(ev.elapsed_ms / 1000).toFixed(1)}s
-            </span>
+            <span className={styles.liveToolElapsed}>{(ev.elapsed_ms / 1000).toFixed(1)}s</span>
           </div>
         );
       })}
@@ -370,26 +368,12 @@ function LiveToolFeed({ events }: { events: LiveToolEvent[] }) {
 // SandboxPanel
 // ---------------------------------------------------------------------------
 
-function SandboxPanel({
-  sandbox,
-  liveEvents,
-  isLoading,
-}: {
-  sandbox: SandboxResult | null;
-  liveEvents: LiveToolEvent[];
-  isLoading: boolean;
-}) {
+function SandboxPanel({ sandbox, liveEvents, isLoading }: { sandbox: SandboxResult | null; liveEvents: LiveToolEvent[]; isLoading: boolean }) {
   const [openSteps, setOpenSteps] = useState<Set<number>>(new Set());
-
   function toggleStep(i: number) {
-    setOpenSteps((prev) => {
-      const next = new Set(prev);
-      next.has(i) ? next.delete(i) : next.add(i);
-      return next;
-    });
+    setOpenSteps((prev) => { const next = new Set(prev); next.has(i) ? next.delete(i) : next.add(i); return next; });
   }
 
-  // While loading, show the live feed
   if (isLoading) {
     return (
       <div className={styles.sandboxPanel}>
@@ -410,87 +394,35 @@ function SandboxPanel({
   }
 
   if (!sandbox) {
-    return (
-      <div className={styles.sandboxEmpty}>
-        <p>Send a message to see sandbox evidence here.</p>
-      </div>
-    );
+    return <div className={styles.sandboxEmpty}><p>Send a message to see sandbox evidence here.</p></div>;
   }
 
-  const okSteps = sandbox.steps.filter((s) => s.status === 'ok');
+  const okSteps  = sandbox.steps.filter((s) => s.status === 'ok');
   const errSteps = sandbox.steps.filter((s) => s.status !== 'ok');
 
   return (
     <div className={styles.sandboxPanel}>
       <div className={styles.sandboxStats}>
         <span className={styles.sandboxStatOk}>{okSteps.length} ok</span>
-        {errSteps.length > 0 && (
-          <span className={styles.sandboxStatErr}>{errSteps.length} failed</span>
-        )}
+        {errSteps.length > 0 && <span className={styles.sandboxStatErr}>{errSteps.length} failed</span>}
         <span className={styles.sandboxStatId}>{shortId(sandbox.trace_id)}</span>
       </div>
-
-      {sandbox.summary && (
-        <p className={styles.sandboxSummary}>{sandbox.summary}</p>
-      )}
-
+      {sandbox.summary && <p className={styles.sandboxSummary}>{sandbox.summary}</p>}
       <div className={styles.sandboxSteps}>
         {sandbox.steps.map((step, i) => (
-          <div
-            key={i}
-            className={`${styles.sandboxStep} ${
-              step.status === 'ok' ? styles.sandboxStepOk : styles.sandboxStepErr
-            }`}
-          >
-            <button
-              className={styles.sandboxStepHeader}
-              onClick={() => toggleStep(i)}
-              aria-expanded={openSteps.has(i)}
-            >
-              <span className={styles.sandboxToolBadge}>
-                {toolDisplayName(step.tool)}
-              </span>
-              <span
-                className={
-                  step.status === 'ok'
-                    ? styles.sandboxStatusOk
-                    : styles.sandboxStatusErr
-                }
-              >
-                {step.status}
-              </span>
-              <span className={styles.sandboxStepInput}>
-                {step.input?.query ?? ''}
-              </span>
-              <span className={styles.sandboxStepDuration}>
-                {fmtDuration(step.duration_ms)}
-              </span>
-              <svg
-                width="10"
-                height="10"
-                viewBox="0 0 10 10"
-                fill="none"
-                style={{
-                  transform: openSteps.has(i) ? 'rotate(90deg)' : 'rotate(0)',
-                  transition: 'transform 150ms ease',
-                  flexShrink: 0,
-                }}
-              >
-                <path
-                  d="M3 2l4 3-4 3"
-                  stroke="currentColor"
-                  strokeWidth="1.4"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
+          <div key={i} className={`${styles.sandboxStep} ${step.status === 'ok' ? styles.sandboxStepOk : styles.sandboxStepErr}`}>
+            <button className={styles.sandboxStepHeader} onClick={() => toggleStep(i)} aria-expanded={openSteps.has(i)}>
+              <span className={styles.sandboxToolBadge}>{toolDisplayName(step.tool)}</span>
+              <span className={step.status === 'ok' ? styles.sandboxStatusOk : styles.sandboxStatusErr}>{step.status}</span>
+              <span className={styles.sandboxStepInput}>{step.input?.query ?? ''}</span>
+              <span className={styles.sandboxStepDuration}>{fmtDuration(step.duration_ms)}</span>
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ transform: openSteps.has(i) ? 'rotate(90deg)' : 'rotate(0)', transition: 'transform 150ms ease', flexShrink: 0 }}>
+                <path d="M3 2l4 3-4 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
-
             {openSteps.has(i) && (
               <div className={styles.sandboxStepBody}>
-                {step.commentary && (
-                  <p className={styles.sandboxCommentary}>{step.commentary}</p>
-                )}
+                {step.commentary && <p className={styles.sandboxCommentary}>{step.commentary}</p>}
                 <p className={styles.sandboxOutput}>{outputPreview(step.output)}</p>
               </div>
             )}
@@ -505,39 +437,15 @@ function SandboxPanel({
 // HistoryItem
 // ---------------------------------------------------------------------------
 
-function HistoryItem({
-  item,
-  active,
-  onClick,
-}: {
-  item: HistoryTrace;
-  active: boolean;
-  onClick: () => void;
-}) {
-  const ts = item.timestamp
-    ? new Date(item.timestamp).toLocaleTimeString([], {
-        hour: '2-digit',
-        minute: '2-digit',
-      })
-    : '';
+function HistoryItem({ item, active, onClick }: { item: HistoryTrace; active: boolean; onClick: () => void }) {
+  const ts = item.timestamp ? new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
   return (
-    <button
-      className={`${styles.historyItem} ${active ? styles.historyItemActive : ''}`}
-      onClick={onClick}
-    >
+    <button className={`${styles.historyItem} ${active ? styles.historyItemActive : ''}`} onClick={onClick}>
       <span className={styles.historyQuery}>{item.user_query}</span>
       <span className={styles.historyMeta}>
         {item.run_summary?.expert_decision?.decision_type && (
-          <span
-            className={`${styles.historyBadge} ${
-              item.run_summary.expert_decision.decision_type === 'CREATE_NEW_PATCH'
-                ? styles.historyBadgePatch
-                : styles.historyBadgeNormal
-            }`}
-          >
-            {item.run_summary.expert_decision.decision_type === 'CREATE_NEW_PATCH'
-              ? 'PATCH'
-              : 'OK'}
+          <span className={`${styles.historyBadge} ${item.run_summary.expert_decision.decision_type === 'CREATE_NEW_PATCH' ? styles.historyBadgePatch : styles.historyBadgeNormal}`}>
+            {item.run_summary.expert_decision.decision_type === 'CREATE_NEW_PATCH' ? 'PATCH' : 'OK'}
           </span>
         )}
         <span className={styles.historyTs}>{ts}</span>
@@ -547,37 +455,105 @@ function HistoryItem({
 }
 
 // ---------------------------------------------------------------------------
+// HomeScreen
+// ---------------------------------------------------------------------------
+
+function HomeScreen({
+  input,
+  onInputChange,
+  onSend,
+  onKeyDown,
+  loading,
+}: {
+  input: string;
+  onInputChange: (v: string) => void;
+  onSend: () => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  loading: boolean;
+}) {
+  const typed = useTypewriter(TYPEWRITER_TEXTS);
+
+  return (
+    <div className={styles.homeScreen}>
+      <div className={styles.homeContent}>
+        {/* Logo mark */}
+        <div className={styles.homeLogo}>
+          <svg width="52" height="52" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+            <circle cx="14" cy="14" r="3.5" fill="currentColor" opacity="0.9" />
+            <line x1="14" y1="14" x2="4"  y2="6"  stroke="currentColor" strokeWidth="1.2" opacity="0.55" />
+            <line x1="14" y1="14" x2="24" y2="6"  stroke="currentColor" strokeWidth="1.2" opacity="0.55" />
+            <line x1="14" y1="14" x2="4"  y2="22" stroke="currentColor" strokeWidth="1.2" opacity="0.55" />
+            <line x1="14" y1="14" x2="24" y2="22" stroke="currentColor" strokeWidth="1.2" opacity="0.55" />
+            <line x1="14" y1="14" x2="14" y2="2"  stroke="currentColor" strokeWidth="1.2" opacity="0.55" />
+            <line x1="14" y1="14" x2="14" y2="26" stroke="currentColor" strokeWidth="1.2" opacity="0.55" />
+            <circle cx="4"  cy="6"  r="2" fill="currentColor" opacity="0.4" />
+            <circle cx="24" cy="6"  r="2" fill="currentColor" opacity="0.4" />
+            <circle cx="4"  cy="22" r="2" fill="currentColor" opacity="0.4" />
+            <circle cx="24" cy="22" r="2" fill="currentColor" opacity="0.4" />
+            <circle cx="14" cy="2"  r="2" fill="currentColor" opacity="0.4" />
+            <circle cx="14" cy="26" r="2" fill="currentColor" opacity="0.4" />
+          </svg>
+        </div>
+
+        <h1 className={styles.homeTitle}>Mycelium</h1>
+
+        <div className={styles.homeSubtitle}>
+          <span className={styles.homeTyped}>{typed}</span>
+          <span className={styles.homeCursor} aria-hidden="true" />
+        </div>
+
+        {/* Chat bar */}
+        <div className={styles.homeInputWrap}>
+          <input
+            className={styles.homeInput}
+            placeholder="Ask anything…"
+            value={input}
+            onChange={(e) => onInputChange(e.target.value)}
+            onKeyDown={onKeyDown}
+            disabled={loading}
+            autoFocus
+          />
+          <button
+            className={styles.homeSendButton}
+            onClick={onSend}
+            disabled={loading || !input.trim()}
+            aria-label="Send"
+          >
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+              <path d="M2 9h14M10 3l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
 export default function Home() {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [hasStarted, setHasStarted]     = useState(false);
+  const [messages, setMessages]         = useState<Message[]>([]);
+  const [input, setInput]               = useState('');
+  const [loading, setLoading]           = useState(false);
   const [activeSandbox, setActiveSandbox] = useState<SandboxResult | null>(null);
   const [liveToolEvents, setLiveToolEvents] = useState<LiveToolEvent[]>([]);
-  const [history, setHistory] = useState<HistoryTrace[]>([]);
+  const [history, setHistory]           = useState<HistoryTrace[]>([]);
   const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
   const [historySidebarOpen, setHistorySidebarOpen] = useState(true);
 
-  // Live phase state for the PhaseIndicator in the chat pane
-  const [currentPhase, setCurrentPhase] = useState<string>('routing');
+  const [currentPhase, setCurrentPhase]   = useState<string>('routing');
   const [currentDetail, setCurrentDetail] = useState<string>('');
-  const [elapsedMs, setElapsedMs] = useState<number>(0);
+  const [elapsedMs, setElapsedMs]         = useState<number>(0);
 
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const esRef = useRef<EventSource | null>(null);
-  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const bottomRef    = useRef<HTMLDivElement>(null);
+  const esRef        = useRef<EventSource | null>(null);
+  const tickRef      = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number>(0);
-
-  // Tracks the wall-clock time of the most recent SSE onmessage event.
-  // Used in onerror to distinguish a genuinely unreachable server
-  // (no events ever, or >20 s silence) from a normally long pipeline
-  // that is merely quiet while the backend is thinking.
-  const lastEventAtRef = useRef<number>(0);
-
-  // Hard-cap timeout handle — cleared on every normal completion path.
-  const sseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastEventAtRef  = useRef<number>(0);
+  const sseTimeoutRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -586,66 +562,46 @@ export default function Home() {
   useEffect(() => {
     return () => {
       esRef.current?.close();
-      if (tickRef.current) clearInterval(tickRef.current);
+      if (tickRef.current)    clearInterval(tickRef.current);
       if (sseTimeoutRef.current) clearTimeout(sseTimeoutRef.current);
     };
   }, []);
 
   const loadHistory = useCallback(async () => {
     try {
-      const res = await axios.get<HistoryTrace[]>(
-        `${API_BASE}/api/v1/traces/recent?limit=20`,
-      );
+      const res = await axios.get<HistoryTrace[]>(`${API_BASE}/api/v1/traces/recent?limit=20`);
       setHistory(res.data ?? []);
-    } catch {
-      // History is optional
-    }
+    } catch { /* optional */ }
   }, []);
 
   useEffect(() => { loadHistory(); }, [loadHistory]);
 
   function toggleTrace(idx: number) {
-    setMessages((prev) =>
-      prev.map((m, i) => (i === idx ? { ...m, traceOpen: !m.traceOpen } : m)),
-    );
+    setMessages((prev) => prev.map((m, i) => (i === idx ? { ...m, traceOpen: !m.traceOpen } : m)));
   }
 
   function startElapsedTick() {
     startTimeRef.current = Date.now();
     setElapsedMs(0);
     if (tickRef.current) clearInterval(tickRef.current);
-    tickRef.current = setInterval(() => {
-      setElapsedMs(Date.now() - startTimeRef.current);
-    }, 250);
+    tickRef.current = setInterval(() => { setElapsedMs(Date.now() - startTimeRef.current); }, 250);
   }
 
   function stopElapsedTick() {
-    if (tickRef.current) {
-      clearInterval(tickRef.current);
-      tickRef.current = null;
-    }
+    if (tickRef.current) { clearInterval(tickRef.current); tickRef.current = null; }
   }
 
   function clearSseTimeout() {
-    if (sseTimeoutRef.current) {
-      clearTimeout(sseTimeoutRef.current);
-      sseTimeoutRef.current = null;
-    }
+    if (sseTimeoutRef.current) { clearTimeout(sseTimeoutRef.current); sseTimeoutRef.current = null; }
   }
 
   function finishWithResponse(data: ChatApiResponse) {
-    const answer: string =
-      data.answer ??
-      'Mycelium returned no answer text. Check the pipeline trace below.';
-    const trace = extractTrace(data);
+    const answer = data.answer ?? 'Mycelium returned no answer text. Check the pipeline trace below.';
+    const trace  = extractTrace(data);
     const sandbox = data.sandbox ?? null;
-
-    setMessages((prev) => [
-      ...prev,
-      { role: 'assistant', content: answer, trace, traceOpen: false, sandbox },
-    ]);
+    setMessages((prev) => [...prev, { role: 'assistant', content: answer, trace, traceOpen: false, sandbox }]);
     if (sandbox) setActiveSandbox(sandbox);
-    setLiveToolEvents([]);  // clear live feed once we have the real result
+    setLiveToolEvents([]);
     setLoading(false);
     stopElapsedTick();
     clearSseTimeout();
@@ -653,13 +609,7 @@ export default function Home() {
   }
 
   function finishWithError(detail: string) {
-    setMessages((prev) => [
-      ...prev,
-      {
-        role: 'assistant',
-        content: `⚠ Error contacting Mycelium backend: ${detail}\n\nIs the FastAPI server running at ${API_BASE}?`,
-      },
-    ]);
+    setMessages((prev) => [...prev, { role: 'assistant', content: `⚠ Error contacting Mycelium backend: ${detail}\n\nIs the FastAPI server running at ${API_BASE}?` }]);
     setLiveToolEvents([]);
     setLoading(false);
     stopElapsedTick();
@@ -669,6 +619,10 @@ export default function Home() {
   async function handleSend() {
     if (!input.trim() || loading) return;
     const text = input.trim();
+
+    // First message — transition home → chat
+    if (!hasStarted) setHasStarted(true);
+
     setMessages((prev) => [...prev, { role: 'user', content: text }]);
     setInput('');
     setLoading(true);
@@ -677,9 +631,6 @@ export default function Home() {
     setCurrentPhase('routing');
     setCurrentDetail('Connecting to Mycelium…');
     startElapsedTick();
-
-    // Reset the last-event timestamp to the current time so onerror can
-    // distinguish "never received any events" from "received some, now quiet".
     lastEventAtRef.current = Date.now();
 
     const sseUrl = `${API_BASE}/api/v1/chat/stream?text=${encodeURIComponent(text)}`;
@@ -689,82 +640,38 @@ export default function Home() {
       esRef.current = es;
       let gotDone = false;
 
-      // ── 3-minute hard-cap timeout ──────────────────────────────────────
-      // If the stream never delivers a 'done' event within 3 minutes,
-      // close the connection cleanly and surface a timeout error to the
-      // user.  Cleared on every normal completion path.
       const SSE_TIMEOUT_MS = 3 * 60 * 1000;
       sseTimeoutRef.current = setTimeout(() => {
-        if (!gotDone) {
-          es.close();
-          esRef.current = null;
-          finishWithError('Request timed out after 3 minutes.');
-        }
+        if (!gotDone) { es.close(); esRef.current = null; finishWithError('Request timed out after 3 minutes.'); }
       }, SSE_TIMEOUT_MS);
 
       es.onmessage = (ev) => {
-        // Stamp the most recent message time so onerror can measure silence.
         lastEventAtRef.current = Date.now();
-
         try {
           const event: SseEvent = JSON.parse(ev.data);
-
-          // Always update the phase indicator in the chat pane
           setCurrentPhase(event.phase);
           setCurrentDetail(event.detail);
           setElapsedMs(event.elapsed_ms);
-
-          // If it's a sandbox tool/plan event, also push to the live feed
           if (isSandboxToolPhase(event.phase)) {
-            setLiveToolEvents((prev) => [
-              ...prev,
-              { phase: event.phase, detail: event.detail, elapsed_ms: event.elapsed_ms },
-            ]);
+            setLiveToolEvents((prev) => [...prev, { phase: event.phase, detail: event.detail, elapsed_ms: event.elapsed_ms }]);
           }
-
           if (event.phase === 'done' && event.payload) {
-            gotDone = true;
-            es.close();
-            esRef.current = null;
-            finishWithResponse(event.payload);
+            gotDone = true; es.close(); esRef.current = null; finishWithResponse(event.payload);
           } else if (event.phase === 'error') {
-            gotDone = true;
-            es.close();
-            esRef.current = null;
-            finishWithError(event.detail || 'Unknown SSE error');
+            gotDone = true; es.close(); esRef.current = null; finishWithError(event.detail || 'Unknown SSE error');
           }
-        } catch {
-          // malformed SSE line — ignore
-        }
+        } catch { /* malformed SSE */ }
       };
 
       es.onerror = () => {
         if (gotDone) return;
-
         const silentForMs = Date.now() - lastEventAtRef.current;
         const neverReceivedEvents = lastEventAtRef.current === 0;
-
-        // Only fall back to POST if the server appears genuinely unreachable:
-        //   • We have never received a single event (server not responding), OR
-        //   • The connection has been silent for >20 s
-        //     (backend crashed mid-stream without sending 'error').
-        //
-        // If we received events recently (silentForMs < 20 s), the error is
-        // most likely a transient TCP blip during a normal long-running
-        // pipeline.  The backend heartbeat (': heartbeat\n\n' every 15 s)
-        // will keep the connection alive; dismiss the error and wait.
-        if (!neverReceivedEvents && silentForMs < 20_000) {
-          return;
-        }
-
-        clearSseTimeout();
-        es.close();
-        esRef.current = null;
-        fallbackPost(text);
+        if (!neverReceivedEvents && silentForMs < 20_000) return;
+        clearSseTimeout(); es.close(); esRef.current = null; fallbackPost(text);
       };
     } catch {
-      clearSseTimeout();
-      fallbackPost(text);
+      clearSseTimeout(); fallbackPost(text);
     }
   }
 
@@ -776,19 +683,12 @@ export default function Home() {
       finishWithResponse(res.data);
     } catch (err) {
       const axiosErr = err as AxiosError<{ detail?: string }>;
-      const detail =
-        axiosErr?.response?.data?.detail ??
-        axiosErr?.message ??
-        'Unknown error';
-      finishWithError(detail);
+      finishWithError(axiosErr?.response?.data?.detail ?? axiosErr?.message ?? 'Unknown error');
     }
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   }
 
   function handleHistoryClick(item: HistoryTrace) {
@@ -797,31 +697,41 @@ export default function Home() {
     if (sr) setActiveSandbox(sr);
   }
 
-  // Dynamic sandbox pane title
-  const sandboxPaneTitle = loading && liveToolEvents.length > 0
-    ? 'Running tools…'
-    : loading
-    ? 'Sandbox'
-    : 'Sandbox evidence';
+  const sandboxPaneTitle = loading && liveToolEvents.length > 0 ? 'Running tools…' : loading ? 'Sandbox' : 'Sandbox evidence';
 
+  // ── Render: home screen ────────────────────────────────────────────────────
+  if (!hasStarted) {
+    return (
+      <>
+        <Head>
+          <title>Mycelium</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+        </Head>
+        <HomeScreen
+          input={input}
+          onInputChange={setInput}
+          onSend={handleSend}
+          onKeyDown={handleKeyDown}
+          loading={loading}
+        />
+      </>
+    );
+  }
+
+  // ── Render: chat UI ────────────────────────────────────────────────────────
   return (
-    <div className={styles.shell}>
+    <div className={`${styles.shell} ${styles.shellVisible}`}>
       <Head>
         <title>Mycelium Console</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
 
-      {/* ── Header ──────────────────────────────────────────────── */}
+      {/* Header */}
       <header className={styles.header}>
         <div className={styles.headerLeft}>
-          <button
-            className={styles.sidebarToggle}
-            onClick={() => setHistorySidebarOpen((v) => !v)}
-            aria-label="Toggle history"
-            title="Toggle history panel"
-          >
+          <button className={styles.sidebarToggle} onClick={() => setHistorySidebarOpen((v) => !v)} aria-label="Toggle history" title="Toggle history panel">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <rect x="1" y="3" width="14" height="1.5" rx="0.75" fill="currentColor" />
+              <rect x="1" y="3"    width="14" height="1.5" rx="0.75" fill="currentColor" />
               <rect x="1" y="7.25" width="10" height="1.5" rx="0.75" fill="currentColor" />
               <rect x="1" y="11.5" width="12" height="1.5" rx="0.75" fill="currentColor" />
             </svg>
@@ -829,128 +739,64 @@ export default function Home() {
           <div className={styles.headerLogo}>
             <svg width="26" height="26" viewBox="0 0 28 28" fill="none" aria-label="Mycelium">
               <circle cx="14" cy="14" r="3.5" fill="currentColor" opacity="0.9" />
-              <line x1="14" y1="14" x2="4" y2="6" stroke="currentColor" strokeWidth="1.2" opacity="0.5" />
-              <line x1="14" y1="14" x2="24" y2="6" stroke="currentColor" strokeWidth="1.2" opacity="0.5" />
-              <line x1="14" y1="14" x2="4" y2="22" stroke="currentColor" strokeWidth="1.2" opacity="0.5" />
+              <line x1="14" y1="14" x2="4"  y2="6"  stroke="currentColor" strokeWidth="1.2" opacity="0.5" />
+              <line x1="14" y1="14" x2="24" y2="6"  stroke="currentColor" strokeWidth="1.2" opacity="0.5" />
+              <line x1="14" y1="14" x2="4"  y2="22" stroke="currentColor" strokeWidth="1.2" opacity="0.5" />
               <line x1="14" y1="14" x2="24" y2="22" stroke="currentColor" strokeWidth="1.2" opacity="0.5" />
-              <line x1="14" y1="14" x2="14" y2="2" stroke="currentColor" strokeWidth="1.2" opacity="0.5" />
+              <line x1="14" y1="14" x2="14" y2="2"  stroke="currentColor" strokeWidth="1.2" opacity="0.5" />
               <line x1="14" y1="14" x2="14" y2="26" stroke="currentColor" strokeWidth="1.2" opacity="0.5" />
-              <circle cx="4" cy="6" r="2" fill="currentColor" opacity="0.4" />
-              <circle cx="24" cy="6" r="2" fill="currentColor" opacity="0.4" />
-              <circle cx="4" cy="22" r="2" fill="currentColor" opacity="0.4" />
+              <circle cx="4"  cy="6"  r="2" fill="currentColor" opacity="0.4" />
+              <circle cx="24" cy="6"  r="2" fill="currentColor" opacity="0.4" />
+              <circle cx="4"  cy="22" r="2" fill="currentColor" opacity="0.4" />
               <circle cx="24" cy="22" r="2" fill="currentColor" opacity="0.4" />
-              <circle cx="14" cy="2" r="2" fill="currentColor" opacity="0.4" />
+              <circle cx="14" cy="2"  r="2" fill="currentColor" opacity="0.4" />
               <circle cx="14" cy="26" r="2" fill="currentColor" opacity="0.4" />
             </svg>
             <span className={styles.headerTitle}>Mycelium</span>
           </div>
-          <span className={styles.headerSubtitle}>
-            Layer 0 · Routing · Experts · Validation · Sandbox · Synthesis
-          </span>
+          <span className={styles.headerSubtitle}>Layer 0 · Routing · Experts · Validation · Sandbox · Synthesis</span>
         </div>
       </header>
 
-      {/* ── Body ────────────────────────────────────────────────── */}
+      {/* Body */}
       <div className={styles.body}>
-
-        {/* History sidebar */}
         {historySidebarOpen && (
           <aside className={styles.historySidebar}>
             <div className={styles.sidebarHeader}>
               <span className={styles.sidebarTitle}>Recent traces</span>
-              <button
-                className={styles.sidebarRefresh}
-                onClick={loadHistory}
-                title="Refresh"
-                aria-label="Refresh history"
-              >
+              <button className={styles.sidebarRefresh} onClick={loadHistory} title="Refresh" aria-label="Refresh history">
                 <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
-                  <path
-                    d="M12 7A5 5 0 1 1 7 2v0l-1.5-1.5M7 2l1.5-1.5L7 2z"
-                    stroke="currentColor"
-                    strokeWidth="1.4"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
+                  <path d="M12 7A5 5 0 1 1 7 2v0l-1.5-1.5M7 2l1.5-1.5L7 2z" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </button>
             </div>
             <div className={styles.historyList}>
-              {history.length === 0 && (
-                <p className={styles.historyEmpty}>No traces yet.</p>
-              )}
+              {history.length === 0 && <p className={styles.historyEmpty}>No traces yet.</p>}
               {history.map((item) => (
-                <HistoryItem
-                  key={item.trace_id}
-                  item={item}
-                  active={activeHistoryId === item.trace_id}
-                  onClick={() => handleHistoryClick(item)}
-                />
+                <HistoryItem key={item.trace_id} item={item} active={activeHistoryId === item.trace_id} onClick={() => handleHistoryClick(item)} />
               ))}
             </div>
           </aside>
         )}
 
-        {/* Chat pane */}
         <main className={styles.chatPane}>
           <div className={styles.chatWindow}>
-            {messages.length === 0 && !loading && (
-              <div className={styles.emptyState}>
-                <svg width="36" height="36" viewBox="0 0 28 28" fill="none" opacity="0.2">
-                  <circle cx="14" cy="14" r="3.5" fill="currentColor" />
-                  <line x1="14" y1="14" x2="4" y2="6" stroke="currentColor" strokeWidth="1.2" />
-                  <line x1="14" y1="14" x2="24" y2="6" stroke="currentColor" strokeWidth="1.2" />
-                  <line x1="14" y1="14" x2="4" y2="22" stroke="currentColor" strokeWidth="1.2" />
-                  <line x1="14" y1="14" x2="24" y2="22" stroke="currentColor" strokeWidth="1.2" />
-                  <line x1="14" y1="14" x2="14" y2="2" stroke="currentColor" strokeWidth="1.2" />
-                  <line x1="14" y1="14" x2="14" y2="26" stroke="currentColor" strokeWidth="1.2" />
-                </svg>
-                <p>Ask anything. Mycelium routes it through the full reasoning pipeline, gathers real evidence via sandbox tools, and explains what it found.</p>
-              </div>
-            )}
-
             {messages.map((m, idx) => (
-              <div
-                key={idx}
-                className={
-                  m.role === 'user'
-                    ? styles.userBubbleWrap
-                    : styles.assistantBubbleWrap
-                }
-              >
-                <div
-                  className={
-                    m.role === 'user' ? styles.userBubble : styles.assistantBubble
-                  }
-                >
+              <div key={idx} className={m.role === 'user' ? styles.userBubbleWrap : styles.assistantBubbleWrap}>
+                <div className={m.role === 'user' ? styles.userBubble : styles.assistantBubble}>
                   <pre className={styles.bubbleText}>{m.content}</pre>
                 </div>
-
                 {m.role === 'assistant' && m.trace && (
                   <>
                     <div className={styles.traceToggleRow}>
-                      <button
-                        className={styles.traceToggleBtn}
-                        onClick={() => toggleTrace(idx)}
-                        aria-expanded={m.traceOpen}
-                      >
-                        <svg
-                          width="11" height="11" viewBox="0 0 12 12" fill="none"
-                          style={{
-                            transform: m.traceOpen ? 'rotate(90deg)' : 'rotate(0deg)',
-                            transition: 'transform 180ms ease',
-                          }}
-                        >
+                      <button className={styles.traceToggleBtn} onClick={() => toggleTrace(idx)} aria-expanded={m.traceOpen}>
+                        <svg width="11" height="11" viewBox="0 0 12 12" fill="none" style={{ transform: m.traceOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 180ms ease' }}>
                           <path d="M4 2l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                         </svg>
                         Pipeline trace
                       </button>
                       {m.sandbox && (
-                        <button
-                          className={styles.traceToggleBtn}
-                          onClick={() => setActiveSandbox(m.sandbox ?? null)}
-                          title="Show sandbox evidence in right panel"
-                        >
+                        <button className={styles.traceToggleBtn} onClick={() => setActiveSandbox(m.sandbox ?? null)} title="Show sandbox evidence in right panel">
                           <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
                             <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.4" />
                             <line x1="6" y1="3" x2="6" y2="6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
@@ -969,11 +815,7 @@ export default function Home() {
             {loading && (
               <div className={styles.assistantBubbleWrap}>
                 <div className={styles.assistantBubble}>
-                  <PhaseIndicator
-                    phase={currentPhase}
-                    detail={currentDetail}
-                    elapsedMs={elapsedMs}
-                  />
+                  <PhaseIndicator phase={currentPhase} detail={currentDetail} elapsedMs={elapsedMs} />
                 </div>
               </div>
             )}
@@ -990,38 +832,20 @@ export default function Home() {
               disabled={loading}
               autoFocus
             />
-            <button
-              className={styles.sendButton}
-              onClick={handleSend}
-              disabled={loading || !input.trim()}
-              aria-label="Send"
-            >
+            <button className={styles.sendButton} onClick={handleSend} disabled={loading || !input.trim()} aria-label="Send">
               <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                <path
-                  d="M2 9h14M10 3l6 6-6 6"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
+                <path d="M2 9h14M10 3l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
           </div>
         </main>
 
-        {/* Sandbox evidence panel */}
         <aside className={styles.sandboxPane}>
           <div className={styles.sidebarHeader}>
             <span className={styles.sidebarTitle}>{sandboxPaneTitle}</span>
-            {loading && liveToolEvents.length > 0 && (
-              <span className={styles.sandboxLiveBadge}>LIVE</span>
-            )}
+            {loading && liveToolEvents.length > 0 && <span className={styles.sandboxLiveBadge}>LIVE</span>}
           </div>
-          <SandboxPanel
-            sandbox={activeSandbox}
-            liveEvents={liveToolEvents}
-            isLoading={loading}
-          />
+          <SandboxPanel sandbox={activeSandbox} liveEvents={liveToolEvents} isLoading={loading} />
         </aside>
       </div>
     </div>
