@@ -65,13 +65,13 @@ logger = logging.getLogger(__name__)
 
 # Wall-clock budget per reasoner call (seconds).
 #
-# Raised from 60 s → 150 s to accommodate Qwen3.5 cold-start inference
+# Raised from 60 s -> 150 s to accommodate Qwen3.5 cold-start inference
 # time (~113 s observed in logs).  The 60 s budget was firing before the
 # model finished loading, returning an empty result; the background thread
 # then completed 53 s later and the orphaned result was discarded, which
 # caused run_workflow.py to treat the empty verified_answer as a signal
-# to re-invoke the entire phase — producing the infinite loop visible in
-# logs at 21:03:40 → 21:05:33 → 21:06:27.
+# to re-invoke the entire phase -- producing the infinite loop visible in
+# logs at 21:03:40 -> 21:05:33 -> 21:06:27.
 #
 # 150 s provides enough headroom for cold-start on consumer-grade GPUs
 # while still bounding truly stalled calls.  Raise to 240 s if inference
@@ -153,6 +153,34 @@ class PostCheckRunner:
         )
 
         trm_res, p6_res = self._run_serial(query, domain)
+
+        # If both reasoners returned empty answers (e.g. both timed out),
+        # short-circuit with a degraded result rather than calling the
+        # fuzzy verifier on two empty strings.
+        if not trm_res.answer and not p6_res.answer:
+            total_ms = (time.perf_counter() - start) * 1000.0
+            logger.warning(
+                "PostCheck DEGRADED -- both reasoners returned empty answers "
+                "(domain=%s latency=%.1f ms)",
+                domain, total_ms,
+            )
+            return PostCheckResult(
+                verified_answer="",
+                verification_status="degraded",
+                trm_answer="",
+                p6_answer="",
+                similarity=0.0,
+                preferred_source="conflict",
+                trm_confidence=trm_res.confidence,
+                p6_confidence=p6_res.confidence,
+                rl_update={},
+                mode="serial",
+                conflict_hint=(
+                    f"Both reasoners returned empty answers for domain={domain}. "
+                    "Check TRM timeout and P6 pipeline availability."
+                ),
+                total_latency_ms=round(total_ms, 3),
+            )
 
         verification = self._verifier.verify(
             trm_answer=trm_res.answer,
@@ -245,6 +273,11 @@ class PostCheckRunner:
         platforms (signal.alarm is UNIX-only and cannot be used inside
         threads).
 
+        On timeout the returned ReasoningResult has
+        ``raw['post_check_degraded'] = True`` so callers and the API
+        trace can distinguish a timeout-empty answer from a legitimate
+        empty answer produced by the model.
+
         Note on fut.cancel():
         ---------------------
         For a ThreadPoolExecutor future that is already *running*,
@@ -271,7 +304,10 @@ class PostCheckRunner:
                     confidence=0.0,
                     latency_ms=float(self._timeout * 1000),
                     source=f"{label.lower()}/timeout",
-                    raw={"error": f"timeout after {self._timeout}s"},
+                    raw={
+                        "error": f"timeout after {self._timeout}s",
+                        "post_check_degraded": True,
+                    },
                 )
             except Exception as exc:
                 logger.warning("%s call failed: %s", label, exc)
@@ -289,16 +325,40 @@ class PostCheckRunner:
         p6_res: ReasoningResult,
         verification,
     ) -> Tuple[str, str]:
-        """Pick the verified answer and status string."""
+        """Pick the verified answer and status string.
+
+        Status values:
+          "verified"  -- both reasoners agreed (similarity >= threshold)
+          "trm_only"  -- only TRM produced an answer (P6 empty/timed-out)
+          "p6_only"   -- only P6 produced an answer (TRM empty/timed-out)
+          "conflict"  -- both answered but disagreed (similarity < threshold)
+
+        Only non-empty answers contribute to the combined conflict string,
+        preventing '[Reasoner A] \n\n' garbage when one reasoner timed out.
+        """
+        has_trm = bool(trm_res.answer)
+        has_p6 = bool(p6_res.answer)
+
         if verification.match:
-            if verification.preferred == "trm":
+            preferred = verification.preferred
+            if preferred == "trm" and has_trm:
                 return trm_res.answer, "verified"
-            return p6_res.answer, "verified"
-        # Conflict -- return both answers so the conversation LLM can reconcile
+            if has_p6:
+                return p6_res.answer, "verified"
+            # Fallback: return whichever is non-empty
+            return (trm_res.answer or p6_res.answer), "verified"
+
+        # Mismatch path
+        if has_trm and not has_p6:
+            return trm_res.answer, "trm_only"
+        if has_p6 and not has_trm:
+            return p6_res.answer, "p6_only"
+
+        # Both answered but disagreed — build combined string
         parts = []
-        if trm_res.answer:
+        if has_trm:
             parts.append(f"[Reasoner A] {trm_res.answer}")
-        if p6_res.answer:
+        if has_p6:
             parts.append(f"[Reasoner B] {p6_res.answer}")
-        combined = "\n\n".join(parts) if parts else ""
+        combined = "\n\n".join(parts)
         return combined, "conflict"

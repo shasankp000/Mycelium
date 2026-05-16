@@ -8,7 +8,6 @@ import pickle
 import os
 from pathlib import Path
 from sklearn.metrics.pairwise import cosine_similarity
-from sentence_transformers import SentenceTransformer
 import json
 
 class AutoSemanticClusterer:
@@ -47,13 +46,13 @@ class AutoSemanticClusterer:
                 'chemistry', 'chemical reaction', 'molecule', 'compound', 'element',
                 'organic chemistry', 'inorganic', 'biochemistry', 'catalyst'
             ],
-            # Renamed from 'mathematics' → 'maths' to match ExpertFilter.domain_list
+            # Renamed from 'mathematics' -> 'maths' to match ExpertFilter.domain_list
             # and the expert registry key used throughout the codebase.
             'maths': [
                 'mathematics', 'algebra', 'calculus', 'geometry', 'statistics',
                 'equation', 'theorem', 'mathematical proof', 'number theory', 'maths'
             ],
-            # Renamed from 'computer_science' → 'AI' to match ExpertFilter.domain_list.
+            # Renamed from 'computer_science' -> 'AI' to match ExpertFilter.domain_list.
             'AI': [
                 'artificial intelligence', 'machine learning', 'deep learning',
                 'neural network', 'NLP', 'computer science', 'programming',
@@ -114,11 +113,29 @@ class AutoSemanticClusterer:
         self.domain_embeddings = {}
         
     def _load_model(self):
-        """Lazy-load the sentence transformer model."""
-        if self.model is None:
-            print(f"📥 Loading semantic model: {self.model_name}...")
-            self.model = SentenceTransformer(self.model_name)
-            print("✅ Model loaded")
+        """Lazy-load the sentence transformer model via ModelRegistry.
+
+        Delegates to model_registry.get_model() so the model is loaded
+        once per process and served from the in-memory cache on every
+        subsequent call.  device='cpu' is pinned explicitly to avoid
+        competing with Ollama for GPU VRAM.
+
+        Falls back to a direct SentenceTransformer() load only when
+        model_registry is unavailable (stripped test environments).
+        """
+        if self.model is not None:
+            return
+        try:
+            from model_registry import get_model
+            self.model = get_model(
+                self.model_name,
+                model_type="sentence_transformer",
+                device="cpu",
+            )
+        except ImportError:
+            # model_registry not available — fall back to direct load
+            from sentence_transformers import SentenceTransformer
+            self.model = SentenceTransformer(self.model_name, device="cpu")
     
     def _compute_domain_embeddings(self):
         """Compute average embedding for each domain from its anchor terms."""
@@ -251,7 +268,7 @@ class AutoSemanticClusterer:
         """Initialize the clusterer (compute domain embeddings)."""
         if self.load_cache():
             # Recompute embeddings if the cached anchor set differs from the
-            # current one (e.g. after renaming 'mathematics' → 'maths').
+            # current one (e.g. after renaming 'mathematics' -> 'maths').
             if set(self.domain_anchors.keys()) != set(
                 d for d in self.domain_embeddings.keys()
             ):
