@@ -18,6 +18,7 @@
   color: #e8e8e8;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   padding: 24px;
+  padding-bottom: max(24px, env(safe-area-inset-bottom));
   animation: homeFadeIn 480ms ease both;
 }
 
@@ -61,10 +62,7 @@
   letter-spacing: 0.01em;
 }
 
-.homeTyped {
-  color: #4f98a3;
-}
-
+.homeTyped  { color: #4f98a3; }
 .homeCursor {
   display: inline-block;
   width: 2px;
@@ -75,7 +73,6 @@
   border-radius: 1px;
   animation: cursorBlink 1s step-end infinite;
 }
-
 @keyframes cursorBlink {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0; }
@@ -119,14 +116,155 @@
 .homeSendButton:hover:not(:disabled) { background: #227f8b; }
 .homeSendButton:disabled { background: #0e2a2e; color: #2a5a60; cursor: not-allowed; }
 
+/* Character counter (home + chat) */
+.charCounter {
+  font-size: 11px;
+  color: #505050;
+  text-align: right;
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+  transition: color 140ms;
+}
+.charCounterLimit { color: #dd6974; }
+
+/* ============================================================
+   HEALTH BANNER
+   ============================================================ */
+
+.healthBanner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 16px;
+  background: #1a0e0e;
+  border-bottom: 1px solid #3a1a1a;
+  flex-shrink: 0;
+  animation: healthSlideDown 240ms ease both;
+}
+@keyframes healthSlideDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.healthBannerIcon  { color: #dd6974; font-size: 13px; flex-shrink: 0; }
+.healthBannerText  { flex: 1; font-size: 12px; color: #c07a7a; line-height: 1.4; }
+.healthBannerText code { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 11px; color: #dd6974; }
+
+.healthBannerDismiss {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #683030;
+  padding: 4px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  transition: color 140ms;
+  flex-shrink: 0;
+}
+.healthBannerDismiss:hover { color: #c07a7a; }
+
+/* ============================================================
+   ERROR BUBBLE
+   ============================================================ */
+
+.errorBubble {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: #120808;
+  border: 1px solid #2e1010;
+  border-radius: 6px 14px 14px 14px;
+  padding: 10px 14px;
+  max-width: 90%;
+  animation: errorFadeIn 200ms ease both;
+}
+@keyframes errorFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.errorBubbleIcon  { color: #dd6974; margin-top: 1px; flex-shrink: 0; }
+.errorBubbleBody  { display: flex; flex-direction: column; gap: 6px; }
+.errorBubbleDetail {
+  font-size: 12px;
+  line-height: 1.55;
+  color: #c07a7a;
+  margin: 0;
+  word-break: break-word;
+}
+.errorBubbleRetry {
+  align-self: flex-start;
+  background: none;
+  border: 1px solid #3a1a1a;
+  border-radius: 4px;
+  padding: 3px 10px;
+  font-size: 11px;
+  color: #dd6974;
+  cursor: pointer;
+  transition: background 140ms, border-color 140ms;
+}
+.errorBubbleRetry:hover { background: #1e0a0a; border-color: #dd6974; }
+
+/* ============================================================
+   CHAT EMPTY STATE
+   ============================================================ */
+
+.chatEmpty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 40px 24px;
+  text-align: center;
+  color: #383838;
+  animation: homeFadeIn 400ms ease both;
+}
+
+.chatEmptyLogo { color: #2e2e2e; margin-bottom: 4px; }
+.chatEmptyHeading { font-size: 16px; font-weight: 600; color: #505050; margin: 0; }
+.chatEmptyHint {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #343434;
+  max-width: 380px;
+  margin: 0;
+}
+
+.chatEmptySuggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-width: 400px;
+  margin-top: 8px;
+}
+
+.chatEmptySuggestion {
+  background: none;
+  border: 1px solid #1c1c1c;
+  border-radius: 7px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #505050;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 140ms, color 140ms, background 140ms;
+  line-height: 1.4;
+}
+.chatEmptySuggestion:hover {
+  border-color: #2e2e2e;
+  color: #a0a0a0;
+  background: #0a0a0a;
+}
+
 /* ============================================================
    CHAT SHELL — fade in when transitioning from home
    ============================================================ */
 
-.shellVisible {
-  animation: shellFadeIn 320ms ease both;
-}
-
+.shellVisible { animation: shellFadeIn 320ms ease both; }
 @keyframes shellFadeIn {
   from { opacity: 0; }
   to   { opacity: 1; }
@@ -184,6 +322,9 @@
   display: flex;
   align-items: center;
   transition: color 140ms;
+  min-width: 44px;
+  min-height: 44px;
+  justify-content: center;
 }
 .sidebarToggle:hover { color: #ffffff; }
 
@@ -209,6 +350,12 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  position: relative;
+}
+
+/* ── Mobile sidebar overlay backdrop ─────────────────────── */
+.mobileSidebarBackdrop {
+  display: none;
 }
 
 /* ── History sidebar ─────────────────────────────────────── */
@@ -244,10 +391,13 @@
   border: none;
   cursor: pointer;
   color: #404040;
-  padding: 2px;
+  padding: 4px;
   border-radius: 3px;
   display: flex;
   align-items: center;
+  min-width: 30px;
+  min-height: 30px;
+  justify-content: center;
   transition: color 140ms;
 }
 .sidebarRefresh:hover { color: #a0a0a0; }
@@ -271,6 +421,7 @@
   color: #707070;
   border-left: 2px solid transparent;
   transition: background 120ms, color 120ms, border-color 120ms;
+  min-height: 44px;
 }
 .historyItem:hover { background: #0d0d0d; color: #e8e8e8; }
 .historyItemActive {
@@ -476,6 +627,7 @@
   color: #585858;
   cursor: pointer;
   transition: border-color 140ms, color 140ms;
+  min-height: 28px;
 }
 .traceToggleBtn:hover { border-color: #2e2e2e; color: #a0a0a0; }
 
@@ -529,13 +681,25 @@
   display: flex;
   gap: 8px;
   padding: 10px 16px;
+  padding-bottom: max(10px, env(safe-area-inset-bottom));
   border-top: 1px solid #141414;
   background: #000000;
   flex-shrink: 0;
+  align-items: flex-end;
+}
+
+/* Wraps input + char counter stacked */
+.inputWrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  position: relative;
+  min-width: 0;
 }
 
 .input {
-  flex: 1;
+  width: 100%;
   background: #000000;
   border: 1px solid #242424;
   border-radius: 8px;
@@ -547,6 +711,16 @@
 }
 .input:focus { border-color: #4f98a3; }
 .input::placeholder { color: #383838; }
+
+.charCounter {
+  font-size: 10px;
+  color: #383838;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  transition: color 140ms;
+  padding-right: 2px;
+}
+.charCounterLimit { color: #dd6974; }
 
 .sendButton {
   background: #4f98a3;
@@ -561,6 +735,8 @@
   color: #ffffff;
   transition: background 140ms;
   flex-shrink: 0;
+  min-width: 44px;
+  min-height: 44px;
 }
 .sendButton:hover:not(:disabled) { background: #227f8b; }
 .sendButton:disabled { background: #0e2a2e; color: #2a5a60; cursor: not-allowed; }
@@ -639,6 +815,7 @@
   font-size: 11px;
   color: #686868;
   transition: background 120ms;
+  min-height: 36px;
 }
 .sandboxStepHeader:hover { background: #0d0d0d; color: #a0a0a0; }
 
@@ -721,7 +898,7 @@
 .sandboxDot:nth-child(3) { animation-delay: 0.4s; }
 
 /* ============================================================
-   LIVE TOOL FEED — per-tool rows that update in-place
+   LIVE TOOL FEED
    ============================================================ */
 
 .liveToolFeed {
@@ -731,7 +908,6 @@
   padding: 4px 0;
 }
 
-/* Base row */
 .liveToolRow {
   display: flex;
   align-items: flex-start;
@@ -744,41 +920,28 @@
   transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
-/* States */
-.liveToolRunning {
-  background: #061618;
-  border-color: #122a2e;
-  color: #7ab8c0;
-}
+.liveToolRunning { background: #061618; border-color: #122a2e; color: #7ab8c0; }
+.liveToolOk      { background: #061408; border-color: #122814; color: #7abf7a; }
+.liveToolErr     { background: #140606; border-color: #281212; color: #c07a7a; }
+.liveToolPlan    { background: #080808; border-color: #202020; color: #686868; }
 
-.liveToolOk {
-  background: #061408;
-  border-color: #122814;
-  color: #7abf7a;
-}
-
-.liveToolErr {
-  background: #140606;
-  border-color: #281212;
-  color: #c07a7a;
-}
-
-.liveToolPlan {
-  background: #080808;
-  border-color: #202020;
-  color: #686868;
-}
-
-/* Icon col — fixed width so body aligns across rows */
 .liveToolIcon {
   flex-shrink: 0;
   width: 14px;
   text-align: center;
   font-size: 11px;
-  margin-top: 1px; /* optical alignment with first line of body */
+  margin-top: 1px;
 }
 
-/* Spinning animation for running state */
+/* Detail text used in plan row */
+.liveToolDetail {
+  flex: 1;
+  font-size: 11px;
+  line-height: 1.4;
+  color: inherit;
+  word-break: break-word;
+}
+
 .liveToolSpinning {
   animation: spinCcw 1s linear infinite;
   display: inline-block;
@@ -788,7 +951,6 @@
   to   { transform: rotate(-360deg); }
 }
 
-/* Body col — stacked: top row (badge + query + duration) + preview */
 .liveToolBody {
   flex: 1;
   display: flex;
@@ -804,7 +966,6 @@
   min-width: 0;
 }
 
-/* Small teal badge — tool name */
 .liveToolBadge {
   flex-shrink: 0;
   font-size: 9px;
@@ -818,7 +979,6 @@
   white-space: nowrap;
 }
 
-/* Truncated query text */
 .liveToolQuery {
   flex: 1;
   overflow: hidden;
@@ -828,7 +988,6 @@
   opacity: 0.85;
 }
 
-/* Duration — right-aligned, only visible after completion */
 .liveToolElapsed {
   flex-shrink: 0;
   font-size: 10px;
@@ -838,15 +997,128 @@
   margin-left: auto;
 }
 
-/* Output preview — second line, shown after completion */
 .liveToolPreview {
   font-size: 10px;
   color: #505050;
   line-height: 1.45;
-  /* two-line clamp so long previews don't overflow the pane */
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
   margin: 0;
+}
+
+/* ============================================================
+   MOBILE RESPONSIVE  (≤ 768px)
+   ============================================================ */
+
+@media (max-width: 768px) {
+
+  /* Hide desktop history sidebar inline; it becomes an overlay */
+  .historySidebar {
+    display: none;
+  }
+
+  /* Mobile overlay sheet */
+  .historySidebarMobile {
+    display: flex !important;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 80vw;
+    max-width: 300px;
+    height: 100dvh;
+    z-index: 200;
+    border-right: 1px solid #2a2a2a;
+    background: #0a0a0a;
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.7);
+    animation: slideInLeft 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  @keyframes slideInLeft {
+    from { transform: translateX(-100%); }
+    to   { transform: translateX(0); }
+  }
+
+  /* Semi-transparent backdrop behind the mobile sidebar */
+  .mobileSidebarBackdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 199;
+    background: rgba(0, 0, 0, 0.6);
+    animation: backdropFadeIn 200ms ease both;
+  }
+  @keyframes backdropFadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  /* Hide sandbox pane on mobile — it takes too much horizontal space */
+  .sandboxPane {
+    display: none;
+  }
+
+  /* Chat pane takes full width */
+  .chatPane {
+    border-right: none;
+  }
+
+  /* Header subtitle is noise on small screens */
+  .headerSubtitle {
+    display: none;
+  }
+
+  /* Wider bubbles */
+  .userBubble {
+    max-width: 90%;
+  }
+
+  .assistantBubbleWrap {
+    max-width: 100%;
+  }
+
+  /* Phase indicator — smaller min-width */
+  .phaseIndicator {
+    min-width: 180px;
+  }
+
+  /* Input row safe-area padding for notched devices */
+  .inputRow {
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+
+  /* Trace grid single column on mobile */
+  .traceGrid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Home screen adjustments */
+  .homeContent {
+    gap: 16px;
+  }
+
+  .chatEmptySuggestions {
+    max-width: 100%;
+  }
+}
+
+/* ============================================================
+   VERY SMALL SCREENS (≤ 390px)
+   ============================================================ */
+
+@media (max-width: 390px) {
+  .header {
+    padding: 0 10px;
+    gap: 8px;
+  }
+  .headerTitle {
+    font-size: 13px;
+  }
+  .chatWindow {
+    padding: 14px 10px;
+  }
+  .inputRow {
+    padding: 8px 10px;
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
 }

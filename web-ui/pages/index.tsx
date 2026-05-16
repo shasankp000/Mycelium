@@ -4,6 +4,9 @@ import axios, { AxiosError } from 'axios';
 import styles from '../styles/Home.module.css';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:8000';
+const MAX_INPUT_CHARS = 2000;
+const SSE_RETRY_ATTEMPTS = 3;
+const SSE_RETRY_DELAY_MS = 1500;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -39,11 +42,13 @@ interface SandboxResult {
 }
 
 interface Message {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'error';
   content: string;
   trace?: PipelineTrace;
   traceOpen?: boolean;
   sandbox?: SandboxResult;
+  /** set on error messages so the user can retry */
+  retryQuery?: string;
 }
 
 interface MyceliumRunSummary {
@@ -77,25 +82,14 @@ interface HistoryTrace {
   sandbox_result?: Record<string, unknown>;
 }
 
-/**
- * LiveToolEvent — one entry per *tool call slot* (keyed by toolIndex).
- *
- * The backend emits two SSE events per tool call:
- *   1. sandbox_tool/<n>        → detail: "<tool> | <query>"
- *   2. sandbox_tool/<n>_ok|_err → detail: "<tool> | ✓|✗ <ms>ms | <preview>"
- *
- * The frontend merges both into a single row that updates in-place:
- *   - phase === 'running' while the start event is active
- *   - phase transitions to 'ok' or 'err' on the result event
- */
 export interface LiveToolEvent {
-  toolIndex: number;       // 1-based index matching sandbox_tool/<n>
-  toolName: string;        // e.g. "web_search"
-  query: string;           // truncated query text
+  toolIndex: number;
+  toolName: string;
+  query: string;
   phase: 'running' | 'ok' | 'err' | 'plan';
-  durationMs?: number;     // only present after result
-  preview?: string;        // output preview, only present after result
-  elapsedMs: number;       // SSE elapsed_ms at time of last update
+  durationMs?: number;
+  preview?: string;
+  elapsedMs: number;
 }
 
 interface SseEvent {
@@ -106,7 +100,7 @@ interface SseEvent {
 }
 
 // ---------------------------------------------------------------------------
-// Typewriter texts — Mycelium's philosophy & intent, not its tech stack
+// Typewriter texts
 // ---------------------------------------------------------------------------
 
 const TYPEWRITER_TEXTS = [
@@ -118,6 +112,13 @@ const TYPEWRITER_TEXTS = [
   'Modular by design. Honest by principle.',
   'The no-bullshit promise: find truth where it exists, admit when it doesn\'t.',
   'Intelligence distributed like mycelium — resilient, adaptive, no single point of failure.',
+];
+
+const PROMPT_SUGGESTIONS = [
+  'Does coffee cause cancer?',
+  'Is string theory scientifically proven?',
+  'What are the effects of universal basic income?',
+  'How does CRISPR gene editing work?',
 ];
 
 // ---------------------------------------------------------------------------
@@ -136,30 +137,17 @@ function useTypewriter(texts: string[], typingSpeed = 68, deletingSpeed = 32, pa
       const t = setTimeout(() => { setPaused(false); setDeleting(true); }, pauseMs);
       return () => clearTimeout(t);
     }
-
     const current = texts[textIdx];
-
     if (!deleting) {
       if (charIdx < current.length) {
-        const t = setTimeout(() => {
-          setDisplayed(current.slice(0, charIdx + 1));
-          setCharIdx((c) => c + 1);
-        }, typingSpeed);
+        const t = setTimeout(() => { setDisplayed(current.slice(0, charIdx + 1)); setCharIdx((c) => c + 1); }, typingSpeed);
         return () => clearTimeout(t);
-      } else {
-        setPaused(true);
-      }
+      } else { setPaused(true); }
     } else {
       if (charIdx > 0) {
-        const t = setTimeout(() => {
-          setDisplayed(current.slice(0, charIdx - 1));
-          setCharIdx((c) => c - 1);
-        }, deletingSpeed);
+        const t = setTimeout(() => { setDisplayed(current.slice(0, charIdx - 1)); setCharIdx((c) => c - 1); }, deletingSpeed);
         return () => clearTimeout(t);
-      } else {
-        setDeleting(false);
-        setTextIdx((i) => (i + 1) % texts.length);
-      }
+      } else { setDeleting(false); setTextIdx((i) => (i + 1) % texts.length); }
     }
   }, [charIdx, deleting, paused, textIdx, texts, typingSpeed, deletingSpeed, pauseMs]);
 
@@ -210,34 +198,18 @@ function isSandboxPhase(phase: string): boolean {
 // Parse pipe-separated backend detail strings
 // ---------------------------------------------------------------------------
 
-/**
- * Backend detail formats:
- *   sandbox_plan       : "<count> | <tool1>, <tool2>, ..."
- *   sandbox_tool/<n>   : "<tool> | <query>"
- *   sandbox_tool/<n>_ok: "<tool> | ✓ <ms>ms | <preview>"
- *   sandbox_tool/<n>_err: "<tool> | ✗ <ms>ms | <error>"
- */
 function parseSandboxDetail(phase: string, detail: string): Partial<LiveToolEvent> {
   const parts = detail.split(' | ');
-
-  if (phase === 'sandbox_plan') {
-    return { query: parts.slice(1).join(', ') };
-  }
-
-  // Extract 1-based index from "sandbox_tool/2" or "sandbox_tool/2_ok"
+  if (phase === 'sandbox_plan') return { query: parts.slice(1).join(', ') };
   const indexMatch = phase.match(/sandbox_tool\/(\d+)/);
   const toolIndex = indexMatch ? parseInt(indexMatch[1], 10) : 0;
   const toolName = parts[0] ?? '';
-
   if (phase.endsWith('_ok') || phase.endsWith('_err')) {
-    // parts[1] = "✓ 423ms" or "✗ 423ms"
     const durationMatch = (parts[1] ?? '').match(/(\d+)ms/);
     const durationMs = durationMatch ? parseInt(durationMatch[1], 10) : undefined;
     const preview = parts[2] ?? undefined;
     return { toolIndex, toolName, durationMs, preview };
   }
-
-  // START event
   const query = parts[1] ?? '';
   return { toolIndex, toolName, query };
 }
@@ -261,13 +233,8 @@ function extractTrace(data: ChatApiResponse): PipelineTrace {
   };
 }
 
-function shortId(id: string) {
-  return id ? id.slice(0, 8) + '…' : '';
-}
-
-function fmtDuration(ms: number) {
-  return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms.toFixed(0)}ms`;
-}
+function shortId(id: string) { return id ? id.slice(0, 8) + '…' : ''; }
+function fmtDuration(ms: number) { return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms.toFixed(0)}ms`; }
 
 function outputPreview(output: Record<string, unknown>): string {
   if (!output) return '';
@@ -300,6 +267,93 @@ function toolDisplayName(tool: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// HealthBanner — polls /api/v1/health, shows dismissible warning
+// ---------------------------------------------------------------------------
+
+function HealthBanner({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <div className={styles.healthBanner} role="alert" aria-live="assertive">
+      <span className={styles.healthBannerIcon} aria-hidden="true">⚠</span>
+      <span className={styles.healthBannerText}>
+        Cannot reach backend at <code>{API_BASE}</code>. Is the FastAPI server running?
+      </span>
+      <button
+        className={styles.healthBannerDismiss}
+        onClick={onDismiss}
+        aria-label="Dismiss backend warning"
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+          <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ErrorBubble — styled error message with optional Retry button
+// ---------------------------------------------------------------------------
+
+function ErrorBubble({ detail, onRetry }: { detail: string; onRetry?: () => void }) {
+  return (
+    <div className={styles.errorBubble} role="alert">
+      <div className={styles.errorBubbleIcon} aria-hidden="true">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+          <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.4" />
+          <line x1="8" y1="4.5" x2="8" y2="9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          <circle cx="8" cy="11.5" r="0.9" fill="currentColor" />
+        </svg>
+      </div>
+      <div className={styles.errorBubbleBody}>
+        <p className={styles.errorBubbleDetail}>{detail}</p>
+        {onRetry && (
+          <button className={styles.errorBubbleRetry} onClick={onRetry}>
+            Retry
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ChatEmptyState — shown when no messages yet
+// ---------------------------------------------------------------------------
+
+function ChatEmptyState({ onSuggestion }: { onSuggestion: (s: string) => void }) {
+  return (
+    <div className={styles.chatEmpty}>
+      <div className={styles.chatEmptyLogo} aria-hidden="true">
+        <svg width="40" height="40" viewBox="0 0 28 28" fill="none">
+          <circle cx="14" cy="14" r="3.5" fill="currentColor" opacity="0.7" />
+          <line x1="14" y1="14" x2="4"  y2="6"  stroke="currentColor" strokeWidth="1.2" opacity="0.35" />
+          <line x1="14" y1="14" x2="24" y2="6"  stroke="currentColor" strokeWidth="1.2" opacity="0.35" />
+          <line x1="14" y1="14" x2="4"  y2="22" stroke="currentColor" strokeWidth="1.2" opacity="0.35" />
+          <line x1="14" y1="14" x2="24" y2="22" stroke="currentColor" strokeWidth="1.2" opacity="0.35" />
+          <line x1="14" y1="14" x2="14" y2="2"  stroke="currentColor" strokeWidth="1.2" opacity="0.35" />
+          <line x1="14" y1="14" x2="14" y2="26" stroke="currentColor" strokeWidth="1.2" opacity="0.35" />
+          <circle cx="4"  cy="6"  r="2" fill="currentColor" opacity="0.25" />
+          <circle cx="24" cy="6"  r="2" fill="currentColor" opacity="0.25" />
+          <circle cx="4"  cy="22" r="2" fill="currentColor" opacity="0.25" />
+          <circle cx="24" cy="22" r="2" fill="currentColor" opacity="0.25" />
+          <circle cx="14" cy="2"  r="2" fill="currentColor" opacity="0.25" />
+          <circle cx="14" cy="26" r="2" fill="currentColor" opacity="0.25" />
+        </svg>
+      </div>
+      <p className={styles.chatEmptyHeading}>Ask Mycelium anything</p>
+      <p className={styles.chatEmptyHint}>The reasoning pipeline routes your query through Layer 0, expert selection, evidence grounding, and synthesis.</p>
+      <div className={styles.chatEmptySuggestions}>
+        {PROMPT_SUGGESTIONS.map((s) => (
+          <button key={s} className={styles.chatEmptySuggestion} onClick={() => onSuggestion(s)}>
+            {s}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // PhaseIndicator
 // ---------------------------------------------------------------------------
 
@@ -308,13 +362,13 @@ function PhaseIndicator({ phase, detail, elapsedMs }: { phase: string; detail: s
   const progress = phaseProgress(phase);
   const secs = (elapsedMs / 1000).toFixed(1);
   return (
-    <div className={styles.phaseIndicator}>
+    <div className={styles.phaseIndicator} aria-live="polite" aria-atomic="true" aria-label={`Pipeline phase: ${label}`}>
       <div className={styles.phaseHeader}>
         <span className={styles.phaseLabel}>{label}</span>
-        <span className={styles.phaseElapsed}>{secs}s</span>
+        <span className={styles.phaseElapsed} aria-hidden="true">{secs}s</span>
       </div>
       {detail && <p className={styles.phaseDetail}>{detail}</p>}
-      <div className={styles.phaseBarTrack}>
+      <div className={styles.phaseBarTrack} role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100} aria-label="Pipeline progress">
         <div className={styles.phaseBarFill} style={{ width: `${progress}%` }} />
       </div>
     </div>
@@ -394,50 +448,42 @@ function TracePanel({ trace }: { trace: PipelineTrace }) {
 }
 
 // ---------------------------------------------------------------------------
-// LiveToolFeed — one row per tool call, updates in-place running→ok/err
+// LiveToolFeed
 // ---------------------------------------------------------------------------
 
 function LiveToolFeed({ events, planDetail }: { events: LiveToolEvent[]; planDetail: string }) {
   return (
-    <div className={styles.liveToolFeed}>
-      {/* Plan row */}
+    <div className={styles.liveToolFeed} aria-label="Live tool activity" aria-live="polite">
       {planDetail && (
         <div className={`${styles.liveToolRow} ${styles.liveToolPlan}`}>
-          <span className={styles.liveToolIcon}>📋</span>
+          <span className={styles.liveToolIcon} aria-hidden="true">📋</span>
           <span className={styles.liveToolDetail}>Plan: {planDetail}</span>
         </div>
       )}
-
-      {/* One row per tool call, keyed by toolIndex */}
       {events.map((ev) => {
         const isRunning = ev.phase === 'running';
         const isOk      = ev.phase === 'ok';
         const isErr     = ev.phase === 'err';
-
-        const rowClass = isOk
-          ? styles.liveToolOk
-          : isErr
-          ? styles.liveToolErr
-          : styles.liveToolRunning;
-
-        const icon = isOk ? '✓' : isErr ? '✗' : '⟳';
-
+        const rowClass  = isOk ? styles.liveToolOk : isErr ? styles.liveToolErr : styles.liveToolRunning;
+        const icon      = isOk ? '✓' : isErr ? '✗' : '⟳';
+        const statusLabel = isOk ? 'completed' : isErr ? 'failed' : 'running';
         return (
-          <div key={ev.toolIndex} className={`${styles.liveToolRow} ${rowClass}`}>
-            {/* Left: icon + tool badge + query */}
-            <span className={`${styles.liveToolIcon} ${isRunning ? styles.liveToolSpinning : ''}`}>
+          <div
+            key={ev.toolIndex}
+            className={`${styles.liveToolRow} ${rowClass}`}
+            aria-label={`${toolDisplayName(ev.toolName)}: ${ev.query} — ${statusLabel}`}
+          >
+            <span className={`${styles.liveToolIcon} ${isRunning ? styles.liveToolSpinning : ''}`} aria-hidden="true">
               {icon}
             </span>
             <div className={styles.liveToolBody}>
               <div className={styles.liveToolTop}>
                 <span className={styles.liveToolBadge}>{toolDisplayName(ev.toolName)}</span>
                 <span className={styles.liveToolQuery}>{ev.query}</span>
-                {/* Duration shown only on completion */}
                 {!isRunning && ev.durationMs !== undefined && (
                   <span className={styles.liveToolElapsed}>{fmtDuration(ev.durationMs)}</span>
                 )}
               </div>
-              {/* Preview row — only after completion */}
               {!isRunning && ev.preview && (
                 <p className={styles.liveToolPreview}>{ev.preview}</p>
               )}
@@ -454,10 +500,7 @@ function LiveToolFeed({ events, planDetail }: { events: LiveToolEvent[]; planDet
 // ---------------------------------------------------------------------------
 
 function SandboxPanel({
-  sandbox,
-  liveEvents,
-  planDetail,
-  isLoading,
+  sandbox, liveEvents, planDetail, isLoading,
 }: {
   sandbox: SandboxResult | null;
   liveEvents: LiveToolEvent[];
@@ -507,17 +550,23 @@ function SandboxPanel({
       <div className={styles.sandboxSteps}>
         {sandbox.steps.map((step, i) => (
           <div key={i} className={`${styles.sandboxStep} ${step.status === 'ok' ? styles.sandboxStepOk : styles.sandboxStepErr}`}>
-            <button className={styles.sandboxStepHeader} onClick={() => toggleStep(i)} aria-expanded={openSteps.has(i)}>
+            <button
+              className={styles.sandboxStepHeader}
+              onClick={() => toggleStep(i)}
+              aria-expanded={openSteps.has(i)}
+              aria-controls={`sandbox-step-body-${i}`}
+            >
               <span className={styles.sandboxToolBadge}>{toolDisplayName(step.tool)}</span>
               <span className={step.status === 'ok' ? styles.sandboxStatusOk : styles.sandboxStatusErr}>{step.status}</span>
               <span className={styles.sandboxStepInput}>{step.input?.query ?? ''}</span>
               <span className={styles.sandboxStepDuration}>{fmtDuration(step.duration_ms)}</span>
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ transform: openSteps.has(i) ? 'rotate(90deg)' : 'rotate(0)', transition: 'transform 150ms ease', flexShrink: 0 }}>
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"
+                style={{ transform: openSteps.has(i) ? 'rotate(90deg)' : 'rotate(0)', transition: 'transform 150ms ease', flexShrink: 0 }}>
                 <path d="M3 2l4 3-4 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
             {openSteps.has(i) && (
-              <div className={styles.sandboxStepBody}>
+              <div id={`sandbox-step-body-${i}`} className={styles.sandboxStepBody}>
                 {step.commentary && <p className={styles.sandboxCommentary}>{step.commentary}</p>}
                 <p className={styles.sandboxOutput}>{outputPreview(step.output)}</p>
               </div>
@@ -555,11 +604,7 @@ function HistoryItem({ item, active, onClick }: { item: HistoryTrace; active: bo
 // ---------------------------------------------------------------------------
 
 function HomeScreen({
-  input,
-  onInputChange,
-  onSend,
-  onKeyDown,
-  loading,
+  input, onInputChange, onSend, onKeyDown, loading,
 }: {
   input: string;
   onInputChange: (v: string) => void;
@@ -568,13 +613,13 @@ function HomeScreen({
   loading: boolean;
 }) {
   const typed = useTypewriter(TYPEWRITER_TEXTS);
+  const atLimit = input.length >= MAX_INPUT_CHARS;
 
   return (
     <div className={styles.homeScreen}>
       <div className={styles.homeContent}>
-        {/* Logo mark */}
-        <div className={styles.homeLogo}>
-          <svg width="52" height="52" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+        <div className={styles.homeLogo} aria-hidden="true">
+          <svg width="52" height="52" viewBox="0 0 28 28" fill="none">
             <circle cx="14" cy="14" r="3.5" fill="currentColor" opacity="0.9" />
             <line x1="14" y1="14" x2="4"  y2="6"  stroke="currentColor" strokeWidth="1.2" opacity="0.55" />
             <line x1="14" y1="14" x2="24" y2="6"  stroke="currentColor" strokeWidth="1.2" opacity="0.55" />
@@ -590,36 +635,39 @@ function HomeScreen({
             <circle cx="14" cy="26" r="2" fill="currentColor" opacity="0.4" />
           </svg>
         </div>
-
         <h1 className={styles.homeTitle}>Mycelium</h1>
-
         <div className={styles.homeSubtitle}>
           <span className={styles.homeTyped}>{typed}</span>
           <span className={styles.homeCursor} aria-hidden="true" />
         </div>
-
-        {/* Chat bar */}
         <div className={styles.homeInputWrap}>
           <input
             className={styles.homeInput}
             placeholder="Ask anything…"
             value={input}
-            onChange={(e) => onInputChange(e.target.value)}
+            onChange={(e) => onInputChange(e.target.value.slice(0, MAX_INPUT_CHARS))}
             onKeyDown={onKeyDown}
             disabled={loading}
             autoFocus
+            maxLength={MAX_INPUT_CHARS}
+            aria-label="Ask Mycelium a question"
           />
           <button
             className={styles.homeSendButton}
             onClick={onSend}
             disabled={loading || !input.trim()}
-            aria-label="Send"
+            aria-label="Send message"
           >
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
               <path d="M2 9h14M10 3l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
         </div>
+        {input.length > MAX_INPUT_CHARS * 0.8 && (
+          <p className={`${styles.charCounter} ${atLimit ? styles.charCounterLimit : ''}`} aria-live="polite">
+            {input.length} / {MAX_INPUT_CHARS}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -636,24 +684,46 @@ export default function Home() {
   const [loading, setLoading]           = useState(false);
   const [activeSandbox, setActiveSandbox] = useState<SandboxResult | null>(null);
 
-  // Live tool feed state — keyed by toolIndex for in-place updates
   const [liveToolEvents, setLiveToolEvents] = useState<LiveToolEvent[]>([]);
   const [livePlanDetail, setLivePlanDetail] = useState<string>('');
 
-  const [history, setHistory]           = useState<HistoryTrace[]>([]);
+  const [history, setHistory]               = useState<HistoryTrace[]>([]);
   const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
   const [historySidebarOpen, setHistorySidebarOpen] = useState(true);
+  const [mobileSidebarOpen, setMobileSidebarOpen]   = useState(false);
 
   const [currentPhase, setCurrentPhase]   = useState<string>('routing');
   const [currentDetail, setCurrentDetail] = useState<string>('');
   const [elapsedMs, setElapsedMs]         = useState<number>(0);
 
-  const bottomRef    = useRef<HTMLDivElement>(null);
-  const esRef        = useRef<EventSource | null>(null);
-  const tickRef      = useRef<ReturnType<typeof setInterval> | null>(null);
-  const startTimeRef = useRef<number>(0);
+  // Health check
+  const [backendDown, setBackendDown]         = useState(false);
+  const [healthBannerDismissed, setHealthBannerDismissed] = useState(false);
+
+  const bottomRef       = useRef<HTMLDivElement>(null);
+  const esRef           = useRef<EventSource | null>(null);
+  const tickRef         = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startTimeRef    = useRef<number>(0);
   const lastEventAtRef  = useRef<number>(0);
   const sseTimeoutRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sseRetryCount   = useRef<number>(0);
+  // stored so error bubble Retry can re-invoke
+  const pendingRetryText = useRef<string>('');
+
+  // ── Health check on mount ──────────────────────────────────────────────────
+  useEffect(() => {
+    async function checkHealth() {
+      try {
+        await axios.get(`${API_BASE}/api/v1/health`, { timeout: 4000 });
+        setBackendDown(false);
+      } catch {
+        setBackendDown(true);
+      }
+    }
+    checkHealth();
+    const interval = setInterval(checkHealth, 30_000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -662,7 +732,7 @@ export default function Home() {
   useEffect(() => {
     return () => {
       esRef.current?.close();
-      if (tickRef.current)    clearInterval(tickRef.current);
+      if (tickRef.current)       clearInterval(tickRef.current);
       if (sseTimeoutRef.current) clearTimeout(sseTimeoutRef.current);
     };
   }, []);
@@ -696,8 +766,8 @@ export default function Home() {
   }
 
   function finishWithResponse(data: ChatApiResponse) {
-    const answer = data.answer ?? 'Mycelium returned no answer text. Check the pipeline trace below.';
-    const trace  = extractTrace(data);
+    const answer  = data.answer ?? 'Mycelium returned no answer text. Check the pipeline trace below.';
+    const trace   = extractTrace(data);
     const sandbox = data.sandbox ?? null;
     setMessages((prev) => [...prev, { role: 'assistant', content: answer, trace, traceOpen: false, sandbox }]);
     if (sandbox) setActiveSandbox(sandbox);
@@ -706,42 +776,30 @@ export default function Home() {
     setLoading(false);
     stopElapsedTick();
     clearSseTimeout();
+    sseRetryCount.current = 0;
     loadHistory();
   }
 
-  function finishWithError(detail: string) {
-    setMessages((prev) => [...prev, { role: 'assistant', content: `⚠ Error contacting Mycelium backend: ${detail}\n\nIs the FastAPI server running at ${API_BASE}?` }]);
+  function finishWithError(detail: string, retryQuery?: string) {
+    setMessages((prev) => [...prev, { role: 'error', content: detail, retryQuery }]);
     setLiveToolEvents([]);
     setLivePlanDetail('');
     setLoading(false);
     stopElapsedTick();
     clearSseTimeout();
+    sseRetryCount.current = 0;
   }
 
-  /**
-   * Handle a sandbox-phase SSE event and update liveToolEvents in-place.
-   *
-   * sandbox_plan        → set planDetail string
-   * sandbox_tool/<n>    → insert a new 'running' row at toolIndex n
-   * sandbox_tool/<n>_ok → update existing row at toolIndex n → 'ok'
-   * sandbox_tool/<n>_err→ update existing row at toolIndex n → 'err'
-   */
   function handleSandboxEvent(phase: string, detail: string, elapsedMsVal: number) {
     if (phase === 'sandbox_plan') {
-      // detail format: "<count> | <tool1>, <tool2>, ..."
       const parts = detail.split(' | ');
-      const toolList = parts.slice(1).join(', ');
-      setLivePlanDetail(toolList || detail);
+      setLivePlanDetail(parts.slice(1).join(', ') || detail);
       return;
     }
-
     const parsed = parseSandboxDetail(phase, detail);
     const { toolIndex, toolName, query, durationMs, preview } = parsed as Required<typeof parsed>;
-
     if (!toolIndex) return;
-
     if (phase.endsWith('_ok') || phase.endsWith('_err')) {
-      // Update existing row in-place
       setLiveToolEvents((prev) =>
         prev.map((ev) =>
           ev.toolIndex === toolIndex
@@ -750,14 +808,7 @@ export default function Home() {
         )
       );
     } else {
-      // START: insert a new running row (or replace if somehow re-sent)
-      const newRow: LiveToolEvent = {
-        toolIndex,
-        toolName: toolName || '',
-        query: query || '',
-        phase: 'running',
-        elapsedMs: elapsedMsVal,
-      };
+      const newRow: LiveToolEvent = { toolIndex, toolName: toolName || '', query: query || '', phase: 'running', elapsedMs: elapsedMsVal };
       setLiveToolEvents((prev) => {
         const exists = prev.find((e) => e.toolIndex === toolIndex);
         if (exists) return prev.map((e) => e.toolIndex === toolIndex ? newRow : e);
@@ -766,14 +817,65 @@ export default function Home() {
     }
   }
 
-  async function handleSend() {
-    if (!input.trim() || loading) return;
-    const text = input.trim();
+  function openSseStream(text: string) {
+    const sseUrl = `${API_BASE}/api/v1/chat/stream?text=${encodeURIComponent(text)}`;
+    const es = new EventSource(sseUrl);
+    esRef.current = es;
+    let gotDone = false;
+
+    const SSE_TIMEOUT_MS = 3 * 60 * 1000;
+    clearSseTimeout();
+    sseTimeoutRef.current = setTimeout(() => {
+      if (!gotDone) { es.close(); esRef.current = null; finishWithError('Request timed out after 3 minutes.', text); }
+    }, SSE_TIMEOUT_MS);
+
+    es.onmessage = (ev) => {
+      lastEventAtRef.current = Date.now();
+      sseRetryCount.current = 0; // reset retry counter on first event
+      try {
+        const event: SseEvent = JSON.parse(ev.data);
+        setCurrentPhase(event.phase);
+        setCurrentDetail(event.detail);
+        setElapsedMs(event.elapsed_ms);
+        if (isSandboxPhase(event.phase)) handleSandboxEvent(event.phase, event.detail, event.elapsed_ms);
+        if (event.phase === 'done' && event.payload) {
+          gotDone = true; es.close(); esRef.current = null; finishWithResponse(event.payload);
+        } else if (event.phase === 'error') {
+          gotDone = true; es.close(); esRef.current = null;
+          finishWithError(event.detail || 'Unknown SSE error', text);
+        }
+      } catch { /* malformed SSE frame */ }
+    };
+
+    es.onerror = () => {
+      if (gotDone) return;
+      const silentForMs = Date.now() - lastEventAtRef.current;
+      const neverReceived = lastEventAtRef.current === 0;
+
+      // If we got events before but connection dropped briefly, ignore transient errors
+      if (!neverReceived && silentForMs < 20_000) return;
+
+      es.close(); esRef.current = null;
+
+      if (sseRetryCount.current < SSE_RETRY_ATTEMPTS) {
+        sseRetryCount.current += 1;
+        setCurrentDetail(`SSE disconnected — retrying (${sseRetryCount.current}/${SSE_RETRY_ATTEMPTS})…`);
+        setTimeout(() => openSseStream(text), SSE_RETRY_DELAY_MS * sseRetryCount.current);
+      } else {
+        clearSseTimeout();
+        setCurrentDetail('SSE unavailable — using fallback POST…');
+        fallbackPost(text);
+      }
+    };
+  }
+
+  async function handleSend(overrideText?: string) {
+    const text = (overrideText ?? input).trim();
+    if (!text || loading) return;
 
     if (!hasStarted) setHasStarted(true);
-
     setMessages((prev) => [...prev, { role: 'user', content: text }]);
-    setInput('');
+    if (!overrideText) setInput('');
     setLoading(true);
     setLiveToolEvents([]);
     setLivePlanDetail('');
@@ -781,50 +883,11 @@ export default function Home() {
     setCurrentPhase('routing');
     setCurrentDetail('Connecting to Mycelium…');
     startElapsedTick();
-    lastEventAtRef.current = Date.now();
+    lastEventAtRef.current = 0;
+    sseRetryCount.current = 0;
+    pendingRetryText.current = text;
 
-    const sseUrl = `${API_BASE}/api/v1/chat/stream?text=${encodeURIComponent(text)}`;
-
-    try {
-      const es = new EventSource(sseUrl);
-      esRef.current = es;
-      let gotDone = false;
-
-      const SSE_TIMEOUT_MS = 3 * 60 * 1000;
-      sseTimeoutRef.current = setTimeout(() => {
-        if (!gotDone) { es.close(); esRef.current = null; finishWithError('Request timed out after 3 minutes.'); }
-      }, SSE_TIMEOUT_MS);
-
-      es.onmessage = (ev) => {
-        lastEventAtRef.current = Date.now();
-        try {
-          const event: SseEvent = JSON.parse(ev.data);
-          setCurrentPhase(event.phase);
-          setCurrentDetail(event.detail);
-          setElapsedMs(event.elapsed_ms);
-
-          if (isSandboxPhase(event.phase)) {
-            handleSandboxEvent(event.phase, event.detail, event.elapsed_ms);
-          }
-
-          if (event.phase === 'done' && event.payload) {
-            gotDone = true; es.close(); esRef.current = null; finishWithResponse(event.payload);
-          } else if (event.phase === 'error') {
-            gotDone = true; es.close(); esRef.current = null; finishWithError(event.detail || 'Unknown SSE error');
-          }
-        } catch { /* malformed SSE */ }
-      };
-
-      es.onerror = () => {
-        if (gotDone) return;
-        const silentForMs = Date.now() - lastEventAtRef.current;
-        const neverReceivedEvents = lastEventAtRef.current === 0;
-        if (!neverReceivedEvents && silentForMs < 20_000) return;
-        clearSseTimeout(); es.close(); esRef.current = null; fallbackPost(text);
-      };
-    } catch {
-      clearSseTimeout(); fallbackPost(text);
-    }
+    openSseStream(text);
   }
 
   async function fallbackPost(text: string) {
@@ -835,7 +898,7 @@ export default function Home() {
       finishWithResponse(res.data);
     } catch (err) {
       const axiosErr = err as AxiosError<{ detail?: string }>;
-      finishWithError(axiosErr?.response?.data?.detail ?? axiosErr?.message ?? 'Unknown error');
+      finishWithError(axiosErr?.response?.data?.detail ?? axiosErr?.message ?? 'Unknown error', text);
     }
   }
 
@@ -849,8 +912,10 @@ export default function Home() {
     if (sr) setActiveSandbox(sr);
   }
 
-  const hasLiveActivity = liveToolEvents.length > 0 || !!livePlanDetail;
-  const sandboxPaneTitle = loading && hasLiveActivity ? 'Running tools…' : loading ? 'Sandbox' : 'Sandbox evidence';
+  const hasLiveActivity   = liveToolEvents.length > 0 || !!livePlanDetail;
+  const sandboxPaneTitle  = loading && hasLiveActivity ? 'Running tools…' : loading ? 'Sandbox' : 'Sandbox evidence';
+  const atCharLimit       = input.length >= MAX_INPUT_CHARS;
+  const charCounterVisible = input.length > MAX_INPUT_CHARS * 0.8;
 
   // ── Render: home screen ────────────────────────────────────────────────────
   if (!hasStarted) {
@@ -879,18 +944,44 @@ export default function Home() {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
 
+      {/* Health banner */}
+      {backendDown && !healthBannerDismissed && (
+        <HealthBanner onDismiss={() => setHealthBannerDismissed(true)} />
+      )}
+
+      {/* Mobile sidebar overlay backdrop */}
+      {mobileSidebarOpen && (
+        <div
+          className={styles.mobileSidebarBackdrop}
+          onClick={() => setMobileSidebarOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
       {/* Header */}
       <header className={styles.header}>
         <div className={styles.headerLeft}>
-          <button className={styles.sidebarToggle} onClick={() => setHistorySidebarOpen((v) => !v)} aria-label="Toggle history" title="Toggle history panel">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          {/* Desktop: toggle history inline; Mobile: opens overlay sheet */}
+          <button
+            className={styles.sidebarToggle}
+            onClick={() => {
+              if (window.innerWidth <= 768) {
+                setMobileSidebarOpen((v) => !v);
+              } else {
+                setHistorySidebarOpen((v) => !v);
+              }
+            }}
+            aria-label="Toggle history panel"
+            aria-expanded={historySidebarOpen || mobileSidebarOpen}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <rect x="1" y="3"    width="14" height="1.5" rx="0.75" fill="currentColor" />
               <rect x="1" y="7.25" width="10" height="1.5" rx="0.75" fill="currentColor" />
               <rect x="1" y="11.5" width="12" height="1.5" rx="0.75" fill="currentColor" />
             </svg>
           </button>
-          <div className={styles.headerLogo}>
-            <svg width="26" height="26" viewBox="0 0 28 28" fill="none" aria-label="Mycelium">
+          <div className={styles.headerLogo} aria-label="Mycelium">
+            <svg width="26" height="26" viewBox="0 0 28 28" fill="none" aria-hidden="true">
               <circle cx="14" cy="14" r="3.5" fill="currentColor" opacity="0.9" />
               <line x1="14" y1="14" x2="4"  y2="6"  stroke="currentColor" strokeWidth="1.2" opacity="0.5" />
               <line x1="14" y1="14" x2="24" y2="6"  stroke="currentColor" strokeWidth="1.2" opacity="0.5" />
@@ -907,18 +998,25 @@ export default function Home() {
             </svg>
             <span className={styles.headerTitle}>Mycelium</span>
           </div>
-          <span className={styles.headerSubtitle}>Layer 0 · Routing · Experts · Validation · Sandbox · Synthesis</span>
+          <span className={styles.headerSubtitle} aria-hidden="true">
+            Layer 0 · Routing · Experts · Validation · Sandbox · Synthesis
+          </span>
         </div>
       </header>
 
       {/* Body */}
       <div className={styles.body}>
-        {historySidebarOpen && (
-          <aside className={styles.historySidebar}>
+
+        {/* History sidebar — desktop: inline; mobile: overlay sheet */}
+        {(historySidebarOpen || mobileSidebarOpen) && (
+          <aside
+            className={`${styles.historySidebar} ${mobileSidebarOpen ? styles.historySidebarMobile : ''}`}
+            aria-label="Query history"
+          >
             <div className={styles.sidebarHeader}>
               <span className={styles.sidebarTitle}>Recent traces</span>
-              <button className={styles.sidebarRefresh} onClick={loadHistory} title="Refresh" aria-label="Refresh history">
-                <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+              <button className={styles.sidebarRefresh} onClick={loadHistory} aria-label="Refresh history">
+                <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
                   <path d="M12 7A5 5 0 1 1 7 2v0l-1.5-1.5M7 2l1.5-1.5L7 2z" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </button>
@@ -926,44 +1024,76 @@ export default function Home() {
             <div className={styles.historyList}>
               {history.length === 0 && <p className={styles.historyEmpty}>No traces yet.</p>}
               {history.map((item) => (
-                <HistoryItem key={item.trace_id} item={item} active={activeHistoryId === item.trace_id} onClick={() => handleHistoryClick(item)} />
+                <HistoryItem
+                  key={item.trace_id}
+                  item={item}
+                  active={activeHistoryId === item.trace_id}
+                  onClick={() => { handleHistoryClick(item); setMobileSidebarOpen(false); }}
+                />
               ))}
             </div>
           </aside>
         )}
 
-        <main className={styles.chatPane}>
-          <div className={styles.chatWindow}>
-            {messages.map((m, idx) => (
-              <div key={idx} className={m.role === 'user' ? styles.userBubbleWrap : styles.assistantBubbleWrap}>
-                <div className={m.role === 'user' ? styles.userBubble : styles.assistantBubble}>
-                  <pre className={styles.bubbleText}>{m.content}</pre>
-                </div>
-                {m.role === 'assistant' && m.trace && (
-                  <>
-                    <div className={styles.traceToggleRow}>
-                      <button className={styles.traceToggleBtn} onClick={() => toggleTrace(idx)} aria-expanded={m.traceOpen}>
-                        <svg width="11" height="11" viewBox="0 0 12 12" fill="none" style={{ transform: m.traceOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 180ms ease' }}>
-                          <path d="M4 2l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                        Pipeline trace
-                      </button>
-                      {m.sandbox && (
-                        <button className={styles.traceToggleBtn} onClick={() => setActiveSandbox(m.sandbox ?? null)} title="Show sandbox evidence in right panel">
-                          <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-                            <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.4" />
-                            <line x1="6" y1="3" x2="6" y2="6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-                            <circle cx="6" cy="8.5" r="0.75" fill="currentColor" />
+        <main className={styles.chatPane} id="main-content">
+          <div className={styles.chatWindow} role="log" aria-live="polite" aria-label="Conversation">
+            {/* Empty state — only when no messages and not loading */}
+            {messages.length === 0 && !loading && (
+              <ChatEmptyState onSuggestion={(s) => { setInput(s); handleSend(s); }} />
+            )}
+
+            {messages.map((m, idx) => {
+              if (m.role === 'error') {
+                return (
+                  <div key={idx} className={styles.assistantBubbleWrap}>
+                    <ErrorBubble
+                      detail={m.content}
+                      onRetry={m.retryQuery ? () => handleSend(m.retryQuery) : undefined}
+                    />
+                  </div>
+                );
+              }
+              return (
+                <div key={idx} className={m.role === 'user' ? styles.userBubbleWrap : styles.assistantBubbleWrap}>
+                  <div className={m.role === 'user' ? styles.userBubble : styles.assistantBubble}>
+                    <pre className={styles.bubbleText}>{m.content}</pre>
+                  </div>
+                  {m.role === 'assistant' && m.trace && (
+                    <>
+                      <div className={styles.traceToggleRow}>
+                        <button
+                          className={styles.traceToggleBtn}
+                          onClick={() => toggleTrace(idx)}
+                          aria-expanded={m.traceOpen}
+                          aria-controls={`trace-panel-${idx}`}
+                        >
+                          <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true"
+                            style={{ transform: m.traceOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 180ms ease' }}>
+                            <path d="M4 2l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                           </svg>
-                          Evidence
+                          Pipeline trace
                         </button>
-                      )}
-                    </div>
-                    {m.traceOpen && <TracePanel trace={m.trace} />}
-                  </>
-                )}
-              </div>
-            ))}
+                        {m.sandbox && (
+                          <button
+                            className={styles.traceToggleBtn}
+                            onClick={() => setActiveSandbox(m.sandbox ?? null)}
+                            aria-label="Show sandbox evidence in right panel"
+                          >
+                            <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                              <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.4" />
+                              <line x1="6" y1="3" x2="6" y2="6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                              <circle cx="6" cy="8.5" r="0.75" fill="currentColor" />
+                            </svg>
+                            Evidence
+                          </button>
+                        )}
+                      </div>
+                      {m.traceOpen && <div id={`trace-panel-${idx}`}><TracePanel trace={m.trace} /></div>}
+                    </>
+                  )}
+                </div>
+              );
+            })}
 
             {loading && (
               <div className={styles.assistantBubbleWrap}>
@@ -976,27 +1106,41 @@ export default function Home() {
           </div>
 
           <div className={styles.inputRow}>
-            <input
-              className={styles.input}
-              placeholder="Ask Mycelium something…"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={loading}
-              autoFocus
-            />
-            <button className={styles.sendButton} onClick={handleSend} disabled={loading || !input.trim()} aria-label="Send">
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <div className={styles.inputWrap}>
+              <input
+                className={styles.input}
+                placeholder="Ask Mycelium something…"
+                value={input}
+                onChange={(e) => setInput(e.target.value.slice(0, MAX_INPUT_CHARS))}
+                onKeyDown={handleKeyDown}
+                disabled={loading}
+                autoFocus
+                maxLength={MAX_INPUT_CHARS}
+                aria-label="Type your message"
+              />
+              {charCounterVisible && (
+                <span className={`${styles.charCounter} ${atCharLimit ? styles.charCounterLimit : ''}`} aria-live="polite">
+                  {input.length}/{MAX_INPUT_CHARS}
+                </span>
+              )}
+            </div>
+            <button
+              className={styles.sendButton}
+              onClick={() => handleSend()}
+              disabled={loading || !input.trim()}
+              aria-label="Send message"
+            >
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
                 <path d="M2 9h14M10 3l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
           </div>
         </main>
 
-        <aside className={styles.sandboxPane}>
+        <aside className={styles.sandboxPane} aria-label="Sandbox evidence">
           <div className={styles.sidebarHeader}>
             <span className={styles.sidebarTitle}>{sandboxPaneTitle}</span>
-            {loading && hasLiveActivity && <span className={styles.sandboxLiveBadge}>LIVE</span>}
+            {loading && hasLiveActivity && <span className={styles.sandboxLiveBadge} aria-label="Live tool activity">LIVE</span>}
           </div>
           <SandboxPanel
             sandbox={activeSandbox}
