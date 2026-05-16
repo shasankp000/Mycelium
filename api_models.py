@@ -14,8 +14,19 @@ ValidationError — we only assert on fields we actually read.
 
 from __future__ import annotations
 
+import json
+import pathlib
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, Field, ConfigDict
+
+
+# ---------------------------------------------------------------------------
+# Trace storage
+# ---------------------------------------------------------------------------
+
+TRACES_DIR = pathlib.Path("traces")
+TRACES_DIR.mkdir(exist_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -50,11 +61,35 @@ class ValidationDecision(BaseModel):
     confidence: Optional[float] = None
 
 
+class Phase2Summary(BaseModel):
+    """
+    Summary of Phase-2 fusion / validation results.
+    Kept intentionally open (extra='allow') because the fusion engine
+    attaches domain-specific sub-keys that vary per query.
+    """
+    model_config = ConfigDict(extra="allow")
+    answer_draft: Optional[str] = None
+    fusion_confidence: Optional[float] = None
+
+
 class Phase3Summary(BaseModel):
     model_config = ConfigDict(extra="allow")
     validation_decision: Optional[ValidationDecision] = None
     phase_latencies_ms: Optional[Dict[str, float]] = Field(default_factory=dict)
     answer_draft: Optional[str] = None
+
+
+class MetricsSummary(BaseModel):
+    """
+    Aggregate performance metrics for a single pipeline run.
+    Written by run_workflow and surfaced in the trace panel.
+    """
+    model_config = ConfigDict(extra="allow")
+    total_latency_ms: Optional[float] = None
+    routing_latency_ms: Optional[float] = None
+    expert_latency_ms: Optional[float] = None
+    phase3_latency_ms: Optional[float] = None
+    post_check_latency_ms: Optional[float] = None
 
 
 # ---------------------------------------------------------------------------
@@ -113,14 +148,18 @@ class MyceliumRunSummary(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     trace_id: Optional[str] = None
-    timestamp: Optional[str] = None
+    timestamp: Optional[Union[str, datetime]] = None
     sentence: Optional[str] = None                     # original user query
 
     # Pipeline stages
     layer0: Optional[Layer0Summary] = None
     routing: Optional[RoutingSummary] = None
     expert_decision: Optional[ExpertDecisionSummary] = None
+    phase2: Optional[Phase2Summary] = None
     phase3: Optional[Phase3Summary] = None
+
+    # Aggregate metrics
+    metrics: Optional[MetricsSummary] = None
 
     # Post-check results  (Milestone 1 — promoted from opaque metadata)
     verification_meta: Optional[VerificationMeta] = None
@@ -208,18 +247,25 @@ class SseEvent(BaseModel):
 # Trace archive  (used by /api/v1/traces/recent)
 # ---------------------------------------------------------------------------
 
-class HistoryTrace(BaseModel):
+class ReasoningTrace(BaseModel):
     """
     One record stored in traces/<trace_id>.jsonl and returned by
     GET /api/v1/traces/recent.
+
+    Previously called HistoryTrace; renamed to ReasoningTrace to match
+    the name used throughout broadcast_api.py.
     """
     model_config = ConfigDict(extra="allow")
 
     trace_id: str
-    timestamp: str
+    timestamp: Union[str, datetime]
     user_query: str
     run_summary: MyceliumRunSummary
     sandbox_result: Optional[Dict[str, Any]] = None
+
+
+# Keep the old name as an alias so any code still referencing HistoryTrace works.
+HistoryTrace = ReasoningTrace
 
 
 # ---------------------------------------------------------------------------
@@ -244,3 +290,61 @@ class PatchRecord(BaseModel):
     final_answer: Optional[str] = None         # filled in after pipeline completes
     sandbox_summary: Optional[str] = None
     confidence_at_routing: Optional[float] = None
+
+
+# ---------------------------------------------------------------------------
+# Helpers used by broadcast_api.py
+# ---------------------------------------------------------------------------
+
+def _to_jsonable(obj: Any) -> Any:
+    """
+    Recursively convert an object to a JSON-serialisable form.
+
+    Handles: datetime → ISO string, Pydantic models → dict,
+    sets → list, and arbitrary nested dicts/lists.
+    """
+    if obj is None:
+        return None
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, BaseModel):
+        return _to_jsonable(obj.model_dump())
+    if isinstance(obj, dict):
+        return {k: _to_jsonable(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_to_jsonable(i) for i in obj]
+    if isinstance(obj, set):
+        return [_to_jsonable(i) for i in sorted(obj, key=str)]
+    return obj
+
+
+def metrics_to_summary(metrics: Any) -> Optional[MetricsSummary]:
+    """
+    Convert a raw metrics dict (or object) returned by run_workflow into a
+    typed MetricsSummary.  Returns None if metrics is falsy.
+    """
+    if not metrics:
+        return None
+    if isinstance(metrics, MetricsSummary):
+        return metrics
+    if isinstance(metrics, BaseModel):
+        data = metrics.model_dump()
+    elif isinstance(metrics, dict):
+        data = metrics
+    else:
+        return None
+    return MetricsSummary(**{k: v for k, v in data.items() if v is not None})
+
+
+def append_trace(trace: ReasoningTrace) -> None:
+    """
+    Append a ReasoningTrace record to TRACES_DIR/<trace_id>.jsonl.
+
+    Each file holds exactly one JSONL line so that the file can be quickly
+    located and the record streamed without loading the whole archive.
+    Uses _to_jsonable so datetime fields are safely serialised.
+    """
+    path = TRACES_DIR / f"{trace.trace_id}.jsonl"
+    record = _to_jsonable(trace.model_dump())
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(record) + "\n")
