@@ -34,7 +34,7 @@ import config_loader as cfg
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Mycelium Broadcast API", version="0.5.2")
+app = FastAPI(title="Mycelium Broadcast API", version="0.5.3")
 
 origins = [
     "http://localhost:3000",
@@ -275,7 +275,22 @@ def _full_pipeline_generator(
     sandbox_summary  — all tool calls done
     conversation     — ConversationAgent generating user-facing answer
     done             — complete ChatResponse payload attached
+
+    Heartbeat
+    ---------
+    _build_run_summary typically takes 60-150 s (Qwen3.5 cold-start included).
+    During this window no SSE data is emitted and nginx / OS TCP / browser
+    EventSource will close the connection after ~45-60 s of silence,
+    triggering an onerror + pipeline restart on the frontend.
+
+    To prevent this the function runs _build_run_summary in a sub-thread and
+    emits a raw SSE comment line (': heartbeat\n\n') every 15 s while the
+    future is pending.  Comment lines begin with ':' and are defined by the
+    SSE spec to be silently ignored by clients — they carry no data but
+    keep TCP keepalive and browser EventSource connections alive.
     """
+    import concurrent.futures as _cf
+
     wall_start = time.monotonic()
 
     def elapsed() -> int:
@@ -301,8 +316,23 @@ def _full_pipeline_generator(
     yield _sse_event("routing", "Running multi-lens router and reasoning pipeline…", elapsed())
     logger.info("[SSE %s] phase=routing", trace_id)
 
+    # Run the heavy blocking pipeline in a sub-thread so we can emit
+    # heartbeat SSE comment lines while it is executing.  This prevents
+    # nginx / OS TCP / browser EventSource from closing the connection
+    # during the typically 60-150 s silent window.
     try:
-        summary = _build_run_summary(req_text, trace_id)
+        with _cf.ThreadPoolExecutor(max_workers=1) as _exec:
+            _future = _exec.submit(_build_run_summary, req_text, trace_id)
+            while not _future.done():
+                time.sleep(15)
+                if _future.done():
+                    break
+                # SSE comment lines (start with ':') are invisible to the
+                # frontend onmessage handler but keep the TCP connection and
+                # browser EventSource alive.
+                yield ": heartbeat\n\n"
+                logger.debug("[SSE %s] heartbeat elapsed=%dms", trace_id, elapsed())
+            summary = _future.result()  # re-raises any exception from the thread
     except Exception as exc:
         logger.error("[SSE %s] pipeline failed — %s", trace_id, exc)
         yield _sse_event("error", f"Pipeline error: {exc}", elapsed())
@@ -603,12 +633,30 @@ async def chat(req: ChatRequest) -> ChatResponse:
 
     Identical to the SSE stream but returned as a single JSON response.
     Useful as fallback when EventSource is unavailable.
+
+    Both the warmup wait and _build_run_summary are offloaded to a thread
+    pool via run_in_executor so the event loop is never blocked.  Without
+    this, Uvicorn (single-threaded) would be completely frozen for the
+    ~120 s pipeline duration, making health checks and any concurrent
+    request unresponsive.
     """
-    # Wait for warmup before processing so models are ready
-    _warmup_done.wait()
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+
+    loop = asyncio.get_running_loop()
+
+    # Non-blocking wait for warmup — yields control to the event loop
+    # while the warmup thread is still running.
+    await loop.run_in_executor(None, _warmup_done.wait)
 
     trace_id = str(uuid4())
-    summary = _build_run_summary(req.text, trace_id)
+
+    # Run the blocking pipeline in a dedicated thread so the event loop
+    # remains free for health checks, SSE streams, etc.
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        summary = await loop.run_in_executor(
+            pool, _build_run_summary, req.text, trace_id
+        )
 
     decision_type = (
         summary.expert_decision.decision_type
