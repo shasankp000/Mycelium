@@ -570,6 +570,15 @@ export default function Home() {
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number>(0);
 
+  // Tracks the wall-clock time of the most recent SSE onmessage event.
+  // Used in onerror to distinguish a genuinely unreachable server
+  // (no events ever, or >20 s silence) from a normally long pipeline
+  // that is merely quiet while the backend is thinking.
+  const lastEventAtRef = useRef<number>(0);
+
+  // Hard-cap timeout handle — cleared on every normal completion path.
+  const sseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
@@ -578,6 +587,7 @@ export default function Home() {
     return () => {
       esRef.current?.close();
       if (tickRef.current) clearInterval(tickRef.current);
+      if (sseTimeoutRef.current) clearTimeout(sseTimeoutRef.current);
     };
   }, []);
 
@@ -616,6 +626,13 @@ export default function Home() {
     }
   }
 
+  function clearSseTimeout() {
+    if (sseTimeoutRef.current) {
+      clearTimeout(sseTimeoutRef.current);
+      sseTimeoutRef.current = null;
+    }
+  }
+
   function finishWithResponse(data: ChatApiResponse) {
     const answer: string =
       data.answer ??
@@ -631,6 +648,7 @@ export default function Home() {
     setLiveToolEvents([]);  // clear live feed once we have the real result
     setLoading(false);
     stopElapsedTick();
+    clearSseTimeout();
     loadHistory();
   }
 
@@ -645,6 +663,7 @@ export default function Home() {
     setLiveToolEvents([]);
     setLoading(false);
     stopElapsedTick();
+    clearSseTimeout();
   }
 
   async function handleSend() {
@@ -659,6 +678,10 @@ export default function Home() {
     setCurrentDetail('Connecting to Mycelium…');
     startElapsedTick();
 
+    // Reset the last-event timestamp to the current time so onerror can
+    // distinguish "never received any events" from "received some, now quiet".
+    lastEventAtRef.current = Date.now();
+
     const sseUrl = `${API_BASE}/api/v1/chat/stream?text=${encodeURIComponent(text)}`;
 
     try {
@@ -666,7 +689,23 @@ export default function Home() {
       esRef.current = es;
       let gotDone = false;
 
+      // ── 3-minute hard-cap timeout ──────────────────────────────────────
+      // If the stream never delivers a 'done' event within 3 minutes,
+      // close the connection cleanly and surface a timeout error to the
+      // user.  Cleared on every normal completion path.
+      const SSE_TIMEOUT_MS = 3 * 60 * 1000;
+      sseTimeoutRef.current = setTimeout(() => {
+        if (!gotDone) {
+          es.close();
+          esRef.current = null;
+          finishWithError('Request timed out after 3 minutes.');
+        }
+      }, SSE_TIMEOUT_MS);
+
       es.onmessage = (ev) => {
+        // Stamp the most recent message time so onerror can measure silence.
+        lastEventAtRef.current = Date.now();
+
         try {
           const event: SseEvent = JSON.parse(ev.data);
 
@@ -701,11 +740,30 @@ export default function Home() {
 
       es.onerror = () => {
         if (gotDone) return;
+
+        const silentForMs = Date.now() - lastEventAtRef.current;
+        const neverReceivedEvents = lastEventAtRef.current === 0;
+
+        // Only fall back to POST if the server appears genuinely unreachable:
+        //   • We have never received a single event (server not responding), OR
+        //   • The connection has been silent for >20 s
+        //     (backend crashed mid-stream without sending 'error').
+        //
+        // If we received events recently (silentForMs < 20 s), the error is
+        // most likely a transient TCP blip during a normal long-running
+        // pipeline.  The backend heartbeat (': heartbeat\n\n' every 15 s)
+        // will keep the connection alive; dismiss the error and wait.
+        if (!neverReceivedEvents && silentForMs < 20_000) {
+          return;
+        }
+
+        clearSseTimeout();
         es.close();
         esRef.current = null;
         fallbackPost(text);
       };
     } catch {
+      clearSseTimeout();
       fallbackPost(text);
     }
   }
@@ -753,7 +811,7 @@ export default function Home() {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
 
-      {/* ── Header ───────────────────────────────────────── */}
+      {/* ── Header ──────────────────────────────────────────────── */}
       <header className={styles.header}>
         <div className={styles.headerLeft}>
           <button
@@ -792,7 +850,7 @@ export default function Home() {
         </div>
       </header>
 
-      {/* ── Body ─────────────────────────────────────────── */}
+      {/* ── Body ────────────────────────────────────────────────── */}
       <div className={styles.body}>
 
         {/* History sidebar */}
