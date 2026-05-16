@@ -77,10 +77,25 @@ interface HistoryTrace {
   sandbox_result?: Record<string, unknown>;
 }
 
+/**
+ * LiveToolEvent — one entry per *tool call slot* (keyed by toolIndex).
+ *
+ * The backend emits two SSE events per tool call:
+ *   1. sandbox_tool/<n>        → detail: "<tool> | <query>"
+ *   2. sandbox_tool/<n>_ok|_err → detail: "<tool> | ✓|✗ <ms>ms | <preview>"
+ *
+ * The frontend merges both into a single row that updates in-place:
+ *   - phase === 'running' while the start event is active
+ *   - phase transitions to 'ok' or 'err' on the result event
+ */
 export interface LiveToolEvent {
-  phase: string;
-  detail: string;
-  elapsed_ms: number;
+  toolIndex: number;       // 1-based index matching sandbox_tool/<n>
+  toolName: string;        // e.g. "web_search"
+  query: string;           // truncated query text
+  phase: 'running' | 'ok' | 'err' | 'plan';
+  durationMs?: number;     // only present after result
+  preview?: string;        // output preview, only present after result
+  elapsedMs: number;       // SSE elapsed_ms at time of last update
 }
 
 interface SseEvent {
@@ -187,8 +202,44 @@ function phaseProgress(phase: string): number {
   return 50;
 }
 
-function isSandboxToolPhase(phase: string): boolean {
+function isSandboxPhase(phase: string): boolean {
   return phase === 'sandbox_plan' || phase.startsWith('sandbox_tool/');
+}
+
+// ---------------------------------------------------------------------------
+// Parse pipe-separated backend detail strings
+// ---------------------------------------------------------------------------
+
+/**
+ * Backend detail formats:
+ *   sandbox_plan       : "<count> | <tool1>, <tool2>, ..."
+ *   sandbox_tool/<n>   : "<tool> | <query>"
+ *   sandbox_tool/<n>_ok: "<tool> | ✓ <ms>ms | <preview>"
+ *   sandbox_tool/<n>_err: "<tool> | ✗ <ms>ms | <error>"
+ */
+function parseSandboxDetail(phase: string, detail: string): Partial<LiveToolEvent> {
+  const parts = detail.split(' | ');
+
+  if (phase === 'sandbox_plan') {
+    return { query: parts.slice(1).join(', ') };
+  }
+
+  // Extract 1-based index from "sandbox_tool/2" or "sandbox_tool/2_ok"
+  const indexMatch = phase.match(/sandbox_tool\/(\d+)/);
+  const toolIndex = indexMatch ? parseInt(indexMatch[1], 10) : 0;
+  const toolName = parts[0] ?? '';
+
+  if (phase.endsWith('_ok') || phase.endsWith('_err')) {
+    // parts[1] = "✓ 423ms" or "✗ 423ms"
+    const durationMatch = (parts[1] ?? '').match(/(\d+)ms/);
+    const durationMs = durationMatch ? parseInt(durationMatch[1], 10) : undefined;
+    const preview = parts[2] ?? undefined;
+    return { toolIndex, toolName, durationMs, preview };
+  }
+
+  // START event
+  const query = parts[1] ?? '';
+  return { toolIndex, toolName, query };
 }
 
 // ---------------------------------------------------------------------------
@@ -241,8 +292,8 @@ function outputPreview(output: Record<string, unknown>): string {
 function toolDisplayName(tool: string): string {
   const names: Record<string, string> = {
     web_search: 'Web Search',
-    academic_search: 'Academic Search',
-    knowledge_base: 'Knowledge Base',
+    academic_search: 'Academic',
+    knowledge_base: 'Knowledge',
     calculator: 'Calculator',
   };
   return names[tool] ?? tool;
@@ -343,22 +394,54 @@ function TracePanel({ trace }: { trace: PipelineTrace }) {
 }
 
 // ---------------------------------------------------------------------------
-// LiveToolFeed
+// LiveToolFeed — one row per tool call, updates in-place running→ok/err
 // ---------------------------------------------------------------------------
 
-function LiveToolFeed({ events }: { events: LiveToolEvent[] }) {
-  if (events.length === 0) return null;
+function LiveToolFeed({ events, planDetail }: { events: LiveToolEvent[]; planDetail: string }) {
   return (
     <div className={styles.liveToolFeed}>
-      {events.map((ev, i) => {
-        const isOk   = ev.phase.endsWith('_ok');
-        const isErr  = ev.phase.endsWith('_err');
-        const isPlan = ev.phase === 'sandbox_plan';
+      {/* Plan row */}
+      {planDetail && (
+        <div className={`${styles.liveToolRow} ${styles.liveToolPlan}`}>
+          <span className={styles.liveToolIcon}>📋</span>
+          <span className={styles.liveToolDetail}>Plan: {planDetail}</span>
+        </div>
+      )}
+
+      {/* One row per tool call, keyed by toolIndex */}
+      {events.map((ev) => {
+        const isRunning = ev.phase === 'running';
+        const isOk      = ev.phase === 'ok';
+        const isErr     = ev.phase === 'err';
+
+        const rowClass = isOk
+          ? styles.liveToolOk
+          : isErr
+          ? styles.liveToolErr
+          : styles.liveToolRunning;
+
+        const icon = isOk ? '✓' : isErr ? '✗' : '⟳';
+
         return (
-          <div key={i} className={`${styles.liveToolRow} ${isOk ? styles.liveToolOk : isErr ? styles.liveToolErr : isPlan ? styles.liveToolPlan : styles.liveToolRunning}`}>
-            <span className={styles.liveToolIcon}>{isOk ? '✓' : isErr ? '✗' : isPlan ? '📋' : '⟳'}</span>
-            <span className={styles.liveToolDetail}>{ev.detail}</span>
-            <span className={styles.liveToolElapsed}>{(ev.elapsed_ms / 1000).toFixed(1)}s</span>
+          <div key={ev.toolIndex} className={`${styles.liveToolRow} ${rowClass}`}>
+            {/* Left: icon + tool badge + query */}
+            <span className={`${styles.liveToolIcon} ${isRunning ? styles.liveToolSpinning : ''}`}>
+              {icon}
+            </span>
+            <div className={styles.liveToolBody}>
+              <div className={styles.liveToolTop}>
+                <span className={styles.liveToolBadge}>{toolDisplayName(ev.toolName)}</span>
+                <span className={styles.liveToolQuery}>{ev.query}</span>
+                {/* Duration shown only on completion */}
+                {!isRunning && ev.durationMs !== undefined && (
+                  <span className={styles.liveToolElapsed}>{fmtDuration(ev.durationMs)}</span>
+                )}
+              </div>
+              {/* Preview row — only after completion */}
+              {!isRunning && ev.preview && (
+                <p className={styles.liveToolPreview}>{ev.preview}</p>
+              )}
+            </div>
           </div>
         );
       })}
@@ -370,16 +453,27 @@ function LiveToolFeed({ events }: { events: LiveToolEvent[] }) {
 // SandboxPanel
 // ---------------------------------------------------------------------------
 
-function SandboxPanel({ sandbox, liveEvents, isLoading }: { sandbox: SandboxResult | null; liveEvents: LiveToolEvent[]; isLoading: boolean }) {
+function SandboxPanel({
+  sandbox,
+  liveEvents,
+  planDetail,
+  isLoading,
+}: {
+  sandbox: SandboxResult | null;
+  liveEvents: LiveToolEvent[];
+  planDetail: string;
+  isLoading: boolean;
+}) {
   const [openSteps, setOpenSteps] = useState<Set<number>>(new Set());
   function toggleStep(i: number) {
     setOpenSteps((prev) => { const next = new Set(prev); next.has(i) ? next.delete(i) : next.add(i); return next; });
   }
 
   if (isLoading) {
+    const hasEvents = liveEvents.length > 0 || planDetail;
     return (
       <div className={styles.sandboxPanel}>
-        {liveEvents.length === 0 ? (
+        {!hasEvents ? (
           <div className={styles.sandboxEmpty}>
             <div className={styles.sandboxWaiting}>
               <span className={styles.sandboxDot} />
@@ -389,7 +483,7 @@ function SandboxPanel({ sandbox, liveEvents, isLoading }: { sandbox: SandboxResu
             <p>Waiting for tool plan…</p>
           </div>
         ) : (
-          <LiveToolFeed events={liveEvents} />
+          <LiveToolFeed events={liveEvents} planDetail={planDetail} />
         )}
       </div>
     );
@@ -541,7 +635,11 @@ export default function Home() {
   const [input, setInput]               = useState('');
   const [loading, setLoading]           = useState(false);
   const [activeSandbox, setActiveSandbox] = useState<SandboxResult | null>(null);
+
+  // Live tool feed state — keyed by toolIndex for in-place updates
   const [liveToolEvents, setLiveToolEvents] = useState<LiveToolEvent[]>([]);
+  const [livePlanDetail, setLivePlanDetail] = useState<string>('');
+
   const [history, setHistory]           = useState<HistoryTrace[]>([]);
   const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
   const [historySidebarOpen, setHistorySidebarOpen] = useState(true);
@@ -604,6 +702,7 @@ export default function Home() {
     setMessages((prev) => [...prev, { role: 'assistant', content: answer, trace, traceOpen: false, sandbox }]);
     if (sandbox) setActiveSandbox(sandbox);
     setLiveToolEvents([]);
+    setLivePlanDetail('');
     setLoading(false);
     stopElapsedTick();
     clearSseTimeout();
@@ -613,22 +712,71 @@ export default function Home() {
   function finishWithError(detail: string) {
     setMessages((prev) => [...prev, { role: 'assistant', content: `⚠ Error contacting Mycelium backend: ${detail}\n\nIs the FastAPI server running at ${API_BASE}?` }]);
     setLiveToolEvents([]);
+    setLivePlanDetail('');
     setLoading(false);
     stopElapsedTick();
     clearSseTimeout();
+  }
+
+  /**
+   * Handle a sandbox-phase SSE event and update liveToolEvents in-place.
+   *
+   * sandbox_plan        → set planDetail string
+   * sandbox_tool/<n>    → insert a new 'running' row at toolIndex n
+   * sandbox_tool/<n>_ok → update existing row at toolIndex n → 'ok'
+   * sandbox_tool/<n>_err→ update existing row at toolIndex n → 'err'
+   */
+  function handleSandboxEvent(phase: string, detail: string, elapsedMsVal: number) {
+    if (phase === 'sandbox_plan') {
+      // detail format: "<count> | <tool1>, <tool2>, ..."
+      const parts = detail.split(' | ');
+      const toolList = parts.slice(1).join(', ');
+      setLivePlanDetail(toolList || detail);
+      return;
+    }
+
+    const parsed = parseSandboxDetail(phase, detail);
+    const { toolIndex, toolName, query, durationMs, preview } = parsed as Required<typeof parsed>;
+
+    if (!toolIndex) return;
+
+    if (phase.endsWith('_ok') || phase.endsWith('_err')) {
+      // Update existing row in-place
+      setLiveToolEvents((prev) =>
+        prev.map((ev) =>
+          ev.toolIndex === toolIndex
+            ? { ...ev, phase: phase.endsWith('_ok') ? 'ok' : 'err', durationMs, preview, elapsedMs: elapsedMsVal }
+            : ev
+        )
+      );
+    } else {
+      // START: insert a new running row (or replace if somehow re-sent)
+      const newRow: LiveToolEvent = {
+        toolIndex,
+        toolName: toolName || '',
+        query: query || '',
+        phase: 'running',
+        elapsedMs: elapsedMsVal,
+      };
+      setLiveToolEvents((prev) => {
+        const exists = prev.find((e) => e.toolIndex === toolIndex);
+        if (exists) return prev.map((e) => e.toolIndex === toolIndex ? newRow : e);
+        return [...prev, newRow];
+      });
+    }
   }
 
   async function handleSend() {
     if (!input.trim() || loading) return;
     const text = input.trim();
 
-    // First message — transition home → chat
     if (!hasStarted) setHasStarted(true);
 
     setMessages((prev) => [...prev, { role: 'user', content: text }]);
     setInput('');
     setLoading(true);
     setLiveToolEvents([]);
+    setLivePlanDetail('');
     setActiveSandbox(null);
     setCurrentPhase('routing');
     setCurrentDetail('Connecting to Mycelium…');
@@ -654,9 +802,11 @@ export default function Home() {
           setCurrentPhase(event.phase);
           setCurrentDetail(event.detail);
           setElapsedMs(event.elapsed_ms);
-          if (isSandboxToolPhase(event.phase)) {
-            setLiveToolEvents((prev) => [...prev, { phase: event.phase, detail: event.detail, elapsed_ms: event.elapsed_ms }]);
+
+          if (isSandboxPhase(event.phase)) {
+            handleSandboxEvent(event.phase, event.detail, event.elapsed_ms);
           }
+
           if (event.phase === 'done' && event.payload) {
             gotDone = true; es.close(); esRef.current = null; finishWithResponse(event.payload);
           } else if (event.phase === 'error') {
@@ -699,7 +849,8 @@ export default function Home() {
     if (sr) setActiveSandbox(sr);
   }
 
-  const sandboxPaneTitle = loading && liveToolEvents.length > 0 ? 'Running tools…' : loading ? 'Sandbox' : 'Sandbox evidence';
+  const hasLiveActivity = liveToolEvents.length > 0 || !!livePlanDetail;
+  const sandboxPaneTitle = loading && hasLiveActivity ? 'Running tools…' : loading ? 'Sandbox' : 'Sandbox evidence';
 
   // ── Render: home screen ────────────────────────────────────────────────────
   if (!hasStarted) {
@@ -845,9 +996,14 @@ export default function Home() {
         <aside className={styles.sandboxPane}>
           <div className={styles.sidebarHeader}>
             <span className={styles.sidebarTitle}>{sandboxPaneTitle}</span>
-            {loading && liveToolEvents.length > 0 && <span className={styles.sandboxLiveBadge}>LIVE</span>}
+            {loading && hasLiveActivity && <span className={styles.sandboxLiveBadge}>LIVE</span>}
           </div>
-          <SandboxPanel sandbox={activeSandbox} liveEvents={liveToolEvents} isLoading={loading} />
+          <SandboxPanel
+            sandbox={activeSandbox}
+            liveEvents={liveToolEvents}
+            planDetail={livePlanDetail}
+            isLoading={loading}
+          />
         </aside>
       </div>
     </div>

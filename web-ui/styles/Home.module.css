@@ -580,6 +580,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-direction: column;
+  gap: 8px;
   padding: 24px;
   color: #383838;
   font-size: 12px;
@@ -681,7 +683,7 @@
 .sandboxCommentary { font-size: 11px; color: #585858; font-style: italic; }
 .sandboxOutput     { font-size: 11px; color: #909090; line-height: 1.5; word-break: break-word; }
 
-/* ── Live tool feed ───────────────────────────────────────── */
+/* ── Live tool feed badge ──────────────────────────────────── */
 .sandboxLiveBadge {
   font-size: 9px;
   font-weight: 700;
@@ -698,6 +700,7 @@
   50%       { opacity: 0.45; }
 }
 
+/* ── Waiting dots ──────────────────────────────────────────── */
 .sandboxWaiting {
   display: flex;
   align-items: center;
@@ -717,31 +720,66 @@
 .sandboxDot:nth-child(2) { animation-delay: 0.2s; }
 .sandboxDot:nth-child(3) { animation-delay: 0.4s; }
 
+/* ============================================================
+   LIVE TOOL FEED — per-tool rows that update in-place
+   ============================================================ */
+
 .liveToolFeed {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
   padding: 4px 0;
 }
 
+/* Base row */
 .liveToolRow {
   display: flex;
-  align-items: baseline;
-  gap: 6px;
-  padding: 4px 8px;
-  border-radius: 4px;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  border: 1px solid transparent;
   font-size: 11px;
   line-height: 1.4;
-  border: 1px solid transparent;
-  transition: background 120ms;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
+/* States */
 .liveToolRunning {
   background: #061618;
   border-color: #122a2e;
   color: #7ab8c0;
 }
-.liveToolRunning .liveToolIcon {
+
+.liveToolOk {
+  background: #061408;
+  border-color: #122814;
+  color: #7abf7a;
+}
+
+.liveToolErr {
+  background: #140606;
+  border-color: #281212;
+  color: #c07a7a;
+}
+
+.liveToolPlan {
+  background: #080808;
+  border-color: #202020;
+  color: #686868;
+}
+
+/* Icon col — fixed width so body aligns across rows */
+.liveToolIcon {
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+  font-size: 11px;
+  margin-top: 1px; /* optical alignment with first line of body */
+}
+
+/* Spinning animation for running state */
+.liveToolSpinning {
   animation: spinCcw 1s linear infinite;
   display: inline-block;
 }
@@ -750,10 +788,65 @@
   to   { transform: rotate(-360deg); }
 }
 
-.liveToolOk  { background: #061408; border-color: #122814; color: #7abf7a; }
-.liveToolErr { background: #140606; border-color: #281212; color: #c07a7a; }
-.liveToolPlan { background: #080808; border-color: #202020; color: #686868; }
+/* Body col — stacked: top row (badge + query + duration) + preview */
+.liveToolBody {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
 
-.liveToolIcon   { flex-shrink: 0; font-size: 11px; width: 14px; text-align: center; }
-.liveToolDetail { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.liveToolElapsed { flex-shrink: 0; font-size: 10px; color: #404040; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.liveToolTop {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+}
+
+/* Small teal badge — tool name */
+.liveToolBadge {
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: #0a1e22;
+  color: #4f98a3;
+  padding: 1px 4px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+/* Truncated query text */
+.liveToolQuery {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+/* Duration — right-aligned, only visible after completion */
+.liveToolElapsed {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: #404040;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+/* Output preview — second line, shown after completion */
+.liveToolPreview {
+  font-size: 10px;
+  color: #505050;
+  line-height: 1.45;
+  /* two-line clamp so long previews don't overflow the pane */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: 0;
+}

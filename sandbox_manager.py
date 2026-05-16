@@ -30,19 +30,22 @@ It is called synchronously at every meaningful sub-step so callers
 
 Phases emitted from inside SandboxManager:
   sandbox_plan        — tool plan produced, tools listed
-  sandbox_tool/<n>    — MCP call n started
-  sandbox_tool/<n>_ok — MCP call n succeeded
-  sandbox_tool/<n>_err— MCP call n failed
+  sandbox_tool/<n>    — MCP call n started  (detail: "web_search | query text")
+  sandbox_tool/<n>_ok — MCP call n succeeded (detail: "web_search | ✓ 423ms | preview…")
+  sandbox_tool/<n>_err— MCP call n failed    (detail: "web_search | ✗ 423ms | error msg")
 
-Changes (2026-05-16 — patch 4)
+Detail format (pipe-separated so frontend can parse without fragile regexes):
+  START  : "<tool> | <query[:80]>"
+  OK     : "<tool> | ✓ <duration_ms>ms | <output_preview[:100]>"
+  ERR    : "<tool> | ✗ <duration_ms>ms | <error_message[:100]>"
+
+Changes (2026-05-16 — patch 5)
 ------------------------------
-  _execute_step: fix step status detection — was checking
-  `"error" in output` (dict key membership) which fires True whenever
-  the output dict contains an "error" key regardless of its value,
-  causing false-positive error status on successful web_search results
-  that also carry a "note" field.  Changed to
-  `output.get("status") == "error"` which aligns with the structured
-  {status, source, note} shape all four MCP tools now emit.
+  - on_progress detail strings for _ok/_err now include a short output
+    preview extracted from the MCP response so the frontend can display
+    it in-place without waiting for the final `done` payload.
+  - START detail now uses pipe-separated format: "<tool> | <query>"
+  - _extract_preview() helper added for structured output parsing.
 """
 from __future__ import annotations
 
@@ -65,6 +68,65 @@ _DEFAULT_WALL_TIMEOUT_S = 30.0
 
 # Type alias for the progress callback
 ProgressCallback = Callable[[str, str], None]
+
+
+# ---------------------------------------------------------------------------
+# Output preview extractor
+# ---------------------------------------------------------------------------
+
+def _extract_preview(tool: str, output: Dict[str, Any], max_len: int = 100) -> str:
+    """
+    Extract a short human-readable preview from an MCP tool output dict.
+
+    Supports the structured {status, source, results/papers/entities/result}
+    shapes emitted by mcp_tools_server's four built-in tools.
+
+    Returns an empty string when nothing useful can be extracted.
+    """
+    if not output:
+        return ""
+
+    # Error case
+    if output.get("status") == "error":
+        err = output.get("error") or output.get("message") or "unknown error"
+        return str(err)[:max_len]
+
+    # web_search / general search → list of {title, snippet, url}
+    results = output.get("results")
+    if isinstance(results, list) and results:
+        first = results[0]
+        snippet = first.get("snippet") or first.get("abstract") or first.get("title") or ""
+        return str(snippet)[:max_len]
+
+    # academic_search → list of {title, authors, year, abstract, url}
+    papers = output.get("papers")
+    if isinstance(papers, list) and papers:
+        first = papers[0]
+        title = first.get("title") or ""
+        year  = first.get("year") or ""
+        preview = f"{title} ({year})" if year else title
+        return str(preview)[:max_len]
+
+    # knowledge_base → list of {label, description, url}
+    entities = output.get("entities")
+    if isinstance(entities, list) and entities:
+        first = entities[0]
+        label = first.get("label") or ""
+        desc  = first.get("description") or ""
+        preview = f"{label}: {desc}" if desc else label
+        return str(preview)[:max_len]
+
+    # calculator → {result: <number|string>}
+    calc_result = output.get("result")
+    if calc_result is not None:
+        return str(calc_result)[:max_len]
+
+    # Generic fallback — first string value found
+    for v in output.values():
+        if isinstance(v, str) and v.strip():
+            return v.strip()[:max_len]
+
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -114,6 +176,11 @@ class SandboxManager:
             Called synchronously at each sub-step so the SSE generator in
             broadcast_api can forward live progress events to the frontend.
 
+            Detail format (pipe-separated):
+              START  : "<tool> | <query[:80]>"
+              OK     : "<tool> | ✓ <duration_ms>ms | <output_preview[:100]>"
+              ERR    : "<tool> | ✗ <duration_ms>ms | <error[:100]>"
+
         Steps
         -----
         1. DomainToolPlanner produces a minimal ToolCallPlan (no LLM).
@@ -151,7 +218,7 @@ class SandboxManager:
         tool_names = [c.tool for c in plan]
         _emit(
             "sandbox_plan",
-            f"Plan ready — {len(plan)} tool(s): {', '.join(tool_names)}",
+            f"{len(plan)} | {', '.join(tool_names)}",
         )
         logger.info(
             "SandboxManager: plan for trace=%s domains=%s → tools=%s",
@@ -164,25 +231,38 @@ class SandboxManager:
             if elapsed_s > self._wall_timeout_s * 0.85:
                 warn = f"Wall timeout approaching ({elapsed_s:.1f}s / {self._wall_timeout_s}s), stopping early"
                 logger.warning("SandboxManager: %s", warn)
-                _emit(f"sandbox_tool/{idx}", f"⚠ {warn}")
+                # emit timeout as an error row so frontend can show it
+                _emit(
+                    f"sandbox_tool/{idx}_err",
+                    f"{call.tool} | ✗ 0ms | {warn}",
+                )
                 break
 
+            # START event — pipe-separated so frontend can parse without regex
             _emit(
                 f"sandbox_tool/{idx}",
-                f"Calling {call.tool} — query: {call.query[:80]}",
+                f"{call.tool} | {call.query[:80]}",
             )
+
+            step_wall = time.monotonic()
             step = self._execute_step(call)
+            duration_ms = round((time.monotonic() - step_wall) * 1000)
+
             steps.append(step)
 
-            duration_ms = (
-                (step.finished_at - step.started_at).total_seconds() * 1000
-                if step.finished_at and step.started_at else 0
-            )
+            # RESULT event — include short output preview
+            preview = _extract_preview(call.tool, step.output)
+            if step.status == "ok":
+                result_detail = f"{call.tool} | ✓ {duration_ms}ms"
+                if preview:
+                    result_detail += f" | {preview}"
+            else:
+                result_detail = f"{call.tool} | ✗ {duration_ms}ms"
+                if preview:
+                    result_detail += f" | {preview}"
+
             status_phase = f"sandbox_tool/{idx}_{'ok' if step.status == 'ok' else 'err'}"
-            _emit(
-                status_phase,
-                f"{call.tool} {'✓' if step.status == 'ok' else '✗'} in {duration_ms:.0f}ms",
-            )
+            _emit(status_phase, result_detail)
 
         finished = datetime.utcnow()
 
