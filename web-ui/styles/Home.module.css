@@ -1,5 +1,8 @@
 /* ============================================================
-   Home.module.css  — Mycelium Console
+   Home.module.css  — Mycelium Console  (AMOLED theme)
+   Surfaces : pure #000000 / #080808 / #0d0d0d
+   Text      : #ffffff primary · #a0a0a0 muted · #505050 faint
+   Accents   : teal #4f98a3 · green #6daa45 · orange #fdab43 · red #dd6974
    ============================================================ */
 
 /* ── Shell ────────────────────────────────────────────────── */
@@ -10,8 +13,8 @@
   overflow: hidden;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 14px;
-  background: #0e0e10;
-  color: #d4d3d0;
+  background: #000000;
+  color: #e8e8e8;
 }
 
 /* ── Header ───────────────────────────────────────────────── */
@@ -21,8 +24,8 @@
   justify-content: space-between;
   padding: 0 16px;
   height: 48px;
-  border-bottom: 1px solid #1e1e20;
-  background: #111113;
+  border-bottom: 1px solid #1a1a1a;
+  background: #000000;
   flex-shrink: 0;
   gap: 12px;
 }
@@ -38,33 +41,33 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #d4d3d0;
+  color: #ffffff;
 }
 
 .sidebarToggle {
   background: none;
   border: none;
   cursor: pointer;
-  color: #888;
+  color: #505050;
   padding: 4px;
   border-radius: 4px;
   display: flex;
   align-items: center;
   transition: color 140ms;
 }
-.sidebarToggle:hover { color: #d4d3d0; }
+.sidebarToggle:hover { color: #ffffff; }
 
 .headerTitle {
   font-size: 14px;
   font-weight: 600;
   letter-spacing: 0.01em;
-  color: #e8e7e4;
+  color: #ffffff;
   white-space: nowrap;
 }
 
 .headerSubtitle {
   font-size: 11px;
-  color: #555;
+  color: #404040;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -82,8 +85,8 @@
 .historySidebar {
   width: 220px;
   min-width: 220px;
-  border-right: 1px solid #1e1e20;
-  background: #0c0c0e;
+  border-right: 1px solid #1a1a1a;
+  background: #000000;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -94,7 +97,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 10px 12px 8px;
-  border-bottom: 1px solid #1a1a1c;
+  border-bottom: 1px solid #141414;
   flex-shrink: 0;
 }
 
@@ -103,21 +106,21 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #666;
+  color: #505050;
 }
 
 .sidebarRefresh {
   background: none;
   border: none;
   cursor: pointer;
-  color: #555;
+  color: #404040;
   padding: 2px;
   border-radius: 3px;
   display: flex;
   align-items: center;
   transition: color 140ms;
 }
-.sidebarRefresh:hover { color: #aaa; }
+.sidebarRefresh:hover { color: #a0a0a0; }
 
 .historyList {
   flex: 1;
@@ -135,14 +138,14 @@
   background: none;
   border: none;
   cursor: pointer;
-  color: #999;
+  color: #707070;
   border-left: 2px solid transparent;
   transition: background 120ms, color 120ms, border-color 120ms;
 }
-.historyItem:hover { background: #13131a; color: #d4d3d0; }
+.historyItem:hover { background: #0d0d0d; color: #e8e8e8; }
 .historyItemActive {
-  background: #13131a;
-  color: #d4d3d0;
+  background: #0d0d0d;
+  color: #ffffff;
   border-left-color: #4f98a3;
 }
 
@@ -168,18 +171,18 @@
   border-radius: 99px;
   letter-spacing: 0.05em;
 }
-.historyBadgeNormal { background: #1f3a2e; color: #6daa45; }
-.historyBadgePatch  { background: #3a2010; color: #fdab43; }
+.historyBadgeNormal { background: #1a2e18; color: #6daa45; }
+.historyBadgePatch  { background: #2e1a08; color: #fdab43; }
 
 .historyTs {
   font-size: 10px;
-  color: #555;
+  color: #404040;
   margin-left: auto;
 }
 
 .historyEmpty {
   font-size: 12px;
-  color: #444;
+  color: #383838;
   padding: 16px 12px;
 }
 
@@ -190,7 +193,7 @@
   flex-direction: column;
   min-width: 0;
   overflow: hidden;
-  border-right: 1px solid #1e1e20;
+  border-right: 1px solid #1a1a1a;
 }
 
 .chatWindow {
@@ -210,7 +213,7 @@
   align-items: center;
   justify-content: center;
   gap: 16px;
-  color: #444;
+  color: #383838;
   text-align: center;
   padding: 40px 24px;
 }
@@ -230,7 +233,7 @@
 }
 
 .userBubble {
-  background: #1c2e3a;
+  background: #0d1e28;
   color: #cde4f0;
   border-radius: 14px 14px 4px 14px;
   padding: 9px 14px;
@@ -239,8 +242,8 @@
 }
 
 .assistantBubble {
-  background: #161618;
-  border: 1px solid #222224;
+  background: #080808;
+  border: 1px solid #1c1c1c;
   border-radius: 4px 14px 14px 14px;
   padding: 10px 14px;
   word-break: break-word;
@@ -253,9 +256,10 @@
   line-height: 1.65;
   white-space: pre-wrap;
   margin: 0;
+  color: #e8e8e8;
 }
 
-/* ── Phase indicator (replaces three-dot bubble) ─────────── */
+/* ── Phase indicator ─────────────────────────────────────── */
 .phaseIndicator {
   display: flex;
   flex-direction: column;
@@ -274,7 +278,7 @@
 .phaseLabel {
   font-size: 12px;
   font-weight: 500;
-  color: #b0afac;
+  color: #c0c0c0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -282,7 +286,7 @@
 
 .phaseElapsed {
   font-size: 11px;
-  color: #555;
+  color: #404040;
   white-space: nowrap;
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
@@ -290,7 +294,7 @@
 
 .phaseDetail {
   font-size: 11px;
-  color: #666;
+  color: #585858;
   line-height: 1.4;
   overflow: hidden;
   display: -webkit-box;
@@ -300,7 +304,7 @@
 
 .phaseBarTrack {
   height: 2px;
-  background: #222224;
+  background: #1a1a1a;
   border-radius: 99px;
   overflow: hidden;
   margin-top: 2px;
@@ -349,20 +353,20 @@
   align-items: center;
   gap: 4px;
   background: none;
-  border: 1px solid #222224;
+  border: 1px solid #1c1c1c;
   border-radius: 5px;
   padding: 3px 8px;
   font-size: 11px;
-  color: #666;
+  color: #585858;
   cursor: pointer;
   transition: border-color 140ms, color 140ms;
 }
-.traceToggleBtn:hover { border-color: #3a3a3c; color: #aaa; }
+.traceToggleBtn:hover { border-color: #2e2e2e; color: #a0a0a0; }
 
 /* ── Trace panel ─────────────────────────────────────────── */
 .tracePanel {
-  background: #111113;
-  border: 1px solid #1e1e20;
+  background: #080808;
+  border: 1px solid #1a1a1a;
   border-radius: 6px;
   padding: 10px;
   margin-top: 2px;
@@ -387,12 +391,12 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.07em;
-  color: #555;
+  color: #404040;
 }
 
 .traceValue {
   font-size: 12px;
-  color: #b0afac;
+  color: #c0c0c0;
   word-break: break-word;
 }
 
@@ -401,7 +405,7 @@
 .traceId {
   font-family: 'SF Mono', 'Fira Code', monospace;
   font-size: 10px;
-  color: #555;
+  color: #404040;
 }
 
 /* ── Input row ───────────────────────────────────────────── */
@@ -409,24 +413,24 @@
   display: flex;
   gap: 8px;
   padding: 10px 16px;
-  border-top: 1px solid #1a1a1c;
-  background: #0e0e10;
+  border-top: 1px solid #141414;
+  background: #000000;
   flex-shrink: 0;
 }
 
 .input {
   flex: 1;
-  background: #161618;
-  border: 1px solid #2a2a2c;
+  background: #080808;
+  border: 1px solid #242424;
   border-radius: 8px;
   padding: 8px 12px;
   font-size: 13px;
-  color: #d4d3d0;
+  color: #e8e8e8;
   outline: none;
   transition: border-color 140ms;
 }
 .input:focus { border-color: #4f98a3; }
-.input::placeholder { color: #444; }
+.input::placeholder { color: #383838; }
 
 .sendButton {
   background: #4f98a3;
@@ -438,12 +442,12 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  color: #fff;
+  color: #ffffff;
   transition: background 140ms;
   flex-shrink: 0;
 }
 .sendButton:hover:not(:disabled) { background: #227f8b; }
-.sendButton:disabled { background: #1e3a3e; color: #3a6a70; cursor: not-allowed; }
+.sendButton:disabled { background: #0e2a2e; color: #2a5a60; cursor: not-allowed; }
 
 /* ── Sandbox pane ────────────────────────────────────────── */
 .sandboxPane {
@@ -452,7 +456,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #0c0c0e;
+  background: #000000;
 }
 
 .sandboxEmpty {
@@ -461,7 +465,7 @@
   align-items: center;
   justify-content: center;
   padding: 24px;
-  color: #444;
+  color: #383838;
   font-size: 12px;
   text-align: center;
 }
@@ -484,12 +488,12 @@
 
 .sandboxStatOk  { font-size: 11px; color: #6daa45; font-weight: 600; }
 .sandboxStatErr { font-size: 11px; color: #dd6974; font-weight: 600; }
-.sandboxStatId  { font-size: 10px; color: #555; font-family: monospace; margin-left: auto; }
+.sandboxStatId  { font-size: 10px; color: #404040; font-family: monospace; margin-left: auto; }
 
 .sandboxSummary {
   font-size: 12px;
   line-height: 1.6;
-  color: #b0afac;
+  color: #c0c0c0;
   border-left: 2px solid #4f98a3;
   padding-left: 8px;
 }
@@ -499,10 +503,10 @@
 .sandboxStep {
   border-radius: 5px;
   overflow: hidden;
-  border: 1px solid #1e1e20;
+  border: 1px solid #1a1a1a;
 }
-.sandboxStepOk  { border-color: #1f3a2e; }
-.sandboxStepErr { border-color: #3a1a1a; }
+.sandboxStepOk  { border-color: #1a2e18; }
+.sandboxStepErr { border-color: #2e1414; }
 
 .sandboxStepHeader {
   display: flex;
@@ -510,20 +514,20 @@
   gap: 6px;
   width: 100%;
   padding: 5px 8px;
-  background: #111113;
+  background: #080808;
   border: none;
   cursor: pointer;
   text-align: left;
   font-size: 11px;
-  color: #888;
+  color: #686868;
   transition: background 120ms;
 }
-.sandboxStepHeader:hover { background: #161618; color: #aaa; }
+.sandboxStepHeader:hover { background: #0d0d0d; color: #a0a0a0; }
 
 .sandboxToolBadge {
   font-size: 10px;
   font-weight: 600;
-  background: #1a2a2e;
+  background: #0a1e22;
   color: #4f98a3;
   padding: 1px 5px;
   border-radius: 3px;
@@ -544,7 +548,7 @@
 
 .sandboxStepDuration {
   font-size: 10px;
-  color: #555;
+  color: #404040;
   white-space: nowrap;
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
@@ -552,25 +556,24 @@
 
 .sandboxStepBody {
   padding: 6px 8px;
-  background: #0e0e10;
+  background: #000000;
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.sandboxCommentary { font-size: 11px; color: #666; font-style: italic; }
-.sandboxOutput     { font-size: 11px; color: #999; line-height: 1.5; word-break: break-word; }
+.sandboxCommentary { font-size: 11px; color: #585858; font-style: italic; }
+.sandboxOutput     { font-size: 11px; color: #909090; line-height: 1.5; word-break: break-word; }
 
 /* ── Live tool feed (sandbox pane while loading) ─────────── */
 
-/* Pane header LIVE badge */
 .sandboxLiveBadge {
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.08em;
   color: #4f98a3;
-  background: #0e2a2e;
-  border: 1px solid #1a4a50;
+  background: #061618;
+  border: 1px solid #143438;
   border-radius: 99px;
   padding: 1px 6px;
   animation: livePulse 1.8s ease-in-out infinite;
@@ -580,7 +583,6 @@
   50%       { opacity: 0.45; }
 }
 
-/* Waiting dots (shown before the first tool event arrives) */
 .sandboxWaiting {
   display: flex;
   align-items: center;
@@ -600,7 +602,6 @@
 .sandboxDot:nth-child(2) { animation-delay: 0.2s; }
 .sandboxDot:nth-child(3) { animation-delay: 0.4s; }
 
-/* Feed container */
 .liveToolFeed {
   display: flex;
   flex-direction: column;
@@ -608,7 +609,6 @@
   padding: 4px 0;
 }
 
-/* Individual row */
 .liveToolRow {
   display: flex;
   align-items: baseline;
@@ -621,10 +621,9 @@
   transition: background 120ms;
 }
 
-/* Row variants */
 .liveToolRunning {
-  background: #0f1e20;
-  border-color: #1a3a3e;
+  background: #061618;
+  border-color: #122a2e;
   color: #7ab8c0;
 }
 .liveToolRunning .liveToolIcon {
@@ -637,24 +636,23 @@
 }
 
 .liveToolOk {
-  background: #0c1e14;
-  border-color: #1a3a24;
+  background: #061408;
+  border-color: #122814;
   color: #7abf7a;
 }
 
 .liveToolErr {
-  background: #1e0c0c;
-  border-color: #3a1a1a;
+  background: #140606;
+  border-color: #281212;
   color: #c07a7a;
 }
 
 .liveToolPlan {
-  background: #111113;
-  border-color: #2a2a2e;
-  color: #888;
+  background: #080808;
+  border-color: #202020;
+  color: #686868;
 }
 
-/* Row slots */
 .liveToolIcon {
   flex-shrink: 0;
   font-size: 11px;
@@ -672,7 +670,7 @@
 .liveToolElapsed {
   flex-shrink: 0;
   font-size: 10px;
-  color: #555;
+  color: #404040;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
