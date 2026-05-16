@@ -470,6 +470,17 @@ async def health() -> Dict[str, Any]:
     }
 
 
+@app.get("/api/v1/health")
+async def health_v1() -> Dict[str, Any]:
+    """Versioned health check alias — delegates to /health.
+
+    The frontend polls /api/v1/health on a 30 s interval to decide
+    whether to show the backend-down banner.  This route ensures that
+    poll never returns 404.
+    """
+    return await health()
+
+
 @app.post("/api/v1/query", response_model=MyceliumRunSummary)
 async def query(req: QueryRequest) -> MyceliumRunSummary:
     """Run a single-sentence Mycelium workflow and return a typed summary."""

@@ -870,7 +870,9 @@ export default function Home() {
   }
 
   async function handleSend(overrideText?: string) {
-    const text = (overrideText ?? input).trim();
+    // Bug fix: coerce overrideText to string before calling .trim() to guard
+    // against non-string values (e.g. stale closures, event objects).
+    const text = (typeof overrideText === 'string' ? overrideText : input).trim();
     if (!text || loading) return;
 
     if (!hasStarted) setHasStarted(true);
