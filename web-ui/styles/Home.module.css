@@ -1122,3 +1122,170 @@
     padding-bottom: max(8px, env(safe-area-inset-bottom));
   }
 }
+
+/* ============================================================
+   CALIBRATION GATE
+   Full-screen blocking overlay shown on first load while the
+   expert system initialises in the background via the async
+   poll-based calibration API.
+   ============================================================ */
+
+.calibrationGate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  background: #000000;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  padding: 24px;
+  animation: homeFadeIn 400ms ease both;
+}
+
+.calibrationCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  width: 100%;
+  max-width: 400px;
+  background: #080808;
+  border: 1px solid #1c1c1c;
+  border-radius: 14px;
+  padding: 36px 32px 32px;
+}
+
+.calibrationLogo {
+  color: #4f98a3;
+  opacity: 0.9;
+}
+
+.calibrationTitle {
+  font-size: clamp(1.3rem, 4vw, 1.7rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+  text-align: center;
+  line-height: 1.2;
+  margin: 0;
+}
+
+.calibrationSubtitle {
+  font-size: 13px;
+  color: #505050;
+  text-align: center;
+  line-height: 1.55;
+  margin: 0;
+  max-width: 30ch;
+}
+
+/* Progress bar track */
+.calibrationBarTrack {
+  width: 100%;
+  height: 3px;
+  background: #1a1a1a;
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+/* Animated fill — width driven by inline style (progress %) */
+.calibrationBarFill {
+  height: 100%;
+  background: #4f98a3;
+  border-radius: 99px;
+  transition: width 600ms cubic-bezier(0.16, 1, 0.3, 1);
+  /* Indeterminate shimmer while progress === 0 */
+  animation: calibBarIndeterminate 1.6s ease-in-out infinite;
+}
+
+/* Once we have real progress data the component removes this class */
+.calibrationBarFill:not(.calibrationBarComplete):not(.calibrationBarError) {
+  animation: calibBarIndeterminate 1.6s ease-in-out infinite;
+}
+
+@keyframes calibBarIndeterminate {
+  0%   { transform: translateX(-100%) scaleX(0.4); }
+  50%  { transform: translateX(60%)   scaleX(0.6); }
+  100% { transform: translateX(220%)  scaleX(0.4); }
+}
+
+/* Stop shimmer once a real progress value is being tracked */
+.calibrationBarComplete {
+  background: #6daa45;
+  animation: none;
+  width: 100% !important;
+}
+
+.calibrationBarError {
+  background: #dd6974;
+  animation: none;
+}
+
+/* Status line */
+.calibrationStatus {
+  font-size: 12px;
+  color: #505050;
+  text-align: center;
+  min-height: 1.4em;
+  transition: color 200ms;
+}
+
+.calibrationStatusOk  { color: #6daa45; }
+.calibrationStatusErr { color: #dd6974; }
+
+/* Error detail block */
+.calibrationError {
+  width: 100%;
+  background: #120808;
+  border: 1px solid #2e1010;
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: errorFadeIn 200ms ease both;
+}
+
+.calibrationErrorDetail {
+  font-size: 12px;
+  color: #c07a7a;
+  line-height: 1.55;
+  margin: 0;
+  word-break: break-word;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+/* Retry button inside the error block */
+.calibrationRetry {
+  align-self: flex-start;
+  background: none;
+  border: 1px solid #3a1a1a;
+  border-radius: 5px;
+  padding: 5px 14px;
+  font-size: 12px;
+  color: #dd6974;
+  cursor: pointer;
+  transition: background 140ms, border-color 140ms;
+  min-height: 32px;
+}
+.calibrationRetry:hover { background: #1e0a0a; border-color: #dd6974; }
+
+/* Bottom hint */
+.calibrationHint {
+  font-size: 11px;
+  color: #2e2e2e;
+  text-align: center;
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* Mobile tweaks for the gate */
+@media (max-width: 480px) {
+  .calibrationCard {
+    padding: 28px 20px 24px;
+    gap: 16px;
+    border-radius: 10px;
+  }
+  .calibrationTitle {
+    font-size: 1.3rem;
+  }
+}
