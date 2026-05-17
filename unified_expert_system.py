@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 """
 Unified Expert Pre-Check Layer: Integration of K-Medoids, Calibration, and OOD Detection
 
@@ -10,6 +9,17 @@ This module combines three powerful systems:
 
 The unified system provides the most robust expert decision-making possible.
 """
+
+# ---------------------------------------------------------------------------
+# Offline guard: prefer local HuggingFace cache over network downloads.
+# Set BEFORE any sentence_transformers / transformers import so the library
+# picks up the env-var at import time.  Only activates when the var is not
+# already set in the environment (so callers can still override to "0" if
+# they explicitly want to pull a fresh model).
+# ---------------------------------------------------------------------------
+import os as _os
+_os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+_os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 
 import uuid
 import pickle
@@ -86,6 +96,16 @@ class UnifiedExpert:
         self.training_embeddings = None
         self.isolation_forest = None
         self.nn_detector = None
+
+        # ---------------------------------------------------------------------------
+        # Lazy-cached SentenceTransformer: loaded once per UnifiedExpert instance
+        # and reused across _setup_ood_detection_system, _calculate_centroid,
+        # calculate_similarity_to_centroid, and detect_ood.  This eliminates the
+        # previous pattern of calling SentenceTransformer('all-MiniLM-L6-v2') in
+        # each method, which triggered repeated HuggingFace Hub connectivity checks
+        # and full weight re-loads for every expert during calibration setup.
+        # ---------------------------------------------------------------------------
+        self._sentence_transformer = None
         
         # Statistics for analysis
         self.system_stats = {
@@ -97,7 +117,35 @@ class UnifiedExpert:
         
         # Initialize all systems
         self._initialize_unified_expert()
-    
+
+    # ---------------------------------------------------------------------------
+    # Lazy SentenceTransformer accessor
+    # ---------------------------------------------------------------------------
+    def _get_sentence_transformer(self, model_name: str = "all-MiniLM-L6-v2") -> SentenceTransformer:
+        """Return a cached SentenceTransformer, loading it only once per instance.
+
+        Using a per-instance cache means:
+        - The model weights are loaded from the local HuggingFace cache exactly
+          once per UnifiedExpert, not once per method call.
+        - With TRANSFORMERS_OFFLINE=1 (set at module top) no network round-trip
+          is attempted after the first download.
+        - If a different model_name is requested the cache is invalidated so the
+          correct model is always returned.
+        """
+        if (
+            self._sentence_transformer is None
+            or getattr(self._sentence_transformer, '_model_name', None) != model_name
+        ):
+            local_cache = os.path.join(
+                os.path.expanduser("~"), ".cache", "huggingface", "hub"
+            )
+            self._sentence_transformer = SentenceTransformer(
+                model_name, cache_folder=local_cache
+            )
+            # Store the name so we can detect if a different model is requested later.
+            self._sentence_transformer._model_name = model_name
+        return self._sentence_transformer
+
     def _initialize_unified_expert(self):
         """Initialize all three systems in sequence."""
         print(f"\n🚀 Initializing Unified Expert for {self.domain} domain...")
@@ -281,9 +329,8 @@ class UnifiedExpert:
             # Prepare TF-IDF features
             self.training_features = self.vectorizer.transform(training_texts)
             
-            # Generate embeddings
-            sentence_transformer = SentenceTransformer('all-MiniLM-L6-v2')
-            self.training_embeddings = sentence_transformer.encode(training_texts)
+            # Generate embeddings — reuse cached transformer, no new Hub check
+            self.training_embeddings = self._get_sentence_transformer().encode(training_texts)
             
             # Setup OOD detectors
             self.isolation_forest = IsolationForest(contamination=0.1, random_state=42, n_estimators=50)
@@ -304,9 +351,8 @@ class UnifiedExpert:
         df = pd.read_csv(self.dataset_path)
         texts = df[self.text_column].dropna().tolist()
         
-        # Generate embeddings
-        model = SentenceTransformer(model_name)
-        embeddings = model.encode(texts)
+        # Generate embeddings — reuse cached transformer
+        embeddings = self._get_sentence_transformer(model_name).encode(texts)
         
         # Run K-Medoids clustering
         medoids, medoid_indices, final_assignment = self._pure_python_k_medoids(texts, embeddings, k)
@@ -412,8 +458,8 @@ class UnifiedExpert:
     
     def calculate_similarity_to_centroid(self, text, model_name="all-MiniLM-L6-v2"):
         """Calculate similarity using K-Medoids (best among all medoids)."""
-        model = SentenceTransformer(model_name)
-        text_embedding = model.encode([text])
+        # Reuse cached transformer — no HuggingFace check on each query
+        text_embedding = self._get_sentence_transformer(model_name).encode([text])
         
         # Calculate similarity with all medoids and take maximum
         similarities = []
@@ -465,9 +511,8 @@ class UnifiedExpert:
             # Prepare features
             text_features = self.vectorizer.transform([text])
             
-            # Generate embedding
-            sentence_transformer = SentenceTransformer('all-MiniLM-L6-v2')
-            text_embedding = sentence_transformer.encode([text])
+            # Generate embedding — reuse cached transformer
+            text_embedding = self._get_sentence_transformer().encode([text])
             
             ood_scores = {}
             ood_flags = []
