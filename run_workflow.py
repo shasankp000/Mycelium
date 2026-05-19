@@ -1,6 +1,13 @@
-import json
+try:
+    import orjson as _json_lib
+    _USE_ORJSON = True
+except ImportError:
+    import json as _json_lib  # type: ignore[no-redef]
+    _USE_ORJSON = False
+
+import json  # still used for NumpyEncoder writes
 import datetime
-from collections import Counter
+from collections import Counter, deque
 from dataclasses import asdict, dataclass, is_dataclass
 from typing import List, Dict, Any, Optional, Sequence, Tuple
 
@@ -46,15 +53,18 @@ class NumpyEncoder(json.JSONEncoder):
 
 
 def _to_jsonable(obj: Any) -> Any:
+    # M4 item 6.1: fast-path for primitive types avoids all attribute lookups.
+    if isinstance(obj, (str, int, float, bool, type(None))):
+        return obj
     if is_dataclass(obj):
         return asdict(obj)
     if isinstance(obj, dict):
         return {k: _to_jsonable(v) for k, v in obj.items()}
-    if isinstance(obj, list):
+    if isinstance(obj, (list, deque)):
         return [_to_jsonable(v) for v in obj]
     if isinstance(obj, tuple):
         return [_to_jsonable(v) for v in obj]
-    if hasattr(obj, "__dict__") and not isinstance(obj, (str, bytes)):
+    if hasattr(obj, "__dict__") and not isinstance(obj, bytes):
         return _to_jsonable(vars(obj))
     return obj
 
@@ -130,7 +140,7 @@ def _adapt_unified_to_p3(
 
     This ensures that Phase 3's action execution, feedback collection, and
     all downstream phases operate on the same decision that the API trace
-    and UI surface to the user — eliminating the USE_EXISTING_EXPERT vs
+    and UI surface to the user -- eliminating the USE_EXISTING_EXPERT vs
     create_new_expert conflict between logs and the UI.
 
     Args:
@@ -229,7 +239,7 @@ def run_mycelium_workflow(
     """
 
     # -----------------------------------------------------------------------
-    # Step 0 — Pre-flight: warm up all non-LLM model weights before any
+    # Step 0 -- Pre-flight: warm up all non-LLM model weights before any
     # subsystem is constructed.  This guarantees that every downstream
     # component (encoder, SRL pipeline, NLI classifier, NER tagger, POS
     # tagger, cross-encoder reranker) gets a hot cache hit from
@@ -240,7 +250,7 @@ def run_mycelium_workflow(
     print("\U0001f9e0 Pre-flight: loading non-LLM model weights into registry...")
     warmup(STARTUP_SPECS)
     _resident = loaded_models()
-    print(f"\u2705 ModelRegistry warm — {len(_resident)} model(s) resident: "
+    print(f"\u2705 ModelRegistry warm -- {len(_resident)} model(s) resident: "
           f"{[k.split(':')[1] for k in _resident]}\n")
 
     phase2_pipeline = Phase2Pipeline()
@@ -256,7 +266,7 @@ def run_mycelium_workflow(
     print(f"Initialized unified expert system with {len(registered_domains)} experts\n")
 
     # -----------------------------------------------------------------------
-    # Step 0b: Sync spectral signatures — auto-generates any .npy files that
+    # Step 0b: Sync spectral signatures -- auto-generates any .npy files that
     # are missing or whose corpus has changed since the last run.  The
     # returned analyzer is pre-loaded with all current signatures so the
     # router never cold-reads a stale or absent file.
@@ -282,7 +292,8 @@ def run_mycelium_workflow(
 
     temporal_layer = TemporalLocalityLayer(max_size=50, time_window_hours=24)
     all_sentence_data: List[Dict[str, Any]] = []
-    all_tags: List[str] = []
+    # M4 item 9.2: bounded deque prevents unbounded memory growth over long runs
+    all_tags: deque = deque(maxlen=5000)
 
     print("Initializing Layer0 question router...")
     question_router = QuestionRouter()
@@ -365,7 +376,7 @@ def run_mycelium_workflow(
             )
             if ENABLE_LOGGING and pre_check_result["missing_domains"]:
                 print(
-                    f"\u26a0\ufe0f  Pre-check (fallback path) — missing domains: "
+                    f"\u26a0\ufe0f  Pre-check (fallback path) -- missing domains: "
                     f"{pre_check_result['missing_domains']}\n"
                 )
 
@@ -377,12 +388,12 @@ def run_mycelium_workflow(
         }
 
         # ------------------------------------------------------------------
-        # FIX (Bug C — ordering): run unified_decision_analysis() BEFORE
+        # FIX (Bug C -- ordering): run unified_decision_analysis() BEFORE
         # Phase 3 so that Phase 3 is driven by the authoritative decision
         # rather than Phase 2's intermediate guess.
         #
-        # Old order:  Phase2 → adapt_phase2_to_p3 → Phase3 → unified_decision
-        # New order:  Phase2 → unified_decision → adapt_unified_to_p3 → Phase3
+        # Old order:  Phase2 -> adapt_phase2_to_p3 -> Phase3 -> unified_decision
+        # New order:  Phase2 -> unified_decision -> adapt_unified_to_p3 -> Phase3
         #
         # Phase 2 is still run first because unified_decision_analysis()
         # may internally rely on Phase 2 signals (calibration scores,
@@ -460,7 +471,7 @@ def run_mycelium_workflow(
             )
             if ENABLE_LOGGING:
                 print(
-                    f"\U0001f4dd CREATE_NEW_PATCH — logged query to batch "
+                    f"\U0001f4dd CREATE_NEW_PATCH -- logged query to batch "
                     f"(trace_id={sentence_trace_id}). "
                     "Proceeding through reasoning pipeline.\n"
                 )
