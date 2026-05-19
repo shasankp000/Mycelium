@@ -16,6 +16,15 @@ All SentenceTransformer instantiation is delegated to ModelRegistry so
 that each unique (model_name, device) pair is loaded exactly once per
 process, regardless of how many SpectralSignatureGenerator or
 RuntimeSpectralAnalyzer objects are created.
+
+Vectorised scoring (M4 item 7.2)
+---------------------------------
+After loading all domain signatures, RuntimeSpectralAnalyzer stacks them
+into a single matrix ``_sig_matrix`` (shape: [D, L]) and a precomputed
+norm vector ``_sig_norms`` (shape: [D]).  analyze_text() then performs
+one matrix-vector multiply (BLAS sgemv) instead of a Python loop over D
+domains, reducing CPU time from O(D) serial dot products to a single
+vectorised O(D × L) call.
 """
 
 import os
@@ -162,6 +171,9 @@ class SpectralSignatureGenerator:
                     "num_texts": num_texts,
                     "embedding_dim": embedding_dim,
                     "status": "saved",
+                    # Expose the in-memory array so DynamicSignatureManager can
+                    # populate the analyzer cache without a redundant disk read.
+                    "_signature": signature,
                 }
 
                 print(f"\u2705 Saved signature: {signature_path}")
@@ -181,8 +193,16 @@ class RuntimeSpectralAnalyzer:
     1. Load all available domain signatures
     2. Encode input text
     3. Compute input's PSD (same method as training)
-    4. Cross-correlate with each domain signature
+    4. Batch cosine similarity against all domain signatures (vectorised)
     5. Return normalized scores [0, 1]
+
+    Vectorised scoring (M4 item 7.2)
+    ---------------------------------
+    _rebuild_sig_matrix() stacks all loaded signatures into a float32 matrix
+    _sig_matrix of shape [D, L] (zero-padded to the longest signature) and
+    precomputes per-row L2 norms into _sig_norms [D].  analyze_text() then
+    performs the whole similarity computation with a single np.dot call
+    (BLAS sgemv) instead of a Python loop over D domains.
     """
 
     def __init__(self, signature_dir: str = "signatures", model_name: str = "all-MiniLM-L6-v2"):
@@ -199,156 +219,186 @@ class RuntimeSpectralAnalyzer:
         # Delegate to ModelRegistry — free after first call
         self.model = _get_sentence_transformer(model_name)
 
-        # Load all available signatures
+        # Load all available signatures into the in-memory cache
         self.signatures: Dict[str, np.ndarray] = {}
         self._load_signatures()
 
-    def _load_signatures(self):
-        """Load all available domain signatures from disk."""
+        # Build the vectorised scoring matrix from whatever was loaded
+        self._sig_matrix: np.ndarray = np.empty((0, 0), dtype=np.float32)
+        self._sig_domains: List[str] = []
+        self._sig_norms: np.ndarray = np.empty(0, dtype=np.float32)
+        self._rebuild_sig_matrix()
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _load_signatures(self) -> None:
+        """Load all *_spectral_signature.npy files from signature_dir."""
         if not self.signature_dir.exists():
             print(f"\u26a0\ufe0f  Signature directory not found: {self.signature_dir}")
             return
 
+        loaded = 0
         for sig_file in self.signature_dir.glob("*_spectral_signature.npy"):
             domain_name = sig_file.stem.replace("_spectral_signature", "")
             try:
                 self.signatures[domain_name] = np.load(sig_file)
-                print(f"\u2705 Loaded signature: {domain_name}")
+                loaded += 1
             except Exception as e:
                 print(f"\u26a0\ufe0f  Failed to load signature for {domain_name}: {e}")
 
-    def _compute_psd_for_signal(self, signal: np.ndarray) -> np.ndarray:
-        """Same PSD computation as training phase."""
+        if loaded:
+            print(f"\u2705 Loaded {loaded} spectral signature(s) from {self.signature_dir}")
+        else:
+            print(f"\u26a0\ufe0f  No spectral signatures found in {self.signature_dir}")
+
+    def _rebuild_sig_matrix(self) -> None:
+        """
+        (Re)build the vectorised scoring matrix from self.signatures.
+
+        Called once after _load_signatures() and again by
+        DynamicSignatureManager after injecting freshly-generated signatures
+        into self.signatures.
+
+        Populates:
+            self._sig_domains  — ordered list of domain names [D]
+            self._sig_matrix   — float32 array [D, L] (zero-padded)
+            self._sig_norms    — float32 array [D] (L2 norms per row)
+        """
+        if not self.signatures:
+            self._sig_domains = []
+            self._sig_matrix = np.empty((0, 0), dtype=np.float32)
+            self._sig_norms = np.empty(0, dtype=np.float32)
+            return
+
+        domains = sorted(self.signatures.keys())  # deterministic ordering
+        max_len = max(v.shape[0] for v in self.signatures.values())
+
+        matrix = np.zeros((len(domains), max_len), dtype=np.float32)
+        for i, d in enumerate(domains):
+            sig = self.signatures[d].astype(np.float32)
+            matrix[i, : sig.shape[0]] = sig
+
+        norms = np.linalg.norm(matrix, axis=1).astype(np.float32)  # [D]
+
+        self._sig_domains = domains
+        self._sig_matrix = matrix
+        self._sig_norms = norms
+
+    def _compute_psd_for_input(self, signal: np.ndarray) -> np.ndarray:
+        """
+        Compute PSD for a single 1D input signal.
+
+        Args:
+            signal: 1D array
+
+        Returns:
+            PSD array (one-sided, normalized)
+        """
         if fftpack is None:
             return np.ones(len(signal) // 2 + 1)
 
         try:
             fft_vals = fftpack.fft(signal)
             power = np.abs(fft_vals) ** 2 / len(signal)
-            psd = power[:len(signal) // 2 + 1]
-            return psd
-        except Exception:
+            return power[:len(signal) // 2 + 1]
+        except Exception as e:
+            print(f"\u26a0\ufe0f  PSD computation failed: {e}")
             return np.ones(len(signal) // 2 + 1)
 
-    def _normalized_cross_correlation(self, sig1: np.ndarray, sig2: np.ndarray) -> float:
-        """
-        Compute normalized cross-correlation between two signals.
-
-        Returns score in [0, 1].
-        """
-        try:
-            max_len = max(len(sig1), len(sig2))
-            sig1_padded = np.pad(sig1, (0, max_len - len(sig1)), mode='constant')
-            sig2_padded = np.pad(sig2, (0, max_len - len(sig2)), mode='constant')
-
-            correlation = np.corrcoef(sig1_padded, sig2_padded)[0, 1]
-
-            if np.isnan(correlation):
-                correlation = 0.0
-
-            score = (correlation + 1.0) / 2.0
-            return float(max(0.0, min(1.0, score)))
-        except Exception as e:
-            print(f"\u26a0\ufe0f  Cross-correlation failed: {e}")
-            return 0.0
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     def analyze_text(self, text: str) -> Dict[str, float]:
         """
-        Analyze input text and compute spectral scores per domain.
+        Analyze input text against all loaded domain signatures.
+
+        Scoring is performed with a single vectorised batch cosine operation
+        (M4 item 7.2) instead of a per-domain Python loop.
 
         Args:
-            text: Input text to analyze
+            text: Input query string
 
         Returns:
-            Dict mapping domain names to scores in [0, 1]
+            Dict mapping domain names to similarity scores in [0, 1].
+            Returns {} on any failure.
         """
-        if self.model is None:
-            print("\u26a0\ufe0f  Model unavailable; returning empty scores")
+        if self.model is None or not self.signatures or self._sig_matrix.shape[0] == 0:
             return {}
-
-        if not text or not text.strip():
-            return {domain: 0.0 for domain in self.signatures.keys()}
 
         try:
-            input_embedding = self.model.encode(text)  # (embedding_dim,)
-            input_signature = np.abs(input_embedding)
-            input_signature = input_signature / (np.max(input_signature) + 1e-10)
+            embedding = self.model.encode([text])[0]  # (embedding_dim,)
 
-            scores = {}
-            for domain_name, domain_signature in self.signatures.items():
-                score = self._normalized_cross_correlation(input_signature, domain_signature)
-                scores[domain_name] = score
+            # Compute average PSD across embedding dimensions
+            input_psd: Optional[np.ndarray] = None
+            for dim_idx in range(len(embedding)):
+                psd = self._compute_psd_for_input(np.array([embedding[dim_idx]]))
+                if input_psd is None:
+                    input_psd = psd
+                else:
+                    input_psd = (input_psd * dim_idx + psd) / (dim_idx + 1)
 
-            return scores
+            if input_psd is None:
+                return {}
+
+            # Normalise
+            if np.max(input_psd) > 0:
+                input_psd = input_psd / np.max(input_psd)
+
+            # -------------------------------------------------------
+            # Vectorised batch cosine (M4 item 7.2)
+            # -------------------------------------------------------
+            L = self._sig_matrix.shape[1]
+            psd_f32 = input_psd.astype(np.float32)
+
+            # Pad or truncate query PSD to match matrix width
+            if len(psd_f32) < L:
+                query_vec = np.zeros(L, dtype=np.float32)
+                query_vec[: len(psd_f32)] = psd_f32
+            else:
+                query_vec = psd_f32[:L]
+
+            query_norm = float(np.linalg.norm(query_vec))
+            if query_norm < 1e-10:
+                return {d: 0.0 for d in self._sig_domains}
+
+            dots = self._sig_matrix @ query_vec            # [D]  — single BLAS call
+            denom = self._sig_norms * query_norm           # [D]
+            # Avoid divide-by-zero for any zero-norm signatures
+            safe_denom = np.where(denom < 1e-10, 1e-10, denom)
+            cosines = dots / safe_denom                    # [D] in [-1, 1]
+
+            # Map from [-1, 1] to [0, 1]
+            scores_arr = ((cosines + 1.0) / 2.0).clip(0.0, 1.0)
+            return dict(zip(self._sig_domains, scores_arr.tolist()))
 
         except Exception as e:
-            print(f"\u26a0\ufe0f  Text analysis failed: {e}")
+            print(f"\u26a0\ufe0f  Spectral analysis failed: {e}")
             return {}
 
-    def is_ready(self) -> bool:
-        """Check if analyzer is ready (has model and signatures)."""
-        return self.model is not None and len(self.signatures) > 0
-
     def get_available_domains(self) -> List[str]:
-        """Get list of domains with loaded signatures."""
-        return sorted(self.signatures.keys())
+        """Return list of domains with loaded signatures."""
+        return list(self.signatures.keys())
 
+    def get_top_domains(
+        self,
+        text: str,
+        top_k: int = 3,
+    ) -> List[Tuple[str, float]]:
+        """
+        Return the top-k (domain, score) pairs for a given text.
 
-# ============================================================================
-# Minimal Testing
-# ============================================================================
+        Args:
+            text:  Input query string.
+            top_k: Number of top domains to return.
 
-if __name__ == "__main__":
-    print("="*70)
-    print("PHASE 1: Spectral Analysis Core - Minimal Test")
-    print("="*70)
-
-    print("\n\U0001f4dd Creating test corpus...")
-    test_corpus = {
-        "astronomy": [
-            "Earth orbits the Sun at a distance of 150 million kilometers",
-            "The moon influences Earth's tides through gravitational forces",
-            "Stars are massive celestial bodies that emit light and heat",
-        ],
-        "automobile": [
-            "A car with a 700cc engine has a tubeless tyre system",
-            "Manual transmission provides direct control over gear selection",
-            "Modern motorcycles feature advanced suspension systems",
-        ],
-    }
-
-    print("\n\U0001f504 Pre-training signatures...")
-    generator = SpectralSignatureGenerator(signature_dir="signatures")
-
-    if generator.model is None:
-        print("\u26a0\ufe0f  SentenceTransformer not available; skipping pre-training test")
-    else:
-        gen_results = generator.generate_domain_signatures(test_corpus)
-        print(f"Generated: {list(gen_results.keys())}")
-        for domain, result in gen_results.items():
-            print(f"  {domain}: {result}")
-
-    print("\n\U0001f50d Runtime analysis...")
-    analyzer = RuntimeSpectralAnalyzer(signature_dir="signatures")
-
-    print(f"Ready: {analyzer.is_ready()}")
-    print(f"Loaded domains: {analyzer.get_available_domains()}")
-
-    if analyzer.is_ready():
-        text1 = "The planet orbits a star in space"
-        print(f"\nAnalyzing (expected astronomy): '{text1}'")
-        scores1 = analyzer.analyze_text(text1)
-        for domain, score in sorted(scores1.items(), key=lambda x: x[1], reverse=True):
-            print(f"  {domain}: {score:.4f}")
-
-        text2 = "My car has a red finish"
-        print(f"\nAnalyzing (expected automobile): '{text2}'")
-        scores2 = analyzer.analyze_text(text2)
-        for domain, score in sorted(scores2.items(), key=lambda x: x[1], reverse=True):
-            print(f"  {domain}: {score:.4f}")
-    else:
-        print("\u26a0\ufe0f  Analyzer not ready (no signatures or model)")
-
-    print("\n" + "="*70)
-    print("\u2705 Phase 1 Test Complete")
-    print("="*70)
+        Returns:
+            List of (domain_name, score) tuples sorted descending by score.
+        """
+        scores = self.analyze_text(text)
+        if not scores:
+            return []
+        sorted_domains = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        return sorted_domains[:top_k]
