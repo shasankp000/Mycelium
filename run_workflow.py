@@ -27,6 +27,7 @@ from layer0.router import QuestionRouter
 from tuning_config import ENABLE_LOGGING, LOG_SAMPLE_RATE
 from patch_batch_logger import patch_logger
 from dynamic_signature_manager import DynamicSignatureManager
+from model_registry import warmup, loaded_models, STARTUP_SPECS
 
 
 class NumpyEncoder(json.JSONEncoder):
@@ -226,6 +227,21 @@ def run_mycelium_workflow(
                     CREATE_NEW_PATCH response for the first sentence will be
                     patched back into the batch log under this ID.
     """
+
+    # -----------------------------------------------------------------------
+    # Step 0 — Pre-flight: warm up all non-LLM model weights before any
+    # subsystem is constructed.  This guarantees that every downstream
+    # component (encoder, SRL pipeline, NLI classifier, NER tagger, POS
+    # tagger, cross-encoder reranker) gets a hot cache hit from
+    # model_registry instead of a cold disk read on its first inference
+    # call.  warmup() is individually try/except-guarded per model, so a
+    # single missing weight file never aborts the entire startup.
+    # -----------------------------------------------------------------------
+    print("\U0001f9e0 Pre-flight: loading non-LLM model weights into registry...")
+    warmup(STARTUP_SPECS)
+    _resident = loaded_models()
+    print(f"\u2705 ModelRegistry warm — {len(_resident)} model(s) resident: "
+          f"{[k.split(':')[1] for k in _resident]}\n")
 
     phase2_pipeline = Phase2Pipeline()
     phase3_pipeline = Phase3To5Pipeline()
