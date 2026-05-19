@@ -34,7 +34,7 @@ import config_loader as cfg
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Mycelium Broadcast API", version="0.5.3")
+app = FastAPI(title="Mycelium Broadcast API", version="0.5.4")
 
 origins = [
     "http://localhost:3000",
@@ -296,7 +296,7 @@ def _full_pipeline_generator(
     def elapsed() -> int:
         return int((time.monotonic() - wall_start) * 1000)
 
-    # ── Phase: setting_up (if warmup is still running) ──────────────────────
+    # ── Phase: setting_up (if warmup is still running) ───────────────────────────────────────────────
     sent_setting_up = False
     if not _warmup_done.is_set():
         sent_setting_up = True
@@ -312,7 +312,7 @@ def _full_pipeline_generator(
         yield _sse_event("environment_ready", "Environment ready — starting pipeline", elapsed())
         logger.info("[SSE %s] phase=environment_ready elapsed=%dms", trace_id, elapsed())
 
-    # ── Phase: routing + pipeline ───────────────────────────────────────────
+    # ── Phase: routing + pipeline ──────────────────────────────────────────────────────────────
     yield _sse_event("routing", "Running multi-lens router and reasoning pipeline…", elapsed())
     logger.info("[SSE %s] phase=routing", trace_id)
 
@@ -370,7 +370,7 @@ def _full_pipeline_generator(
         except Exception as exc:
             logger.warning("patch_logger.log_query failed — %s", exc)
 
-    # ── Phase: sandbox — live forwarding ───────────────────────────────────
+    # ── Phase: sandbox — live forwarding ───────────────────────────────────────────────
     # If we have direct access to the SSE queue + event loop, post sandbox
     # progress events there immediately (bypassing the generator yield cycle)
     # so the frontend sees each tool call as it starts, not all at once.
@@ -406,7 +406,7 @@ def _full_pipeline_generator(
         trace_id, len(sandbox_result.steps), elapsed(),
     )
 
-    # ── Phase: conversation ─────────────────────────────────────────────────
+    # ── Phase: conversation ──────────────────────────────────────────────────────────────────
     yield _sse_event("conversation", "Generating answer…", elapsed())
     logger.info("[SSE %s] phase=conversation elapsed=%dms", trace_id, elapsed())
 
@@ -419,7 +419,7 @@ def _full_pipeline_generator(
 
     logger.info("[SSE %s] phase=conversation done elapsed=%dms", trace_id, elapsed())
 
-    # ── Persist trace ────────────────────────────────────────────────────────
+    # ── Persist trace ───────────────────────────────────────────────────────────────────
     sandbox_dict = _to_jsonable(sandbox_result.model_dump())
     trace = ReasoningTrace(
         trace_id=trace_id,
@@ -436,7 +436,7 @@ def _full_pipeline_generator(
         except Exception as exc:
             logger.warning("patch_logger.fill_response failed — %s", exc)
 
-    # ── Phase: done ──────────────────────────────────────────────────────────
+    # ── Phase: done ─────────────────────────────────────────────────────────────────────
     sandbox_out = _sandbox_result_to_out(sandbox_result)
     response_payload = ChatResponse(
         trace=summary, answer=answer, sandbox=sandbox_out
@@ -483,11 +483,32 @@ async def health_v1() -> Dict[str, Any]:
 
 @app.post("/api/v1/query", response_model=MyceliumRunSummary)
 async def query(req: QueryRequest) -> MyceliumRunSummary:
-    """Run a single-sentence Mycelium workflow and return a typed summary."""
-    trace_id = str(uuid4())
-    summary = _build_run_summary(req.text, trace_id)
+    """Run a single-sentence Mycelium workflow and return a typed summary.
 
-    sandbox_result = _run_sandbox(summary, req.text)
+    M5 §8.1 — Both _build_run_summary (blocking Ollama inference + BERT
+    expert models) and _run_sandbox (blocking MCP tool calls) are offloaded
+    to the default thread-pool executor via loop.run_in_executor() so the
+    asyncio event loop is never blocked.  This allows FastAPI/Uvicorn to
+    continue serving health checks and concurrent SSE streams while the
+    pipeline is running (previously the single-threaded event loop was
+    frozen for the full ~60-150 s pipeline duration).
+    """
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+
+    loop = asyncio.get_running_loop()
+    trace_id = str(uuid4())
+
+    # Offload the heavy pipeline to a dedicated worker thread
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        summary = await loop.run_in_executor(
+            pool, _build_run_summary, req.text, trace_id
+        )
+
+    # Sandbox is also blocking (HTTP calls to MCP servers); offload too
+    sandbox_result = await loop.run_in_executor(
+        None, _run_sandbox, summary, req.text
+    )
     sandbox_dict = _to_jsonable(sandbox_result.model_dump())
 
     trace = ReasoningTrace(
