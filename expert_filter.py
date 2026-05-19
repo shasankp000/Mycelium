@@ -9,6 +9,7 @@ inputs into wrong domains and enables proper detection of missing experts.
 Uses automatic semantic clustering to eliminate manual dictionary maintenance.
 """
 
+from functools import lru_cache
 from typing import Iterable, Optional
 from auto_semantic_clusterer import AutoSemanticClusterer
 
@@ -39,6 +40,10 @@ class ExpertFilter:
         self.domain_list = raw_domain_list
         self.use_auto_clustering = use_auto_clustering
         self.similarity_threshold = similarity_threshold
+
+        # Frozen set of all registered domain names (lower-cased) for O(1) membership
+        # tests inside the per-sentence routing loop (§3.1).
+        self._domain_set: frozenset = frozenset(d.lower() for d in raw_domain_list)
         
         if self.use_auto_clustering:
             print("\U0001f527 Initializing automatic semantic tag clustering...")
@@ -78,7 +83,16 @@ class ExpertFilter:
         """
         Normalize domain/tag name using semantic clustering.
         Maps semantically related tags to their canonical domain.
+
+        Per-instance LRU cache (§3.1): pure function of domain string for a
+        fixed clusterer / tag_to_domain mapping.  512 entries covers any
+        realistic vocabulary of domain names and input tags.
         """
+        return self._normalize_domain_cached(domain)
+
+    @lru_cache(maxsize=512)
+    def _normalize_domain_cached(self, domain: str) -> Optional[str]:
+        """LRU-cached implementation of normalize_domain (§3.1)."""
         domain_lower = domain.lower().strip()
         
         if self.use_auto_clustering:
@@ -184,6 +198,7 @@ class ExpertFilter:
             if normalized_tag is None or normalized_tag not in all_available:
                 missing_domains.append(tag)
         
+        # dict.fromkeys() deduplicates in O(N) while preserving insertion order
         relevant_svm = list(dict.fromkeys(relevant_svm))
         relevant_bert = list(dict.fromkeys(relevant_bert))
         
@@ -208,6 +223,8 @@ class ExpertFilter:
         self.clusterer.domain_anchors[domain_name] = anchor_terms
         self.clusterer._compute_domain_embeddings()
         self.clusterer.save_cache()
+        # Invalidate normalize_domain LRU cache after adding a new domain (§3.1)
+        self._normalize_domain_cached.cache_clear()
         
         print(f"\u2705 Added new domain: {domain_name} with {len(anchor_terms)} anchor terms")
         return True
