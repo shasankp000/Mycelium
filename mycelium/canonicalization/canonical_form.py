@@ -31,11 +31,22 @@ Equivalence family (§16 critical note):
     SemanticSignature.equivalence_family for reverse lookup.
     This list is maintained by the CanonicalFormGenerator and
     consulted by TRM before creating new nodes (Phase D).
+
+Optimisations (§5.3):
+    - Module-level _span_cache (OrderedDict, max 2048) memoises
+      _normalise_span() results.  Spans within a document are highly
+      repetitive (same entity name repeated across sentences), so the
+      cache eliminates redundant regex + stopword operations.
+    - CanonicalFormGenerator._norm_cache (dict, per instance) caches
+      generate() results keyed on (subject, predicate, obj, depth) so
+      that identical SRL triples do not repeat the full normalisation
+      + classify_predicate_family pipeline call.
 """
 
 from __future__ import annotations
 
 import re
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -50,16 +61,34 @@ _STOPWORDS = {
     "it", "its", "can", "could", "may", "might",
 }
 
+# ---------------------------------------------------------------------------
+# Module-level span normalisation cache (§5.3)
+# ---------------------------------------------------------------------------
+_SPAN_CACHE_MAX = 2048
+_span_cache: OrderedDict[str, str] = OrderedDict()
+
 
 def _normalise_span(text: str) -> str:
-    """Lowercase, strip stopwords, compress whitespace, underscorify.
+    """Lowercase, strip stopwords, compress whitespace, underscorify (§5.3 cached).
+
+    Results are memoised in a module-level OrderedDict (max 2048 entries)
+    so repeated spans (entity names, domain terms) are computed once.
 
     Multi-word spans become underscore-joined lowercase strings so they
     can safely appear in FAMILY::subject::predicate::object::depthN.
     """
+    if text in _span_cache:
+        _span_cache.move_to_end(text)
+        return _span_cache[text]
+
     tokens = re.split(r"\s+", text.lower().strip())
     filtered = [t for t in tokens if t and t not in _STOPWORDS]
-    return "_".join(filtered) if filtered else text.lower().replace(" ", "_")
+    result = "_".join(filtered) if filtered else text.lower().replace(" ", "_")
+
+    if len(_span_cache) >= _SPAN_CACHE_MAX:
+        _span_cache.popitem(last=False)
+    _span_cache[text] = result
+    return result
 
 
 def _lemmatize_predicate(pred: str, nlp=None) -> str:
@@ -136,6 +165,12 @@ class CanonicalFormGenerator:
         input texts seen for a given canonical form in the registry
         so that SemanticSignature.equivalence_family can be populated.
 
+    Optimisations (§5.3):
+        _norm_cache (dict, per instance) caches generate() results keyed on
+        (subject, predicate, obj, abstraction_level).  Identical SRL triples
+        (common in multi-sentence documents with repeated entities) skip the
+        full normalisation + classify_predicate_family call entirely.
+
     Usage:
         gen = CanonicalFormGenerator()
         canonical, family = gen.generate(triple)
@@ -148,7 +183,9 @@ class CanonicalFormGenerator:
     def __post_init__(self):
         if not hasattr(self, "_registry"):
             self._registry = {}
-        self._nlp = None  # lazy-loaded spaCy
+        self._nlp = None          # lazy-loaded spaCy
+        # Per-instance triple → (canonical, family) cache (§5.3)
+        self._norm_cache: dict = {}
 
     def _ensure_nlp(self):
         if self._nlp is None:
@@ -168,7 +205,20 @@ class CanonicalFormGenerator:
         abstraction_level: int = 0,
         embedding_fn: Optional[callable] = None,
     ) -> tuple[str, str]:
-        """Generate canonical form and update equivalence registry."""
+        """Generate canonical form and update equivalence registry (§5.3).
+
+        Checks _norm_cache before running the full normalisation pipeline.
+        Identical (subject, predicate, obj, depth) triples are deduplicated
+        at the CanonicalFormGenerator instance level.
+        """
+        cache_key = (triple.subject, triple.predicate, triple.obj, abstraction_level)
+        if cache_key in self._norm_cache:
+            canonical, family = self._norm_cache[cache_key]
+            # Still register the raw sentence for equivalence tracking
+            if triple.raw_sentence and triple.raw_sentence not in self._registry.get(canonical, []):
+                self._registry.setdefault(canonical, []).append(triple.raw_sentence)
+            return canonical, family
+
         self._ensure_nlp()
         canonical, family = generate_canonical_form(
             triple,
@@ -176,6 +226,8 @@ class CanonicalFormGenerator:
             embedding_fn=embedding_fn,
             nlp=self._nlp if self._nlp else None,
         )
+        self._norm_cache[cache_key] = (canonical, family)
+
         # Register this raw sentence under the canonical form
         if canonical not in self._registry:
             self._registry[canonical] = []
