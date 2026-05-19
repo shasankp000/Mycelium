@@ -168,6 +168,12 @@ temperature = 0.2
 # ---------------------------------------------------------------------------
 [unified_expert]
 
+# M5 §9.1: Maximum number of UnifiedExpert instances held fully loaded in RAM.
+# When the pool exceeds this limit the least-recently-used expert is serialised
+# to <project_root>/lru_cache/<domain>.pkl and reloaded transparently on access.
+# Raise if you have enough RAM; lower on memory-constrained machines.
+max_resident_experts = 8
+
 # OOD detection thresholds
 ood_svm_distance_threshold       = 0.3
 ood_nn_distance_threshold        = 0.65
