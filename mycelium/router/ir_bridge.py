@@ -25,6 +25,14 @@ Design Notes (Consolidation §46, Phase C):
     IRBridge.build() is the single entry-point.  It is import-safe: all
     mycelium.* imports are guarded so the file can be loaded in stripped
     test environments (graceful degradation returns empty structures).
+
+Optimisations (§5.4):
+    IRBridge now constructs a single SRLExtractor and CanonicalFormGenerator
+    at __init__ time and passes them into CanonicalizeAndHash, so all
+    build() calls share the same spaCy model instance, NER doc cache, and
+    equivalence registry.  Previously a fresh CanonicalizeAndHash (and
+    therefore a fresh SRLExtractor + fresh spaCy load) was created each
+    time build() was called, burning the full spaCy load cost per request.
 """
 
 from __future__ import annotations
@@ -43,10 +51,14 @@ logger.addHandler(logging.NullHandler())
 # Optional imports — Phase C gracefully degrades if mycelium stack is absent
 # ---------------------------------------------------------------------------
 try:
+    from mycelium.canonicalization.srl_extractor import SRLExtractor
+    from mycelium.canonicalization.canonical_form import CanonicalFormGenerator
     from mycelium.canonicalization.semantic_hash_pipeline import CanonicalizeAndHash
     _CANONICALIZER_AVAILABLE = True
 except ImportError:
-    CanonicalizeAndHash = None  # type: ignore[assignment,misc]
+    SRLExtractor = None          # type: ignore[assignment,misc]
+    CanonicalFormGenerator = None  # type: ignore[assignment,misc]
+    CanonicalizeAndHash = None   # type: ignore[assignment,misc]
     _CANONICALIZER_AVAILABLE = False
 
 try:
@@ -110,6 +122,12 @@ class IRBridge:
         (str) -> list[float] embedding function forwarded to
         CanonicalizeAndHash.  If None, embedding_signature will be empty.
 
+    Optimisation (§5.4):
+        A single SRLExtractor and CanonicalFormGenerator are constructed
+        once at __init__ time and shared across every build() call.  This
+        avoids the repeated spaCy model load that occurred when
+        CanonicalizeAndHash was instantiated fresh on each request.
+
     Usage
     -----
     bridge = IRBridge()
@@ -130,8 +148,15 @@ class IRBridge:
 
         if _CANONICALIZER_AVAILABLE:
             try:
+                # §5.4: shared extractor + generator instances so spaCy is
+                # loaded exactly once and the NER doc cache / equivalence
+                # registry persist across all build() calls on this bridge.
+                shared_srl = SRLExtractor()
+                shared_gen = CanonicalFormGenerator()
                 self._canonicalizer = CanonicalizeAndHash(
-                    embedding_fn=embedding_fn
+                    embedding_fn=embedding_fn,
+                    srl_extractor=shared_srl,
+                    canonical_generator=shared_gen,
                 )
             except Exception as exc:
                 logger.warning("IRBridge: failed to init CanonicalizeAndHash: %s", exc)
@@ -200,19 +225,15 @@ class IRBridge:
                 "ir_available": False,
             }
 
-        # ── Step 5: populate spectral_signature on every query IRNode ─────
-        # The spectral_signature field was left as [] by Phase B
-        # (semantic_hash_pipeline.py: spectral_signature=[]  # Phase C fills this)
-        # We pack the per-domain scores here.
+        # ── Step 5: populate spectral_signature on every query IRNode ──────
         packed_spectral = _pack_spectral_signature(spectral_scores)
         for node in nodes:
             try:
                 sig = node.semantic_signature
-                # Replace with a new SemanticSignature carrying the spectral data
                 node.semantic_signature = SemanticSignature(
                     semantic_hash=sig.semantic_hash,
                     embedding_signature=sig.embedding_signature,
-                    spectral_signature=packed_spectral,   # ← Phase C fills this
+                    spectral_signature=packed_spectral,
                     predicate_family=sig.predicate_family,
                     abstraction_level=sig.abstraction_level,
                     canonical_form=sig.canonical_form,
@@ -224,11 +245,10 @@ class IRBridge:
                     getattr(node, "id", "?"), exc,
                 )
 
-        # ── Step 6: IRGraph construction ──────────────────────────────────
+        # ── Step 6: IRGraph construction ───────────────────────────────
         graph_id = _graph_id_from_nodes(nodes)
         now = datetime.datetime.utcnow().isoformat() + "Z"
 
-        # Overall graph confidence = mean of top fused scores (or 0)
         graph_confidence: float = 0.0
         if fused_scores:
             top_scores = sorted(fused_scores.values(), reverse=True)[:3]
@@ -236,7 +256,6 @@ class IRBridge:
 
         try:
             fp_hashes = compute_graph_fingerprint_hashes(
-                # Build a temporary graph just for fingerprinting
                 IRGraph(
                     graph_id=graph_id,
                     nodes=nodes,
