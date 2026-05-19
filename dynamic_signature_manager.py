@@ -13,6 +13,9 @@ Features
 - Content-addressable manifest prevents redundant regeneration.
 - Graceful fallback texts when CSV corpora are absent or LFS-only.
 - force_regen=True for unconditional rebuild (CI / management commands).
+- Hot-populates the returned analyzer's in-memory cache from the
+  generator's in-memory arrays (M4 item 7.1) so the disk files written
+  by the generator are never read back immediately after writing.
 """
 
 import hashlib
@@ -20,13 +23,14 @@ import json
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 
+import numpy as np
 import pandas as pd
 
 from spectral_analyzer import SpectralSignatureGenerator, RuntimeSpectralAnalyzer
 
 
 # ---------------------------------------------------------------------------
-# Domain → corpus source mapping
+# Domain -> corpus source mapping
 # ---------------------------------------------------------------------------
 # Add a new entry here whenever a new expert domain is registered.
 # Keys must match the domain names returned by UnifiedExpertSystem.experts.
@@ -92,7 +96,7 @@ DOMAIN_CORPUS_SOURCES: Dict[str, Dict] = {
             "Ionic compounds dissolve readily in polar solvents.",
             "The periodic table organises elements by atomic number.",
             "Exothermic reactions release energy to the surroundings.",
-            "Acids donate protons while bases accept them in Brønsted-Lowry theory.",
+            "Acids donate protons while bases accept them in Bronsted-Lowry theory.",
             "Catalysts lower activation energy without being consumed.",
             "Organic chemistry focuses on carbon-containing compounds.",
             "Redox reactions involve the transfer of electrons between species.",
@@ -164,7 +168,7 @@ def build_corpus_for_domain(domain: str) -> List[str]:
     config = DOMAIN_CORPUS_SOURCES.get(domain.lower())
 
     if config is None:
-        # Unknown / future domain — produce generic placeholder corpus.
+        # Unknown / future domain -- produce generic placeholder corpus.
         return [
             f"This is a question about {domain}.",
             f"{domain} is an area of scientific and academic study.",
@@ -227,7 +231,9 @@ class DynamicSignatureManager:
 
     The returned *analyzer* is a freshly initialised
     :class:`RuntimeSpectralAnalyzer` that has loaded all (including newly
-    generated) signatures from disk.
+    generated) signatures.  When signatures were generated in this call,
+    their arrays are injected directly from memory (M4 item 7.1) so the
+    disk files just written are never read back immediately.
     """
 
     MANIFEST_FILENAME = "manifest.json"
@@ -330,8 +336,13 @@ class DynamicSignatureManager:
         3. Batch-generate all stale / missing signatures via
            :class:`SpectralSignatureGenerator`.
         4. Update the manifest and flush to disk.
-        5. Instantiate and return a fresh :class:`RuntimeSpectralAnalyzer`
-           so the caller always gets up-to-date signatures.
+        5. Instantiate a fresh :class:`RuntimeSpectralAnalyzer` (loads from
+           disk for all pre-existing signatures).
+        6. Inject the in-memory arrays for any signatures generated in step 3
+           directly into ``analyzer.signatures`` (M4 item 7.1) so the files
+           just written are never re-read from disk.
+        7. Call ``analyzer._rebuild_sig_matrix()`` so the vectorised scoring
+           matrix reflects the fully-populated cache.
         """
         domains_to_generate: Dict[str, List[str]] = {}
 
@@ -347,6 +358,7 @@ class DynamicSignatureManager:
             else:
                 print(f"\u2705 Spectral signature up-to-date: {domain}")
 
+        results: Dict[str, Dict] = {}
         if domains_to_generate:
             print(
                 f"\n\U0001f9ec Generating {len(domains_to_generate)} spectral signature(s): "
@@ -366,17 +378,38 @@ class DynamicSignatureManager:
 
             self._save_manifest()
         else:
-            print("\u2705 All spectral signatures are current — skipping generation.")
+            print("\u2705 All spectral signatures are current -- skipping generation.")
 
-        # Hot-reload: picks up any .npy files written in this call.
+        # Step 5: Instantiate the analyzer (loads pre-existing .npy files
+        # from disk via _load_signatures inside __init__).
         analyzer = RuntimeSpectralAnalyzer(
             signature_dir=str(self.signature_dir),
             model_name=self.model_name,
         )
+
+        # Step 6 (M4 item 7.1): Hot-populate the cache with the in-memory
+        # signature arrays that were just generated so no disk re-read occurs
+        # for the freshly written files.
+        if results:
+            injected = 0
+            for domain, result in results.items():
+                if result.get("status") == "saved":
+                    sig = result.get("_signature")
+                    if sig is not None and isinstance(sig, np.ndarray):
+                        analyzer.signatures[domain] = sig
+                        injected += 1
+            if injected:
+                print(
+                    f"\u26a1 Hot-populated {injected} signature(s) from memory "
+                    "(skipped disk re-read)."
+                )
+                # Step 7: Rebuild the vectorised matrix to include injected entries.
+                analyzer._rebuild_sig_matrix()
+
         return analyzer
 
     def get_manifest(self) -> Dict[str, str]:
-        """Return a copy of the current domain → corpus-hash manifest."""
+        """Return a copy of the current domain -> corpus-hash manifest."""
         return dict(self._manifest)
 
     def invalidate(self, domain: str) -> None:
