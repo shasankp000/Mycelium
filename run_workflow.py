@@ -276,12 +276,25 @@ def run_mycelium_workflow(
                 if isinstance(phase3_result, (dict,)) or hasattr(phase3_result, "__dict__")
                 else {}
             )
+            selected_domains = [
+                str(dom) for dom in getattr(routing_context, "selected_domains", []) if dom
+            ]
+            domain_tag = (
+                selected_domain
+                if selected_domain and selected_domain != "unknown"
+                else (selected_domains[0] if selected_domains else "unclassified")
+            )
             patch_logger.log_query(
                 trace_id=sentence_trace_id,
                 query=text,
                 tags=normalized_tags,
+                layer0_route="REASONING_PIPELINE",
                 routing_classification=str(classification) if classification else "",
+                domains=selected_domains,
+                expert_decision=expert_decision.decision_type,
+                confidence=confidence,
                 phase_latencies_ms=phase_latencies,
+                metadata={"domain_tag": domain_tag},
             )
             if ENABLE_LOGGING:
                 print(
