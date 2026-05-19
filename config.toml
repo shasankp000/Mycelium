@@ -90,6 +90,40 @@ allowed_origins = [
 ]
 
 # ---------------------------------------------------------------------------
+# [lexis]  Lexis-E integration + dual-.venv architecture
+# ---------------------------------------------------------------------------
+# Mycelium runs on Python 3.14 (.venv).  Lexis-E requires Python 3.11
+# due to spaCy compatibility constraints.  All spaCy calls from Mycelium
+# are routed through spacy_bridge.py, which shells out to the interpreter
+# inside .venv2 (Lexis's venv, copied / symlinked into the project root).
+#
+# Setup:
+#   1. Copy or symlink Lexis's .venv into <project_root>/.venv2
+#      (see DUAL_VENV_SETUP.md for the full procedure)
+#   2. Optionally override the path below or set LEXIS_VENV2_PATH env var.
+#
+# Path resolution order inside spacy_bridge.py:
+#   1. This file: [lexis] venv2_path
+#   2. Env var:   LEXIS_VENV2_PATH
+#   3. Default:   <project_root>/.venv2
+# ---------------------------------------------------------------------------
+[lexis]
+
+# Relative (from project root) or absolute path to the .venv2 directory.
+# Leave as ".venv2" if you placed Lexis's venv at <project_root>/.venv2.
+venv2_path = ".venv2"
+
+# Default spaCy model to use for all bridge calls that don't specify one.
+# Must be installed inside .venv2:
+#   .venv2/bin/python -m spacy download en_core_web_sm
+#   .venv2/bin/python -m spacy download en_core_web_lg   (optional, slower)
+spacy_default_model = "en_core_web_sm"
+
+# Subprocess timeout (seconds) for each spacy_bridge call.
+# Increase for very long texts or when running on a slow machine.
+spacy_timeout = 60
+
+# ---------------------------------------------------------------------------
 # [layer1]  Parameters for layer_1_prototype.py
 # ---------------------------------------------------------------------------
 [layer1]
