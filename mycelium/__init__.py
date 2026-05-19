@@ -5,6 +5,7 @@ Phase B: mycelium.canonicalization  — SRL, canonical form, semantic hash pipel
 Phase C: mycelium.router            — SemanticRouter (MultiLensRouter + IR bridge)
 Phase D: mycelium.trm               — TRMEngine (Graph Store, DFS Lookup, Promotion)
 Phase E: mycelium.contradiction     — ContradictionClassifier, LeveragePropagator, PhaseEPipeline
+Phase F: mycelium.fusion            — DST Fusion, OntologyGovernor, EdgeBuilder, ProvenanceBuilder
 """
 
 from mycelium.router import IRBridge, SemanticRouter
@@ -14,6 +15,10 @@ from mycelium.contradiction import (
     ClassificationResult,
     ContradictionReport,
 )
+from mycelium.fusion import DSTFusion, DSTFrame, ConfidenceStateFusion
+from mycelium.ir.ontology_governor import OntologyGovernor
+from mycelium.ir.edge_builder import EdgeBuilder
+from mycelium.ir.provenance import ProvenanceBuilder
 
 __all__ = [
     # Phase C
@@ -26,4 +31,11 @@ __all__ = [
     "PhaseEPipeline",
     "ClassificationResult",
     "ContradictionReport",
+    # Phase F
+    "DSTFusion",
+    "DSTFrame",
+    "ConfidenceStateFusion",
+    "OntologyGovernor",
+    "EdgeBuilder",
+    "ProvenanceBuilder",
 ]
