@@ -1,16 +1,22 @@
-"""conversation_agent.py  (Milestone 4)
+"""conversation_agent.py  (Milestone 5)
 
 Conversational agent that explains a Mycelium run in plain language.
+
+Changes (2026-05-19 — M5 patch)
+---------------------------------
+- M5 §8.2: answer() gains a ``stream: bool = False`` parameter.
+  When stream=True the call is dispatched to stream_answer() so existing
+  callers are unaffected while the broadcast API's SSE endpoint can use
+  the new async generator path.
+- New async def stream_answer() returns AsyncGenerator[str, None] backed
+  by _llm.stream().  Falls back gracefully to a single-chunk yield via
+  _llm.generate() if the LLMClient does not implement .stream().
 
 Changes (2026-05-14 — patch 2)
 --------------------------------
 - _SYSTEM_PROMPT rewritten: agent speaks in first person as Mycelium.
-  No more third-party framing ("Mycelium processed...", "The system...").
-  Diagnostic states (tool failures, INSUFFICIENT_EVIDENCE) are owned by
-  the agent as its own internal states, not external observations.
-- prompt-builder: added 'empty' status branch so empty web-search results
-  produce a clean 'returned no results' line instead of 'FAILED — unknown'.
-- Fallback string also updated to first-person voice.
+- prompt-builder: 'empty' status branch for clean no-results lines.
+- Fallback string updated to first-person voice.
 
 Changes (2026-05-14 — patch 1)
 --------------------------------
@@ -20,7 +26,7 @@ Changes (2026-05-14 — patch 1)
 from __future__ import annotations
 
 import json
-from typing import Optional
+from typing import AsyncGenerator, Optional
 
 from llm_providers import LLMClient
 
@@ -63,25 +69,16 @@ class ConversationAgent:
     def __init__(self, llm: Optional[LLMClient] = None) -> None:
         self._llm = llm or LLMClient()
 
-    def answer(
+    # ------------------------------------------------------------------
+    # Internal: build the prompt shared by answer() and stream_answer()
+    # ------------------------------------------------------------------
+    def _build_prompt(
         self,
         user_query: str,
         run: object,
         sandbox_result: Optional[object] = None,
     ) -> str:
-        """Generate a plain-language explanation in a single LLM call.
-
-        Parameters
-        ----------
-        user_query:
-            The original user question.
-        run:
-            A MyceliumRunSummary (or compatible dict/object).
-        sandbox_result:
-            Optional SandboxResult.  When provided, its raw steps are
-            included in the prompt so the agent synthesises evidence AND
-            explanation together — one Ollama round-trip total.
-        """
+        """Assemble the prompt string from pipeline + sandbox data."""
         try:
             run_dict = run.model_dump()  # type: ignore[attr-defined]
         except AttributeError:
@@ -113,7 +110,7 @@ class ConversationAgent:
             slowest = max(latencies.items(), key=lambda kv: kv[1])
             lines.append(f"Slowest phase: {slowest[0]} ({slowest[1]} ms)")
 
-        # --- sandbox tool results (raw, for single-pass synthesis) ---
+        # --- sandbox tool results ---
         if sandbox_result is not None:
             try:
                 sr_dict = sandbox_result.model_dump()  # type: ignore[attr-defined]
@@ -172,13 +169,72 @@ class ConversationAgent:
 
                     lines.append(f"  [{i}] {tool}('{inp}') [{status}]: {out_str}")
 
-        prompt = "\n".join(lines)
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Synchronous answer (unchanged public API)
+    # ------------------------------------------------------------------
+    def answer(
+        self,
+        user_query: str,
+        run: object,
+        sandbox_result: Optional[object] = None,
+        stream: bool = False,
+    ) -> str:
+        """Generate a plain-language explanation in a single LLM call.
+
+        Parameters
+        ----------
+        user_query:
+            The original user question.
+        run:
+            A MyceliumRunSummary (or compatible dict/object).
+        sandbox_result:
+            Optional SandboxResult.  When provided, its raw steps are
+            included in the prompt so the agent synthesises evidence AND
+            explanation together — one Ollama round-trip total.
+        stream:
+            M5 §8.2 — when True, dispatches internally to stream_answer()
+            and collects all tokens before returning so existing callers
+            that expect a str are unaffected.  New callers that want true
+            token-by-token streaming should call stream_answer() directly.
+        """
+        if stream:
+            import asyncio
+            import concurrent.futures
+
+            async def _collect() -> str:
+                chunks: list[str] = []
+                async for token in self.stream_answer(user_query, run, sandbox_result):
+                    chunks.append(token)
+                return "".join(chunks)
+
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            if loop and loop.is_running():
+                # Already inside an async context — run in a sibling thread
+                # so we can call asyncio.run() without nesting event loops.
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                    future = ex.submit(asyncio.run, _collect())
+                    return future.result()
+            else:
+                return asyncio.run(_collect())
+
+        prompt = self._build_prompt(user_query, run, sandbox_result)
 
         try:
             return self._llm.generate(prompt, system=_SYSTEM_PROMPT)
         except Exception as exc:
             # Graceful fallback — build a readable first-person response from
             # raw data so the frontend is never left with an opaque error.
+            try:
+                run_dict = run.model_dump()  # type: ignore[attr-defined]
+            except AttributeError:
+                run_dict = dict(run) if not isinstance(run, dict) else run  # type: ignore
+
             fallback_lines = [
                 f"I processed your query but my language model is currently unavailable ({exc}).",
                 "",
@@ -234,6 +290,62 @@ class ConversationAgent:
                         fallback_lines.append(f"  {tool} [{status}]: {preview}")
 
             return "\n".join(fallback_lines)
+
+    # ------------------------------------------------------------------
+    # M5 §8.2 — Async streaming path
+    # ------------------------------------------------------------------
+    async def stream_answer(
+        self,
+        user_query: str,
+        run: object,
+        sandbox_result: Optional[object] = None,
+    ) -> AsyncGenerator[str, None]:
+        """Stream the conversational explanation token-by-token.
+
+        M5 §8.2 — Returns an AsyncGenerator that yields response tokens as
+        they arrive from the Ollama streaming API.  The broadcast API's SSE
+        endpoint consumes this generator and forwards each token to the
+        client, cutting perceived latency from O(total_tokens) to
+        O(first_token).
+
+        Falls back gracefully to a single-chunk yield via _llm.generate()
+        when the LLMClient does not yet implement .stream().
+
+        Usage::
+
+            async for token in agent.stream_answer(query, run, sandbox_result):
+                yield sse_event("token", token)
+        """
+        prompt = self._build_prompt(user_query, run, sandbox_result)
+
+        try:
+            async for token in self._llm.stream(prompt, system=_SYSTEM_PROMPT):
+                yield token
+        except (AttributeError, NotImplementedError):
+            # LLMClient does not implement .stream() yet — fall back to a
+            # single blocking generate() and yield the result as one chunk.
+            try:
+                result = self._llm.generate(prompt, system=_SYSTEM_PROMPT)
+                yield result
+            except Exception as exc:
+                try:
+                    run_dict = run.model_dump()  # type: ignore[attr-defined]
+                except AttributeError:
+                    run_dict = dict(run) if not isinstance(run, dict) else run  # type: ignore
+                yield (
+                    f"I processed your query but my language model is currently "
+                    f"unavailable ({exc}). Route: "
+                    f"{run_dict.get('layer0', {}).get('route', 'n/a')}."
+                )
+        except Exception as exc:
+            try:
+                run_dict = run.model_dump()  # type: ignore[attr-defined]
+            except AttributeError:
+                run_dict = dict(run) if not isinstance(run, dict) else run  # type: ignore
+            yield (
+                f"I processed your query but streaming failed ({exc}). "
+                f"Route: {run_dict.get('layer0', {}).get('route', 'n/a')}."
+            )
 
 
 _agent: Optional[ConversationAgent] = None
