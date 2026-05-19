@@ -35,6 +35,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Optional
 
 
@@ -62,6 +63,13 @@ class SRLExtractor:
     """Two-tier SRL extraction: spaCy dependency parser (Tier 1) or
     allennlp SRL model (Tier 2).
 
+    Optimisations (§5.1):
+    - Per-instance NER/doc cache (_ner_cache) so the same text string is
+      parsed by spaCy exactly once, even if extract() is called multiple
+      times (e.g. from CanonicalizeAndHash during Phase C IR bridge).
+    - extract() itself is wrapped with @lru_cache(maxsize=256) so
+      identical sentences deduplicate at the result level.
+
     Usage:
         extractor = SRLExtractor()
         triples = extractor.extract("Smoking causes lung cancer.")
@@ -74,6 +82,9 @@ class SRLExtractor:
     def __init__(self) -> None:
         self._nlp = None          # spaCy model, lazy-loaded
         self._allennlp = None     # allennlp predictor, lazy-loaded
+        # Per-text spaCy doc cache (§5.1): avoids re-parsing the same sentence
+        # when extract() is called multiple times within one pipeline pass.
+        self._ner_cache: dict = {}
 
     def _load_spacy(self):
         if self._nlp is None:
@@ -82,22 +93,28 @@ class SRLExtractor:
                 try:
                     self._nlp = spacy.load("en_core_web_sm")
                 except OSError:
-                    # If model not found, use blank English for minimal parsing
                     self._nlp = spacy.blank("en")
             except ImportError:
                 self._nlp = False  # spaCy not installed
         return self._nlp
 
+    def _get_doc(self, text: str):
+        """Return a cached spaCy Doc for *text*, parsing only on first call (§5.1)."""
+        if text not in self._ner_cache:
+            nlp = self._load_spacy()
+            if not nlp:
+                return None
+            self._ner_cache[text] = nlp(text)
+        return self._ner_cache[text]
+
     def _extract_spacy(self, text: str) -> list[SRLTriple]:
         """Tier 1: rule-based SVO extraction via spaCy dependency parse."""
-        nlp = self._load_spacy()
-        if not nlp:
+        doc = self._get_doc(text)
+        if doc is None:
             return self._extract_regex(text)
 
         triples: list[SRLTriple] = []
-        doc = nlp(text)
         for sent in doc.sents:
-            # Find root verb(s)
             for token in sent:
                 if token.dep_ == "ROOT" and token.pos_ in {"VERB", "AUX"}:
                     subjects = [
@@ -116,7 +133,6 @@ class SRLExtractor:
                             t.text for t in objects_[0].subtree
                         ).strip()
                         pred = token.text
-                        # include aux verbs ("is causing")
                         aux_tokens = [
                             t.text for t in token.lefts
                             if t.dep_ in {"aux", "auxpass", "neg"}
@@ -139,7 +155,6 @@ class SRLExtractor:
         Handles simple SVO patterns: SUBJECT PREDICATE OBJECT.
         Confidence is lower (0.5) to reflect reduced accuracy.
         """
-        # Simple pattern: word(s) CAUSAL_VERB word(s)
         causal_verbs = (
             r"causes|leads to|results in|produces|triggers|correlates with"
             r"|is associated with|is linked to|is|precedes|follows"
@@ -161,8 +176,13 @@ class SRLExtractor:
             ))
         return triples
 
+    @lru_cache(maxsize=256)
     def extract(self, text: str) -> list[SRLTriple]:
-        """Extract SRL triples from a text string.
+        """Extract SRL triples from a text string (§5.1).
+
+        Results are LRU-cached (256 entries) so the same sentence is never
+        re-parsed, even when CanonicalizeAndHash.process() is called
+        multiple times on an identical query during the Phase C IR bridge.
 
         Tries Tier 2 (allennlp) if MYCELIUM_SRL_MODEL=allennlp,
         else Tier 1 (spaCy), else regex fallback.
