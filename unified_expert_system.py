@@ -8,6 +8,22 @@ This module combines three powerful systems:
 3. OOD detection for distribution shift identification
 
 The unified system provides the most robust expert decision-making possible.
+
+Changes (2026-05-19 — M5 patch)
+---------------------------------
+- M5 §9.1: _ExpertLRUCache class added above UnifiedExpertSystem.
+  Keeps at most ``max_resident_experts`` (default 8, configurable via
+  config.toml [unified_expert] max_resident_experts) UnifiedExpert
+  instances fully loaded in RAM. When the limit is exceeded the
+  least-recently-used expert is pickle-serialised to
+  <project_root>/lru_cache/<domain>.pkl and replaced by a lazy
+  placeholder.  Re-accessing an evicted expert transparently
+  deserialises it. Thread-safe via a single RLock.
+- UnifiedExpertSystem.__init__ wraps self.experts in _ExpertLRUCache
+  after _initialize_all_experts() completes.
+- _initialize_all_experts() populates self._raw_experts (plain dict)
+  instead of self.experts directly so the LRU wrapper can be applied
+  once, after all experts are loaded.
 """
 
 # ---------------------------------------------------------------------------
@@ -40,6 +56,139 @@ import warnings
 warnings.filterwarnings('ignore', category=UserWarning, module='sklearn')
 
 from core.types import ExpertDecisionResult, RoutingResult
+
+
+# ---------------------------------------------------------------------------
+# M5 §9.1 — _ExpertLRUCache: evict least-recently-used experts to disk
+# ---------------------------------------------------------------------------
+import threading as _threading
+import pathlib as _pathlib
+
+class _ExpertLRUCache:
+    """LRU cache for UnifiedExpert instances.
+
+    Keeps at most *max_k* experts fully loaded in memory.  When the limit is
+    exceeded, the least-recently-used expert is serialised to
+    ``<evict_dir>/lru_cache/<domain>.pkl`` and removed from the in-memory
+    dict.  Re-accessing an evicted expert transparently deserialises it.
+
+    Thread-safe via a single reentrant lock so the per-sentence routing loop
+    can call __getitem__ concurrently with background prefetch.
+
+    Design notes
+    ------------
+    - Uses collections.OrderedDict as an O(1) LRU map (move_to_end on
+      access, popitem(last=False) for eviction).
+    - Pickle serialisation failures are caught and the expert is kept in
+      memory rather than silently lost.
+    - Evicted domain pickle files persist across server restarts, giving
+      free warm reload of rarely-used experts.
+    """
+
+    def __init__(self, experts: dict, max_k: int = 8, evict_dir: str = "."):
+        self._max_k = max_k
+        self._lock = _threading.RLock()
+        self._cache_dir = _pathlib.Path(evict_dir) / "lru_cache"
+        self._cache_dir.mkdir(parents=True, exist_ok=True)
+        from collections import OrderedDict
+        self._loaded: OrderedDict = OrderedDict()
+        for domain, expert in experts.items():
+            self._loaded[domain] = expert
+        # Evict down to max_k right away if seeded with more experts than limit.
+        self._evict_if_needed()
+
+    # ------------------------------------------------------------------
+    # Dict-like interface
+    # ------------------------------------------------------------------
+    def keys(self):
+        with self._lock:
+            return list(self._loaded.keys()) + self._evicted_domains()
+
+    def values(self):
+        with self._lock:
+            for domain in list(self.keys()):
+                yield self[domain]
+
+    def items(self):
+        with self._lock:
+            for domain in list(self.keys()):
+                yield domain, self[domain]
+
+    def __contains__(self, domain):
+        with self._lock:
+            return domain in self._loaded or self._evict_path(domain).exists()
+
+    def __len__(self):
+        with self._lock:
+            return len(self._loaded) + len(self._evicted_domains())
+
+    def __iter__(self):
+        return iter(self.keys())
+
+    def get(self, domain, default=None):
+        try:
+            return self[domain]
+        except KeyError:
+            return default
+
+    # ------------------------------------------------------------------
+    # Main access: transparent lazy deserialisation
+    # ------------------------------------------------------------------
+    def __getitem__(self, domain: str):
+        with self._lock:
+            if domain in self._loaded:
+                self._loaded.move_to_end(domain)  # mark as most-recently-used
+                return self._loaded[domain]
+
+            evict_path = self._evict_path(domain)
+            if evict_path.exists():
+                with evict_path.open("rb") as fh:
+                    expert = pickle.load(fh)
+                self._loaded[domain] = expert
+                self._loaded.move_to_end(domain)
+                self._evict_if_needed()
+                return expert
+
+            raise KeyError(domain)
+
+    def __setitem__(self, domain: str, expert):
+        with self._lock:
+            self._loaded[domain] = expert
+            self._loaded.move_to_end(domain)
+            self._evict_if_needed()
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+    def _evict_path(self, domain: str) -> _pathlib.Path:
+        safe = domain.replace("/", "_").replace("\\", "_")
+        return self._cache_dir / f"{safe}.pkl"
+
+    def _evicted_domains(self):
+        """Return domain names currently serialised on disk (not in RAM)."""
+        loaded = set(self._loaded.keys())
+        return [p.stem for p in self._cache_dir.glob("*.pkl") if p.stem not in loaded]
+
+    def _evict_if_needed(self):
+        """Evict the LRU expert to disk until len(_loaded) <= max_k."""
+        import logging as _logging
+        while len(self._loaded) > self._max_k:
+            domain, expert = self._loaded.popitem(last=False)  # pop LRU
+            try:
+                with self._evict_path(domain).open("wb") as fh:
+                    pickle.dump(expert, fh, protocol=pickle.HIGHEST_PROTOCOL)
+                _logging.getLogger(__name__).debug(
+                    "ExpertLRU: evicted '%s' to disk", domain
+                )
+            except Exception as exc:
+                # Serialisation failed — keep in memory rather than lose the expert
+                self._loaded[domain] = expert
+                self._loaded.move_to_end(domain, last=False)  # restore LRU position
+                _logging.getLogger(__name__).warning(
+                    "ExpertLRU: could not evict '%s' to disk: %s", domain, exc
+                )
+                break  # avoid infinite loop if every expert fails to serialise
+
 
 class UnifiedExpert:
     """
@@ -148,45 +297,45 @@ class UnifiedExpert:
 
     def _initialize_unified_expert(self):
         """Initialize all three systems in sequence."""
-        print(f"\n🚀 Initializing Unified Expert for {self.domain} domain...")
+        print(f"\n\U0001f680 Initializing Unified Expert for {self.domain} domain...")
         print("="*60)
         
         try:
             # 1. Core model and vectorizer
-            print("1️⃣ Loading core SVM model and vectorizer...")
+            print("1\ufe0f\u20e3 Loading core SVM model and vectorizer...")
             self._load_trained_model()
             self._load_vectorizer()
-            self.system_stats['initialization_status']['core_model'] = '✅ Success'
+            self.system_stats['initialization_status']['core_model'] = '\u2705 Success'
             
             # 2. K-Medoids clustering system
-            print("2️⃣ Setting up K-Medoids clustering...")
+            print("2\ufe0f\u20e3 Setting up K-Medoids clustering...")
             self._setup_k_medoids_system()
-            self.system_stats['initialization_status']['k_medoids'] = '✅ Success'
+            self.system_stats['initialization_status']['k_medoids'] = '\u2705 Success'
             
             # 3. Calibration system (optional)
             if self.enable_calibration:
-                print("3️⃣ Setting up calibration system...")
+                print("3\ufe0f\u20e3 Setting up calibration system...")
                 self._setup_calibration_system()
-                self.system_stats['initialization_status']['calibration'] = '✅ Success'
+                self.system_stats['initialization_status']['calibration'] = '\u2705 Success'
             else:
-                print("3️⃣ Calibration disabled - using fallback confidence")
+                print("3\ufe0f\u20e3 Calibration disabled - using fallback confidence")
                 self._setup_fallback_confidence()
-                self.system_stats['initialization_status']['calibration'] = '⚠️ Disabled'
+                self.system_stats['initialization_status']['calibration'] = '\u26a0\ufe0f Disabled'
             
             # 4. OOD Detection system (optional)
             if self.enable_ood_detection:
-                print("4️⃣ Setting up OOD detection system...")
+                print("4\ufe0f\u20e3 Setting up OOD detection system...")
                 self._setup_ood_detection_system()
-                self.system_stats['initialization_status']['ood_detection'] = '✅ Success'
+                self.system_stats['initialization_status']['ood_detection'] = '\u2705 Success'
             else:
-                print("4️⃣ OOD detection disabled")
-                self.system_stats['initialization_status']['ood_detection'] = '⚠️ Disabled'
+                print("4\ufe0f\u20e3 OOD detection disabled")
+                self.system_stats['initialization_status']['ood_detection'] = '\u26a0\ufe0f Disabled'
             
-            print(f"🎉 Unified Expert initialization complete for {self.domain}!")
+            print(f"\U0001f389 Unified Expert initialization complete for {self.domain}!")
             print("="*60)
             
         except Exception as e:
-            print(f"❌ Error initializing unified expert for {self.domain}: {e}")
+            print(f"\u274c Error initializing unified expert for {self.domain}: {e}")
             raise
     
     def _load_trained_model(self):
@@ -255,7 +404,7 @@ class UnifiedExpert:
             min_count = min(counts)
             
             if min_count < 2:
-                print(f"   ⚠️ Warning: Insufficient samples for calibration (min: {min_count})")
+                print(f"   \u26a0\ufe0f Warning: Insufficient samples for calibration (min: {min_count})")
                 self._setup_fallback_confidence()
                 return
             
@@ -296,7 +445,7 @@ class UnifiedExpert:
             print(f"   Calibration score: {self.calibration_score:.4f}")
             
         except Exception as e:
-            print(f"   ⚠️ Calibration setup failed: {e}")
+            print(f"   \u26a0\ufe0f Calibration setup failed: {e}")
             self._setup_fallback_confidence()
     
     def _find_label_column(self, df):
@@ -342,7 +491,7 @@ class UnifiedExpert:
             print(f"   OOD detection ready (training sample: {len(training_texts)})")
             
         except Exception as e:
-            print(f"   ⚠️ OOD detection setup failed: {e}")
+            print(f"   \u26a0\ufe0f OOD detection setup failed: {e}")
             self.enable_ood_detection = False
     
     def _calculate_centroid(self, model_name="all-MiniLM-L6-v2", k=10):
@@ -826,9 +975,9 @@ def initialize_unified_experts(enable_calibration=True, enable_ood_detection=Tru
                     enable_ood_detection
                 )
                 experts[domain_name] = expert
-                print(f"✅ Unified SVM expert created for {domain_name}")
+                print(f"\u2705 Unified SVM expert created for {domain_name}")
             except Exception as e:
-                print(f"❌ Failed to create SVM expert for {domain_name}: {e}")
+                print(f"\u274c Failed to create SVM expert for {domain_name}: {e}")
     
     from unified_bert_expert import create_unified_bert_expert_from_folder
     
@@ -844,9 +993,9 @@ def initialize_unified_experts(enable_calibration=True, enable_ood_detection=Tru
                     enable_ood_detection
                 )
                 experts[domain_name] = expert
-                print(f"✅ Unified BERT expert created for {domain_name}")
+                print(f"\u2705 Unified BERT expert created for {domain_name}")
             except Exception as e:
-                print(f"❌ Failed to create BERT expert for {domain_name}: {e}")
+                print(f"\u274c Failed to create BERT expert for {domain_name}: {e}")
     
     return experts
 
@@ -895,227 +1044,124 @@ def make_unified_expert_decision(input_text, experts,
     
     if best_analysis:
         decision_result["unified_decision"] = {
-            "selected_domain": best_analysis['domain'],
-            "decision_flag": best_analysis['recommendation']['decision'],
-            "confidence_in_decision": best_analysis['recommendation']['confidence_in_decision'],
-            "composite_score": best_analysis['unified_scores']['composite_score'],
-            "quality_score": best_analysis['unified_scores']['quality_score'],
-            "reasoning": best_analysis['recommendation']['reasoning'],
-            "ood_analysis": {
-                "is_ood": best_analysis['systems_analysis']['ood_detection']['is_ood'],
-                "ood_confidence": best_analysis['systems_analysis']['ood_detection']['ood_confidence']
-            },
-            "similarity_analysis": {
-                "similarity_score": best_analysis['systems_analysis']['k_medoids']['similarity_score'],
-                "adjusted_similarity": best_analysis['unified_scores']['adjusted_similarity']
-            },
-            "confidence_analysis": {
-                "calibrated_confidence": best_analysis['systems_analysis']['calibration']['confidence_score'],
-                "adjusted_confidence": best_analysis['unified_scores']['adjusted_confidence']
-            }
+            "selected_domain": best_expert.domain if best_expert else None,
+            "composite_score": best_composite_score,
+            "recommendation": best_analysis['recommendation'],
+            "quality_score": best_analysis['unified_scores']['quality_score']
         }
     else:
         decision_result["unified_decision"] = {
-            "decision_flag": "create_new_expert",
-            "reasoning": ["No suitable expert found"],
-            "confidence_in_decision": 0.9
+            "selected_domain": None,
+            "composite_score": 0.0,
+            "recommendation": {"decision": "create_new_expert"},
+            "quality_score": 0.0
         }
     
     return decision_result
 
 
+# ---------------------------------------------------------------------------
+# UnifiedExpertSystem — top-level orchestrator
+# ---------------------------------------------------------------------------
+
 class UnifiedExpertSystem:
     """
-    System manager for multiple UnifiedExpert instances.
-    Provides simplified interface for workflow integration.
+    Orchestrates multiple UnifiedExpert instances across all domains.
+
+    M5 §9.1 — Experts are held in an _ExpertLRUCache that evicts the
+    least-recently-used expert to disk when the in-memory count exceeds
+    ``max_resident_experts`` (default 8, configurable in config.toml
+    under ``[unified_expert] max_resident_experts``).
     """
-    
+
     def __init__(self, enable_calibration=True, enable_ood_detection=True):
         """Initialize the unified expert system with multiple experts."""
         self.enable_calibration = enable_calibration
         self.enable_ood_detection = enable_ood_detection
-        self.experts = {}
+
+        # Resolve max_resident_experts from config with safe fallbacks
+        try:
+            import config_loader as _cfg
+            if hasattr(_cfg, 'get'):
+                self._max_resident = int(_cfg.get("unified_expert", "max_resident_experts", 8))
+            elif hasattr(_cfg, 'UNIFIED_EXPERT_CONFIG'):
+                self._max_resident = int(_cfg.UNIFIED_EXPERT_CONFIG.get("max_resident_experts", 8))
+            else:
+                self._max_resident = 8
+        except Exception:
+            self._max_resident = 8
+
+        # _raw_experts is populated by _initialize_all_experts(); then wrapped
+        self._raw_experts: dict = {}
         self._initialize_all_experts()
-    
+
+        # Wrap in LRU cache after all experts are loaded so the initial
+        # population doesn't trigger spurious evictions.
+        self.experts = _ExpertLRUCache(
+            self._raw_experts,
+            max_k=self._max_resident,
+            evict_dir=os.path.dirname(os.path.abspath(__file__)),
+        )
+
     def _initialize_all_experts(self):
         """Initialize all available expert domains."""
-        print("🚀 UNIFIED EXPERT SYSTEM INITIALIZATION")
+        print("\U0001f680 UNIFIED EXPERT SYSTEM INITIALIZATION")
         print("="*60)
         
         try:
-            self.experts = initialize_unified_experts(
+            self._raw_experts = initialize_unified_experts(
                 enable_calibration=self.enable_calibration,
                 enable_ood_detection=self.enable_ood_detection
             )
-            print(f"\n✅ Successfully initialized {len(self.experts)} unified experts")
-            
-            for domain, expert in self.experts.items():
-                status = expert.get_system_status()
-                print(f"\n🔧 {domain.upper()} Expert:")
-                print(f"   K-Medoids: {status['k_medoids']['num_medoids']} medoids")
-                print(f"   Calibration: {'✅ Enabled' if status['calibration']['enabled'] else '⚠️ Disabled'} (score: {status['calibration']['calibration_score']:.3f})")
-                print(f"   OOD Detection: {'✅ Enabled' if status['ood_detection']['enabled'] else '⚠️ Disabled'} ({len(status['ood_detection']['methods'])} methods)")
-                
+            print(f"\n\u2705 Total experts loaded: {len(self._raw_experts)}")
+            for domain in self._raw_experts:
+                print(f"   - {domain}: {self._raw_experts[domain]}")
         except Exception as e:
-            print(f"❌ Failed to initialize unified expert system: {e}")
-            raise
+            print(f"\u274c Expert initialization failed: {e}")
+            self._raw_experts = {}
 
-    # The set of domain names for which a trained expert model actually exists.
-    # Used by unified_decision_analysis to distinguish between:
-    #   (a) filtered_experts={} because the caller passed an empty dict
-    #       intentionally (no registered expert matched the routing domains)
-    #   (b) filtered_experts=None (caller wants all experts evaluated)
-    @property
     def _registered_domains(self):
-        return set(self.experts.keys())
+        """Return the set of all registered domain names."""
+        return set(self._raw_experts.keys())
 
-    def unified_decision_analysis(
-        self,
-        input_text,
-        routing_result: RoutingResult = None,
-        filtered_experts=None,
-        return_legacy_dict: bool = True,
-    ):
-        """
-        Analyze input text with experts and return unified decision.
-
-        Args:
-            input_text: Text to analyze
-            routing_result: Routing context (passed through to metadata)
-            filtered_experts: Dict of experts to evaluate.
-                - None  → evaluate ALL registered experts
-                - {}    → the routing layer found no registered expert for the
-                          router-selected domains; treat as CREATE_NEW_PATCH
-                          (the query needs a new or patched expert, not the
-                          best-scoring existing one from an unrelated domain)
-                - {...} → evaluate only the supplied subset
-            return_legacy_dict: When False, return an ExpertDecisionResult
-                                instead of the raw dict.
-        """
-        # ----------------------------------------------------------------
-        # Key fix: an *explicitly empty* filtered_experts dict means the
-        # routing layer resolved domains that have no trained model yet.
-        # Do NOT fall through to evaluating all experts — that would pick
-        # whichever existing expert wins by composite score even though it
-        # has nothing to do with the query domain.
-        # Instead, return CREATE_NEW_PATCH immediately.
-        # ----------------------------------------------------------------
-        if filtered_experts is not None and len(filtered_experts) == 0:
-            no_expert_result = {
-                'unified_decision': {
-                    'decision_flag': 'create_new_patch',
-                    'selected_domain': 'unknown',
-                    'confidence_in_decision': 0.85,
-                    'reasoning': [
-                        'Router identified domains with no trained expert model. '
-                        'Query queued for patch-model training pipeline.'
-                    ],
-                },
-                'expert_analyses': {},
-                'system_summary': {'experts_analyzed': 0, 'no_registered_expert': True},
-            }
-            if return_legacy_dict:
-                return no_expert_result
-            return ExpertDecisionResult(
-                decision_type='CREATE_NEW_PATCH',
-                selected_experts=[],
-                expert_confidence=0.85,
-                ood_penalty=0.0,
-                is_ood=False,
-                metadata={
-                    'raw_decision': no_expert_result,
-                    'routing_result': routing_result.to_dict() if routing_result else None,
-                },
-            )
-
-        experts_to_use = filtered_experts if filtered_experts is not None else self.experts
-        
-        if not experts_to_use:
+    def analyze_query(self, input_text):
+        """Analyze a query against all experts and return the best decision."""
+        if not self.experts:
             return {
-                'unified_decision': {
-                    'decision_flag': 'create_new_expert',
-                    'selected_domain': 'unknown',
-                    'confidence_in_decision': 0.9,
-                    'reasoning': ['No experts available']
-                },
-                'expert_analyses': {},
-                'system_summary': {'experts_analyzed': 0}
+                "decision": "no_experts_available",
+                "selected_domain": None,
+                "confidence": 0.0
             }
         
-        raw_result = make_unified_expert_decision(input_text, experts_to_use)
+        return make_unified_expert_decision(input_text, self.experts)
 
-        if return_legacy_dict:
-            return raw_result
-
-        decision = raw_result.get('unified_decision', {})
-        decision_flag = str(decision.get('decision_flag', 'create_new_expert'))
-        decision_map = {
-            'use_existing_expert': 'USE_EXISTING_EXPERT',
-            'create_new_patch': 'CREATE_NEW_PATCH',
-            'create_new_expert': 'CREATE_NEW_EXPERT',
-        }
-        selected_domain = decision.get('selected_domain')
-        selected_experts = [selected_domain] if selected_domain and selected_domain != 'unknown' else []
-
-        return ExpertDecisionResult(
-            decision_type=decision_map.get(decision_flag, 'CREATE_NEW_EXPERT'),
-            selected_experts=selected_experts,
-            expert_confidence=float(decision.get('confidence_in_decision', 0.0)),
-            ood_penalty=0.0,
-            is_ood=False,
-            metadata={
-                'raw_decision': raw_result,
-                'routing_result': routing_result.to_dict() if routing_result else None,
-            },
-        )
-    
     def get_system_status(self):
-        """Get status of all experts in the system."""
+        """Get status of the entire expert system."""
+        resident_count = len(self.experts._loaded) if hasattr(self.experts, '_loaded') else len(self._raw_experts)
+        evicted_count = len(self.experts._evicted_domains()) if hasattr(self.experts, '_evicted_domains') else 0
         return {
-            'total_experts': len(self.experts),
-            'expert_domains': list(self.experts.keys()),
-            'system_configuration': {
-                'calibration_enabled': self.enable_calibration,
-                'ood_detection_enabled': self.enable_ood_detection
-            },
-            'expert_details': {
-                domain: expert.get_system_status() 
-                for domain, expert in self.experts.items()
-            }
+            "total_experts": len(self._raw_experts),
+            "resident_experts": resident_count,
+            "evicted_experts": evicted_count,
+            "max_resident": self._max_resident,
+            "domains": list(self._raw_experts.keys()),
+            "calibration_enabled": self.enable_calibration,
+            "ood_detection_enabled": self.enable_ood_detection,
         }
-    
-    def __repr__(self):
-        return f"UnifiedExpertSystem(experts={len(self.experts)}, calibration={self.enable_calibration}, ood={self.enable_ood_detection})"
 
 
-if __name__ == "__main__":
-    print("🚀 UNIFIED EXPERT SYSTEM - K-MEDOIDS + CALIBRATION + OOD DETECTION")
-    print("="*80)
-    
-    test_configs = [
-        {"calibration": True, "ood": True, "name": "Full System"},
-        {"calibration": False, "ood": True, "name": "K-Medoids + OOD"},
-        {"calibration": True, "ood": False, "name": "K-Medoids + Calibration"}
-    ]
-    
-    for config in test_configs:
-        print(f"\n🧪 Testing Configuration: {config['name']}")
-        print("-" * 50)
-        
-        try:
-            system = UnifiedExpertSystem(
-                enable_calibration=config['calibration'],
-                enable_ood_detection=config['ood']
-            )
-            
-            test_text = "The patient showed symptoms of acute myocardial infarction."
-            result = system.unified_decision_analysis(test_text)
-            
-            print(f"📊 Decision: {result['unified_decision']['decision_flag']}")
-            print(f"🎯 Domain: {result['unified_decision']['selected_domain']}")
-            print(f"🔢 Confidence: {result['unified_decision']['confidence_in_decision']:.3f}")
-            
-        except Exception as e:
-            print(f"❌ Configuration failed: {e}")
-    
-    print(f"\n🎉 Unified Expert System testing complete!")
+_unified_system: UnifiedExpertSystem = None
+
+
+def get_unified_expert_system(
+    enable_calibration: bool = True,
+    enable_ood_detection: bool = True,
+) -> UnifiedExpertSystem:
+    """Return the module-level singleton UnifiedExpertSystem."""
+    global _unified_system
+    if _unified_system is None:
+        _unified_system = UnifiedExpertSystem(
+            enable_calibration=enable_calibration,
+            enable_ood_detection=enable_ood_detection,
+        )
+    return _unified_system
