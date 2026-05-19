@@ -5,18 +5,27 @@ Process-level singleton cache for all HuggingFace / SentenceTransformer models.
 
 Usage
 -----
-    from model_registry import get_model
+    from model_registry import get_model, get_embedding
 
     encoder = get_model("all-mpnet-base-v2", model_type="sentence_transformer", device="cpu")
+    vec     = get_embedding("some text", "all-mpnet-base-v2")
 
 First call loads the model and caches it.  Every subsequent call with the
 same (model_name, model_type, device) triple returns the cached instance
 in O(1) — no disk I/O, no GPU allocation.
 
+Embedding cache
+---------------
+get_embedding() wraps model.encode() with a process-level LRU cache keyed
+on sha256(text) + model_name.  This eliminates redundant encode() calls when
+the same text is processed by multiple pipeline stages in the same request
+(§1.1 and §1.2 of OPTIMIZATION_SPEC.md).
+
 Thread safety
 -------------
 Uses double-checked locking so that if two threads race on the very first
 load, only ONE thread performs the download/init and the other waits.
+The embedding cache uses a separate RLock to allow re-entrant access.
 
 Startup warmup
 --------------
@@ -32,14 +41,117 @@ disk read on their first inference call::
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import threading
-from typing import Any, Dict, List
+from collections import OrderedDict
+from typing import Any, Dict, List, Optional
+
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
 _lock: threading.Lock = threading.Lock()
 _cache: Dict[str, Any] = {}
+
+# ---------------------------------------------------------------------------
+# Embedding cache (§1.1 / §1.2 — eliminates redundant encode() calls)
+# ---------------------------------------------------------------------------
+_EMBED_CACHE_MAX: int = 4096          # max entries; old entries evicted LRU
+_embed_lock: threading.RLock = threading.RLock()
+_embed_cache: "OrderedDict[str, np.ndarray]" = OrderedDict()
+
+
+def _embed_cache_key(text: str, model_name: str) -> str:
+    return hashlib.sha256(f"{model_name}\x00{text}".encode()).hexdigest()
+
+
+def get_embedding(
+    text: str,
+    model_name: str = "sentence-transformers/all-mpnet-base-v2",
+    device: str = "cpu",
+) -> np.ndarray:
+    """
+    Return a cached embedding vector for *text*, computing it only once per
+    unique (text, model_name) pair for the lifetime of the process.
+
+    Parameters
+    ----------
+    text:        Raw string to embed.
+    model_name:  SentenceTransformer model identifier.
+    device:      Device passed to get_model() on first load.
+
+    Returns
+    -------
+    np.ndarray  shape (embedding_dim,)
+    """
+    key = _embed_cache_key(text, model_name)
+
+    with _embed_lock:
+        if key in _embed_cache:
+            _embed_cache.move_to_end(key)          # LRU refresh
+            return _embed_cache[key]
+
+    # Compute outside the lock — encode() is thread-safe within sentence-transformers
+    model = get_model(model_name, model_type="sentence_transformer", device=device)
+    vec: np.ndarray = model.encode(text, convert_to_numpy=True)
+
+    with _embed_lock:
+        if key not in _embed_cache:               # double-check after re-acquiring
+            _embed_cache[key] = vec
+            if len(_embed_cache) > _EMBED_CACHE_MAX:
+                _embed_cache.popitem(last=False)  # evict LRU entry
+
+    return vec
+
+
+def embed_batch(
+    texts: List[str],
+    model_name: str = "sentence-transformers/all-mpnet-base-v2",
+    device: str = "cpu",
+) -> List[np.ndarray]:
+    """
+    Batch embedding with per-element caching.
+
+    Already-cached texts are returned from the cache; only the remaining
+    texts are passed to model.encode() in a single batched call.
+
+    Returns a list of np.ndarray, one per input text, in the same order.
+    """
+    keys = [_embed_cache_key(t, model_name) for t in texts]
+    result: List[Optional[np.ndarray]] = [None] * len(texts)
+    missing_indices: List[int] = []
+
+    with _embed_lock:
+        for i, key in enumerate(keys):
+            if key in _embed_cache:
+                _embed_cache.move_to_end(key)
+                result[i] = _embed_cache[key]
+            else:
+                missing_indices.append(i)
+
+    if missing_indices:
+        missing_texts = [texts[i] for i in missing_indices]
+        model = get_model(model_name, model_type="sentence_transformer", device=device)
+        vecs: np.ndarray = model.encode(missing_texts, convert_to_numpy=True)
+
+        with _embed_lock:
+            for idx, vec in zip(missing_indices, vecs):
+                k = keys[idx]
+                result[idx] = vec
+                if k not in _embed_cache:
+                    _embed_cache[k] = vec
+                    if len(_embed_cache) > _EMBED_CACHE_MAX:
+                        _embed_cache.popitem(last=False)
+
+    return result  # type: ignore[return-value]
+
+
+def clear_embed_cache() -> None:
+    """Flush the embedding cache (useful in tests)."""
+    with _embed_lock:
+        _embed_cache.clear()
+
 
 # ---------------------------------------------------------------------------
 # Startup manifest — the single source of truth for non-LLM model weights.
