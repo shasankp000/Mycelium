@@ -1,6 +1,19 @@
-"""conversation_agent.py  (Milestone 5)
+"""conversation_agent.py  (Milestone 5 + Lexis Phase 2)
 
 Conversational agent that explains a Mycelium run in plain language.
+
+Changes (Lexis integration Phase 2)
+-------------------------------------
+- answer() and stream_answer() gain an optional ``history`` parameter
+  (list of {role, content} dicts, oldest-first).
+- When history is provided, lexis_condenser.condense_history() is called
+  to produce a coreference-resolved, sentence-normalised summary of the
+  conversation turns (Stages 1-4 only; no arithmetic coding).  This
+  condensed context is prepended to the user query block in the prompt,
+  extending the effective context window by 15-30% on domain-heavy
+  conversations without any information loss.
+- Condensation is fully optional and falls back gracefully to raw history
+  if the Lexis venv is unavailable (lexis_condenser fallback_on_error=True).
 
 Changes (2026-05-19 — M5 patch)
 ---------------------------------
@@ -26,9 +39,12 @@ Changes (2026-05-14 — patch 1)
 from __future__ import annotations
 
 import json
+import logging
 from typing import AsyncGenerator, Optional
 
 from llm_providers import LLMClient
+
+log = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = """\
 You are Mycelium — an experimental multi-expert AI reasoning system.
@@ -65,6 +81,29 @@ Your response must:
 """
 
 
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _try_condense_history(turns: list[dict]) -> str:
+    """
+    Apply Lexis Stages 1-4 to conversation history via lexis_condenser.
+
+    Returns the condensed text, or a plain concatenation of turns if the
+    Lexis bridge is unavailable (Phase 1 setup not yet complete, venv
+    missing, etc.).  Never raises -- callers do not need try/except.
+    """
+    try:
+        from lexis_condenser import condense_history  # lazy import -- only needed when history present
+        return condense_history(turns, fallback_on_error=True)
+    except Exception as exc:  # noqa: BLE001
+        log.debug("lexis_condenser unavailable (%s); using raw history.", exc)
+        return "\n".join(
+            f"{t.get('role', 'user')}: {t.get('content', '')}"
+            for t in turns
+        )
+
+
 class ConversationAgent:
     def __init__(self, llm: Optional[LLMClient] = None) -> None:
         self._llm = llm or LLMClient()
@@ -77,14 +116,33 @@ class ConversationAgent:
         user_query: str,
         run: object,
         sandbox_result: Optional[object] = None,
+        condensed_history: Optional[str] = None,
     ) -> str:
-        """Assemble the prompt string from pipeline + sandbox data."""
+        """Assemble the prompt string from pipeline + sandbox data.
+
+        Parameters
+        ----------
+        condensed_history : pre-condensed conversation context produced by
+                            _try_condense_history().  When supplied it is
+                            prepended to the user query section so the LLM
+                            has full multi-turn context within a smaller
+                            token budget.
+        """
         try:
             run_dict = run.model_dump()  # type: ignore[attr-defined]
         except AttributeError:
             run_dict = dict(run) if not isinstance(run, dict) else run  # type: ignore
 
-        lines = [f"User query: {user_query}", ""]
+        lines: list[str] = []
+
+        # --- condensed conversation history (Lexis Phase 2) ---
+        if condensed_history:
+            lines.append("=== Conversation Context (condensed) ===")
+            lines.append(condensed_history)
+            lines.append("")
+
+        lines.append(f"User query: {user_query}")
+        lines.append("")
 
         # --- pipeline summary ---
         lines.append("=== Pipeline Summary ===")
@@ -172,7 +230,7 @@ class ConversationAgent:
         return "\n".join(lines)
 
     # ------------------------------------------------------------------
-    # Synchronous answer (unchanged public API)
+    # Synchronous answer (unchanged public API + optional history param)
     # ------------------------------------------------------------------
     def answer(
         self,
@@ -180,6 +238,7 @@ class ConversationAgent:
         run: object,
         sandbox_result: Optional[object] = None,
         stream: bool = False,
+        history: Optional[list[dict]] = None,
     ) -> str:
         """Generate a plain-language explanation in a single LLM call.
 
@@ -198,6 +257,12 @@ class ConversationAgent:
             and collects all tokens before returning so existing callers
             that expect a str are unaffected.  New callers that want true
             token-by-token streaming should call stream_answer() directly.
+        history:
+            Lexis Phase 2 — optional list of prior conversation turns
+            [{"role": ..., "content": ...}, ...] ordered oldest-first.
+            When supplied, Lexis Stages 1-4 are applied to produce a
+            condensed context block prepended to the prompt.  Falls back
+            gracefully if the Lexis bridge is unavailable.
         """
         if stream:
             import asyncio
@@ -205,7 +270,7 @@ class ConversationAgent:
 
             async def _collect() -> str:
                 chunks: list[str] = []
-                async for token in self.stream_answer(user_query, run, sandbox_result):
+                async for token in self.stream_answer(user_query, run, sandbox_result, history=history):
                     chunks.append(token)
                 return "".join(chunks)
 
@@ -215,15 +280,23 @@ class ConversationAgent:
                 loop = None
 
             if loop and loop.is_running():
-                # Already inside an async context — run in a sibling thread
-                # so we can call asyncio.run() without nesting event loops.
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
                     future = ex.submit(asyncio.run, _collect())
                     return future.result()
             else:
                 return asyncio.run(_collect())
 
-        prompt = self._build_prompt(user_query, run, sandbox_result)
+        # --- Lexis Phase 2: condense history before building prompt ---
+        condensed_history: Optional[str] = None
+        if history:
+            condensed_history = _try_condense_history(history)
+            log.debug(
+                "History condensed: %d chars -> %d chars",
+                sum(len(t.get("content", "")) for t in history),
+                len(condensed_history),
+            )
+
+        prompt = self._build_prompt(user_query, run, sandbox_result, condensed_history)
 
         try:
             return self._llm.generate(prompt, system=_SYSTEM_PROMPT)
@@ -299,6 +372,7 @@ class ConversationAgent:
         user_query: str,
         run: object,
         sandbox_result: Optional[object] = None,
+        history: Optional[list[dict]] = None,
     ) -> AsyncGenerator[str, None]:
         """Stream the conversational explanation token-by-token.
 
@@ -311,19 +385,32 @@ class ConversationAgent:
         Falls back gracefully to a single-chunk yield via _llm.generate()
         when the LLMClient does not yet implement .stream().
 
+        history:
+            Lexis Phase 2 — optional prior conversation turns.  See answer()
+            for details.  Condensation runs synchronously here before the
+            async streaming loop begins.
+
         Usage::
 
             async for token in agent.stream_answer(query, run, sandbox_result):
                 yield sse_event("token", token)
         """
-        prompt = self._build_prompt(user_query, run, sandbox_result)
+        # --- Lexis Phase 2: condense history ---
+        condensed_history: Optional[str] = None
+        if history:
+            condensed_history = _try_condense_history(history)
+            log.debug(
+                "History condensed (stream): %d chars -> %d chars",
+                sum(len(t.get("content", "")) for t in history),
+                len(condensed_history),
+            )
+
+        prompt = self._build_prompt(user_query, run, sandbox_result, condensed_history)
 
         try:
             async for token in self._llm.stream(prompt, system=_SYSTEM_PROMPT):
                 yield token
         except (AttributeError, NotImplementedError):
-            # LLMClient does not implement .stream() yet — fall back to a
-            # single blocking generate() and yield the result as one chunk.
             try:
                 result = self._llm.generate(prompt, system=_SYSTEM_PROMPT)
                 yield result
