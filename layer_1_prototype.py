@@ -3,7 +3,7 @@ import hashlib
 import datetime
 import time
 from collections import deque, OrderedDict
-from typing import Dict, List, Tuple, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 import config_loader as cfg
 try:
     from sentence_transformers import SentenceTransformer
@@ -472,7 +472,7 @@ def _lens1_embedding_candidates(
 
     # Embedding scoring — uses registry cache to avoid duplicate encode() calls
     try:
-        import numpy as _np
+    	import numpy as _np
         from model_registry import get_embedding, embed_batch
         text_emb = get_embedding(text, model_name=model_name, device="cpu")
         anchor_texts = list(anchors.values())
@@ -587,13 +587,129 @@ def _lens3_abstraction_signature(text: str, concepts: List[str]) -> Dict:
     return signature
 
 
-def multi_lens_route(text: str, top_k: Optional[int] = None) -> Dict:
-    """Public API: Multi-lens similarity and gated routing."""
+# ---------------------------------------------------------------------------
+# _emit_layer1 — shared event helper for multi_lens_route
+# ---------------------------------------------------------------------------
+
+def _emit_layer1(
+    on_event: Optional[Callable[[Dict[str, Any]], None]],
+    phase_name: str,
+    phase_id: int,
+    substep: str,
+    state: str,
+    visibility: str,
+    message: str,
+    detail: str = "",
+    metadata: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Fire a PipelineEvent through *on_event* if registered.
+
+    Exceptions from the callback are caught and silently discarded so a
+    broken telemetry path can never abort the routing pipeline.
+    """
+    if on_event is None:
+        return
+    try:
+        from pipeline_event import build_event
+        ev = build_event(
+            phase_name=phase_name,
+            phase_id=phase_id,
+            substep=substep,
+            state=state,
+            visibility=visibility,
+            message=message,
+            detail=detail,
+            metadata=metadata or {},
+        )
+        on_event(ev)
+    except Exception:
+        pass  # telemetry must never crash the pipeline
+
+
+# ---------------------------------------------------------------------------
+# Semantic heartbeat — emitted mid-routing to signal liveness (§9)
+# ---------------------------------------------------------------------------
+
+# Human-readable continuity messages rotated round-robin so repeated
+# heartbeats don't look identical on the frontend.
+_HEARTBEAT_MESSAGES = [
+    "Reconciling conflicting evidence…",
+    "Stabilizing reasoning graph…",
+    "Reviewing semantic dependencies…",
+    "Cross-referencing domain signals…",
+    "Validating ontology alignment…",
+]
+_heartbeat_counter: int = 0
+
+
+def _next_heartbeat_message() -> str:
+    global _heartbeat_counter
+    msg = _HEARTBEAT_MESSAGES[_heartbeat_counter % len(_HEARTBEAT_MESSAGES)]
+    _heartbeat_counter += 1
+    return msg
+
+
+def multi_lens_route(
+    text: str,
+    top_k: Optional[int] = None,
+    on_event: Optional[Callable[[Dict[str, Any]], None]] = None,
+) -> Dict:
+    """Public API: Multi-lens similarity and gated routing.
+
+    Stage 5 (transparency emitter): accepts an optional ``on_event``
+    callback.  Three PipelineEvents are emitted:
+
+    routing (running, public, phase_id=4)
+        — fired immediately when routing begins so the frontend can show
+          an active indicator as soon as multi-lens work starts.
+
+    heartbeat (running, public, phase_id=4)
+        — fired after Lens 1 (the heaviest step, involves embeddings)
+          completes, before Lens 2/3 begin.  Acts as a semantic
+          continuity signal (§9) — not an exact internal dump.
+
+    graph_routing (done, public, phase_id=4)
+        — fired when all three lenses have resolved and the final
+          routing decision is assembled.  Carries the primary domain
+          and classification in metadata.
+    """
     if top_k is None:
         top_k = cfg.layer1_lens1_top_k()
 
+    wall_start = time.monotonic()
+
+    # ── routing: started ───────────────────────────────────────────────
+    _emit_layer1(
+        on_event,
+        phase_name="routing",
+        phase_id=4,
+        substep="lens1_start",
+        state="running",
+        visibility="public",
+        message="Running multi-lens router…",
+        detail=f"top_k={top_k}",
+        metadata={"top_k": top_k},
+    )
+
     lens1 = _lens1_embedding_candidates(text, top_k=top_k)
     lens1_domains = [d for d, _ in lens1]
+
+    # ── heartbeat: after Lens 1 (embedding step) ───────────────────────
+    _emit_layer1(
+        on_event,
+        phase_name="heartbeat",
+        phase_id=4,
+        substep="lens1_done",
+        state="running",
+        visibility="public",
+        message=_next_heartbeat_message(),
+        detail=f"{len(lens1_domains)} candidate domain(s) after embedding pass",
+        metadata={
+            "candidate_count": len(lens1_domains),
+            "elapsed_ms": round((time.monotonic() - wall_start) * 1000, 1),
+        },
+    )
+
     lens2 = _lens2_ontology_explanations(text, lens1_domains or list(_DOMAIN_ONTOLOGY.keys()))
     considered = lens1_domains or [e["concept"] for e in lens2]
     lens3 = _lens3_abstraction_signature(text, considered)
@@ -602,7 +718,7 @@ def multi_lens_route(text: str, top_k: Optional[int] = None) -> Dict:
     core_domains_present = set(lens3["levels"].get("core", {}).keys())
 
     if core_active == 0 or (core_domains_present and core_domains_present.issubset(_ATTRIBUTE_LEVEL_DOMAINS)):
-        return {
+        result = {
             "primary_domain": None,
             "secondary_domains": [],
             "explanation": "Attribute-heavy input detected; no core object domain evidence.",
@@ -611,6 +727,22 @@ def multi_lens_route(text: str, top_k: Optional[int] = None) -> Dict:
             "lens3_signature": lens3,
             "classification": "ATTRIBUTE_ONLY"
         }
+        _emit_layer1(
+            on_event,
+            phase_name="graph_routing",
+            phase_id=4,
+            substep="decision",
+            state="done",
+            visibility="public",
+            message="Routing complete — attribute-only query",
+            detail="No core object domain evidence detected",
+            metadata={
+                "primary_domain": None,
+                "classification": "ATTRIBUTE_ONLY",
+                "elapsed_ms": round((time.monotonic() - wall_start) * 1000, 1),
+            },
+        )
+        return result
 
     object_level_explanations = [e for e in lens2 if e["concept"] in _OBJECT_LEVEL_DOMAINS]
     attribute_level_explanations = [e for e in lens2 if e["concept"] in _ATTRIBUTE_LEVEL_DOMAINS]
@@ -663,7 +795,7 @@ def multi_lens_route(text: str, top_k: Optional[int] = None) -> Dict:
 
     explanation = " ".join(expl_bits) or "Routing based on multi-lens analysis."
 
-    return {
+    result = {
         "primary_domain": primary,
         "secondary_domains": secondary,
         "explanation": explanation,
@@ -672,6 +804,29 @@ def multi_lens_route(text: str, top_k: Optional[int] = None) -> Dict:
         "lens3_signature": lens3,
         "classification": "NORMAL"
     }
+
+    # ── graph_routing: done ────────────────────────────────────────────
+    _emit_layer1(
+        on_event,
+        phase_name="graph_routing",
+        phase_id=4,
+        substep="decision",
+        state="done",
+        visibility="public",
+        message=f"Routing complete — {primary}",
+        detail=(
+            f"primary={primary} · secondary={len(secondary)} · "
+            f"classification=NORMAL"
+        ),
+        metadata={
+            "primary_domain": primary,
+            "secondary_domains": [s["domain"] for s in secondary],
+            "classification": "NORMAL",
+            "elapsed_ms": round((time.monotonic() - wall_start) * 1000, 1),
+        },
+    )
+
+    return result
 
 
 def test_layer1_multilens() -> None:
