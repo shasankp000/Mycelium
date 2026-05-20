@@ -7,7 +7,6 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:8000';
 const MAX_INPUT_CHARS = 2000;
 const SSE_RETRY_ATTEMPTS = 3;
 const SSE_RETRY_DELAY_MS = 1500;
-// How often (ms) the CalibrationGate polls for job completion
 const CALIBRATION_POLL_INTERVAL_MS = 4000;
 
 // ---------------------------------------------------------------------------
@@ -49,7 +48,6 @@ interface Message {
   trace?: PipelineTrace;
   traceOpen?: boolean;
   sandbox?: SandboxResult;
-  /** set on error messages so the user can retry */
   retryQuery?: string;
 }
 
@@ -94,12 +92,54 @@ export interface LiveToolEvent {
   elapsedMs: number;
 }
 
+// ---------------------------------------------------------------------------
+// SseEvent — extended to carry structured PipelineEvent fields (Stage 6)
+// ---------------------------------------------------------------------------
+
 interface SseEvent {
+  // Legacy fields (always present)
   phase: string;
   detail: string;
   elapsed_ms: number;
   payload?: ChatApiResponse;
+  // Structured PipelineEvent fields (present on routing/graph/heartbeat events)
+  phase_name?: string;
+  substep?: string;
+  state?: 'running' | 'done' | 'error';
+  visibility?: 'public' | 'internal';
+  message?: string;
+  metadata?: Record<string, unknown>;
 }
+
+// ---------------------------------------------------------------------------
+// ThinkingEvent — internal state model for the ThinkingPanel
+// ---------------------------------------------------------------------------
+
+type ThinkingEventKind =
+  | 'routing'
+  | 'heartbeat'
+  | 'graph_routing'
+  | 'graph_expert_init'
+  | 'graph_coverage_report';
+
+interface ThinkingEvent {
+  id: number;
+  kind: ThinkingEventKind;
+  state: 'running' | 'done' | 'error';
+  message: string;
+  detail: string;
+  metadata: Record<string, unknown>;
+  ts: number; // Date.now() at arrival
+}
+
+// Set of phase_name values that belong to the ThinkingPanel
+const THINKING_PHASES = new Set<string>([
+  'routing',
+  'heartbeat',
+  'graph_routing',
+  'graph_expert_init',
+  'graph_coverage_report',
+]);
 
 // ---------------------------------------------------------------------------
 // Typewriter texts
@@ -157,19 +197,23 @@ function useTypewriter(texts: string[], typingSpeed = 68, deletingSpeed = 32, pa
 }
 
 // ---------------------------------------------------------------------------
-// Phase display config
+// Phase display config — extended with new semantic-architecture event types
 // ---------------------------------------------------------------------------
 
 const PHASE_META: Record<string, { label: string; progress: number }> = {
-  setting_up:        { label: 'Setting up environment…',         progress: 5  },
-  environment_ready: { label: 'Environment ready',               progress: 12 },
-  routing:           { label: 'Running reasoning pipeline…',     progress: 20 },
-  expert_decision:   { label: 'Expert decision resolved',        progress: 35 },
-  sandbox_plan:      { label: 'Planning sandbox tools…',         progress: 45 },
-  sandbox_summary:   { label: 'Sandbox complete',                progress: 80 },
-  conversation:      { label: 'Generating answer…',              progress: 90 },
-  done:              { label: 'Done',                            progress: 100 },
-  error:             { label: 'Error',                           progress: 100 },
+  setting_up:              { label: 'Setting up environment…',              progress: 5  },
+  environment_ready:       { label: 'Environment ready',                    progress: 12 },
+  routing:                 { label: 'Running reasoning pipeline…',          progress: 20 },
+  graph_routing:           { label: 'Semantic graph routing complete',       progress: 30 },
+  graph_expert_init:       { label: 'Initialising expert graph…',           progress: 22 },
+  graph_coverage_report:   { label: 'Expert coverage assessed',             progress: 33 },
+  heartbeat:               { label: 'Thinking…',                            progress: 25 },
+  expert_decision:         { label: 'Expert decision resolved',             progress: 35 },
+  sandbox_plan:            { label: 'Planning sandbox tools…',              progress: 45 },
+  sandbox_summary:         { label: 'Sandbox complete',                     progress: 80 },
+  conversation:            { label: 'Generating answer…',                   progress: 90 },
+  done:                    { label: 'Done',                                 progress: 100 },
+  error:                   { label: 'Error',                                progress: 100 },
 };
 
 function phaseLabel(phase: string): string {
@@ -269,24 +313,111 @@ function toolDisplayName(tool: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// ThinkingPanel — renders semantic-architecture pipeline events (Stage 6)
+//
+// Displays routing, heartbeat, graph_routing, graph_expert_init, and
+// graph_coverage_report events as a live "thinking" feed inside the loading
+// bubble. Each event kind has a distinct icon and colour treatment. Events
+// whose state === 'running' show a subtle pulse animation; 'done' events show
+// a static checkmark. The panel is only rendered when there is at least one
+// event to show, so it never produces an empty box mid-query.
+// ---------------------------------------------------------------------------
+
+const THINKING_ICONS: Record<ThinkingEventKind, string> = {
+  routing:               '⟁',   // triangle → decision point
+  heartbeat:             '◌',   // hollow circle → continuity ping
+  graph_routing:         '✦',   // sparkle → resolved decision
+  graph_expert_init:     '⬡',   // hexagon → expert node coming online
+  graph_coverage_report: '▤',   // grid → coverage matrix
+};
+
+const THINKING_KIND_LABEL: Record<ThinkingEventKind, string> = {
+  routing:               'Routing',
+  heartbeat:             'Thinking',
+  graph_routing:         'Graph routing',
+  graph_expert_init:     'Expert init',
+  graph_coverage_report: 'Coverage',
+};
+
+function ThinkingPanel({ events }: { events: ThinkingEvent[] }) {
+  if (events.length === 0) return null;
+
+  return (
+    <div className={styles.thinkingPanel} aria-label="Reasoning activity" aria-live="polite">
+      {events.map((ev) => {
+        const isRunning = ev.state === 'running';
+        const icon = THINKING_ICONS[ev.kind] ?? '·';
+        const kindLabel = THINKING_KIND_LABEL[ev.kind] ?? ev.kind;
+
+        // For heartbeat events show the rotating message, otherwise show the
+        // structured message from the backend.
+        const displayMsg = ev.message || ev.detail;
+
+        // Pull useful metadata for supplementary display
+        const meta = ev.metadata ?? {};
+        const primaryDomain = meta.primary_domain as string | undefined;
+        const classification = meta.classification as string | undefined;
+        const candidateCount = meta.candidate_count as number | undefined;
+        const elapsedMs = meta.elapsed_ms as number | undefined;
+        const expertCount = meta.expert_count as number | undefined;
+        const coveredDomains = meta.covered_domains as string[] | undefined;
+
+        return (
+          <div
+            key={ev.id}
+            className={`${styles.thinkingRow} ${isRunning ? styles.thinkingRowRunning : styles.thinkingRowDone}`}
+            aria-label={`${kindLabel}: ${displayMsg}`}
+          >
+            {/* Icon column */}
+            <span
+              className={`${styles.thinkingIcon} ${isRunning ? styles.thinkingIconPulse : ''}`}
+              aria-hidden="true"
+            >
+              {icon}
+            </span>
+
+            {/* Content column */}
+            <div className={styles.thinkingBody}>
+              <div className={styles.thinkingTop}>
+                <span className={styles.thinkingBadge}>{kindLabel}</span>
+                <span className={styles.thinkingMsg}>{displayMsg}</span>
+                {!isRunning && elapsedMs !== undefined && (
+                  <span className={styles.thinkingElapsed}>{fmtDuration(elapsedMs)}</span>
+                )}
+              </div>
+
+              {/* Supplementary metadata line */}
+              {(primaryDomain || classification || candidateCount !== undefined || expertCount !== undefined) && (
+                <p className={styles.thinkingMeta}>
+                  {primaryDomain && <span>domain: <strong>{primaryDomain}</strong></span>}
+                  {classification && <span> · {classification}</span>}
+                  {candidateCount !== undefined && <span> · {candidateCount} candidate{candidateCount !== 1 ? 's' : ''}</span>}
+                  {expertCount !== undefined && <span> · {expertCount} expert{expertCount !== 1 ? 's' : ''}</span>}
+                  {coveredDomains && coveredDomains.length > 0 && (
+                    <span> · covers: {coveredDomains.join(', ')}</span>
+                  )}
+                </p>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // CalibrationGate
-//
-// Shown on first mount. Fires POST /api/calibrate/start immediately, then
-// polls GET /api/calibrate/status/{job_id} every CALIBRATION_POLL_INTERVAL_MS.
-// Once status === "complete" it calls onReady() to unmount and show the app.
-//
-// If the expert system is already initialised (hot-reload / page refresh) the
-// /api/calibrate/ready check short-circuits the whole gate instantly.
 // ---------------------------------------------------------------------------
 
 type CalibrationStatus = 'checking' | 'pending' | 'running' | 'complete' | 'error';
 
 function CalibrationGate({ onReady }: { onReady: () => void }) {
-  const [status, setStatus]       = useState<CalibrationStatus>('checking');
-  const [progress, setProgress]   = useState(0);
+  const [status, setStatus]         = useState<CalibrationStatus>('checking');
+  const [progress, setProgress]     = useState(0);
   const [statusText, setStatusText] = useState('Checking expert system…');
-  const [errorMsg, setErrorMsg]   = useState<string | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [errorMsg, setErrorMsg]     = useState<string | null>(null);
+  const pollRef  = useRef<ReturnType<typeof setInterval> | null>(null);
   const jobIdRef = useRef<string | null>(null);
 
   const stopPolling = useCallback(() => {
@@ -298,10 +429,7 @@ function CalibrationGate({ onReady }: { onReady: () => void }) {
     pollRef.current = setInterval(async () => {
       try {
         const res = await axios.get<{
-          job_id: string;
-          status: string;
-          progress: number;
-          error: string | null;
+          job_id: string; status: string; progress: number; error: string | null;
         }>(`${API_BASE}/api/calibrate/status/${jobId}`, { timeout: 8000 });
         const data = res.data;
         setProgress(data.progress ?? 0);
@@ -310,7 +438,6 @@ function CalibrationGate({ onReady }: { onReady: () => void }) {
           setStatus('complete');
           setStatusText('Expert system ready ✓');
           setProgress(100);
-          // Brief pause so the user sees the completed state
           setTimeout(onReady, 600);
         } else if (data.status === 'error') {
           stopPolling();
@@ -324,7 +451,6 @@ function CalibrationGate({ onReady }: { onReady: () => void }) {
           setStatusText('Expert calibration queued…');
         }
       } catch {
-        // Transient network blip — keep polling silently
         setStatusText('Waiting for backend…');
       }
     }, CALIBRATION_POLL_INTERVAL_MS);
@@ -336,9 +462,7 @@ function CalibrationGate({ onReady }: { onReady: () => void }) {
     setErrorMsg(null);
     try {
       const res = await axios.post<{ job_id: string; status: string }>(
-        `${API_BASE}/api/calibrate/start`,
-        {},
-        { timeout: 10000 },
+        `${API_BASE}/api/calibrate/start`, {}, { timeout: 10000 },
       );
       const jobId = res.data.job_id;
       jobIdRef.current = jobId;
@@ -352,31 +476,20 @@ function CalibrationGate({ onReady }: { onReady: () => void }) {
     }
   }, [startPolling]);
 
-  // On mount: check if expert system is already ready; if so, skip calibration
   useEffect(() => {
     let cancelled = false;
     async function init() {
       try {
         const res = await axios.get<{ ready: boolean }>(
-          `${API_BASE}/api/calibrate/ready`,
-          { timeout: 5000 },
+          `${API_BASE}/api/calibrate/ready`, { timeout: 5000 },
         );
         if (cancelled) return;
-        if (res.data.ready) {
-          // Already initialised — skip straight to app
-          onReady();
-          return;
-        }
-      } catch {
-        // Endpoint not reachable yet or not implemented — proceed to full calibration
-      }
+        if (res.data.ready) { onReady(); return; }
+      } catch { /* proceed to full calibration */ }
       if (!cancelled) kickOffCalibration();
     }
     init();
-    return () => {
-      cancelled = true;
-      stopPolling();
-    };
+    return () => { cancelled = true; stopPolling(); };
   }, [kickOffCalibration, onReady, stopPolling]);
 
   const isComplete = status === 'complete';
@@ -385,7 +498,6 @@ function CalibrationGate({ onReady }: { onReady: () => void }) {
   return (
     <div className={styles.calibrationGate} role="status" aria-live="polite">
       <div className={styles.calibrationCard}>
-        {/* Logo */}
         <div className={styles.calibrationLogo} aria-hidden="true">
           <svg width="48" height="48" viewBox="0 0 28 28" fill="none">
             <circle cx="14" cy="14" r="3.5" fill="currentColor" opacity="0.9" />
@@ -403,11 +515,8 @@ function CalibrationGate({ onReady }: { onReady: () => void }) {
             <circle cx="14" cy="26" r="2" fill="currentColor" opacity="0.3" />
           </svg>
         </div>
-
         <h1 className={styles.calibrationTitle}>Mycelium</h1>
         <p className={styles.calibrationSubtitle}>Setting up expert system</p>
-
-        {/* Progress bar */}
         <div
           className={styles.calibrationBarTrack}
           role="progressbar"
@@ -424,30 +533,20 @@ function CalibrationGate({ onReady }: { onReady: () => void }) {
             style={{ width: `${progress}%` }}
           />
         </div>
-
-        {/* Status text */}
         <p className={`${styles.calibrationStatus} ${
           isComplete ? styles.calibrationStatusOk  :
           isError    ? styles.calibrationStatusErr : ''
         }`}>
           {statusText}
         </p>
-
-        {/* Error detail + retry */}
         {isError && errorMsg && (
           <div className={styles.calibrationError}>
             <p className={styles.calibrationErrorDetail}>{errorMsg}</p>
-            <button
-              className={styles.calibrationRetry}
-              onClick={kickOffCalibration}
-              aria-label="Retry calibration"
-            >
+            <button className={styles.calibrationRetry} onClick={kickOffCalibration} aria-label="Retry calibration">
               Retry
             </button>
           </div>
         )}
-
-        {/* Hint shown while running */}
         {!isComplete && !isError && status !== 'checking' && (
           <p className={styles.calibrationHint}>
             This only runs once on startup — K-Medoids clustering, OOD detection,
@@ -460,7 +559,7 @@ function CalibrationGate({ onReady }: { onReady: () => void }) {
 }
 
 // ---------------------------------------------------------------------------
-// HealthBanner — polls /api/v1/health, shows dismissible warning
+// HealthBanner
 // ---------------------------------------------------------------------------
 
 function HealthBanner({ onDismiss }: { onDismiss: () => void }) {
@@ -470,11 +569,7 @@ function HealthBanner({ onDismiss }: { onDismiss: () => void }) {
       <span className={styles.healthBannerText}>
         Cannot reach backend at <code>{API_BASE}</code>. Is the FastAPI server running?
       </span>
-      <button
-        className={styles.healthBannerDismiss}
-        onClick={onDismiss}
-        aria-label="Dismiss backend warning"
-      >
+      <button className={styles.healthBannerDismiss} onClick={onDismiss} aria-label="Dismiss backend warning">
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
           <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
         </svg>
@@ -484,7 +579,7 @@ function HealthBanner({ onDismiss }: { onDismiss: () => void }) {
 }
 
 // ---------------------------------------------------------------------------
-// ErrorBubble — styled error message with optional Retry button
+// ErrorBubble
 // ---------------------------------------------------------------------------
 
 function ErrorBubble({ detail, onRetry }: { detail: string; onRetry?: () => void }) {
@@ -500,9 +595,7 @@ function ErrorBubble({ detail, onRetry }: { detail: string; onRetry?: () => void
       <div className={styles.errorBubbleBody}>
         <p className={styles.errorBubbleDetail}>{detail}</p>
         {onRetry && (
-          <button className={styles.errorBubbleRetry} onClick={onRetry}>
-            Retry
-          </button>
+          <button className={styles.errorBubbleRetry} onClick={onRetry}>Retry</button>
         )}
       </div>
     </div>
@@ -510,7 +603,7 @@ function ErrorBubble({ detail, onRetry }: { detail: string; onRetry?: () => void
 }
 
 // ---------------------------------------------------------------------------
-// ChatEmptyState — shown when no messages yet
+// ChatEmptyState
 // ---------------------------------------------------------------------------
 
 function ChatEmptyState({ onSuggestion }: { onSuggestion: (s: string) => void }) {
@@ -537,9 +630,7 @@ function ChatEmptyState({ onSuggestion }: { onSuggestion: (s: string) => void })
       <p className={styles.chatEmptyHint}>The reasoning pipeline routes your query through Layer 0, expert selection, evidence grounding, and synthesis.</p>
       <div className={styles.chatEmptySuggestions}>
         {PROMPT_SUGGESTIONS.map((s) => (
-          <button key={s} className={styles.chatEmptySuggestion} onClick={() => onSuggestion(s)}>
-            {s}
-          </button>
+          <button key={s} className={styles.chatEmptySuggestion} onClick={() => onSuggestion(s)}>{s}</button>
         ))}
       </div>
     </div>
@@ -551,9 +642,9 @@ function ChatEmptyState({ onSuggestion }: { onSuggestion: (s: string) => void })
 // ---------------------------------------------------------------------------
 
 function PhaseIndicator({ phase, detail, elapsedMs }: { phase: string; detail: string; elapsedMs: number }) {
-  const label = phaseLabel(phase);
+  const label    = phaseLabel(phase);
   const progress = phaseProgress(phase);
-  const secs = (elapsedMs / 1000).toFixed(1);
+  const secs     = (elapsedMs / 1000).toFixed(1);
   return (
     <div className={styles.phaseIndicator} aria-live="polite" aria-atomic="true" aria-label={`Pipeline phase: ${label}`}>
       <div className={styles.phaseHeader}>
@@ -805,7 +896,7 @@ function HomeScreen({
   onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   loading: boolean;
 }) {
-  const typed = useTypewriter(TYPEWRITER_TEXTS);
+  const typed   = useTypewriter(TYPEWRITER_TEXTS);
   const atLimit = input.length >= MAX_INPUT_CHARS;
 
   return (
@@ -871,20 +962,22 @@ function HomeScreen({
 // ---------------------------------------------------------------------------
 
 export default function Home() {
-  // Track whether expert calibration has completed before showing the app
   const [calibrationDone, setCalibrationDone] = useState(false);
-
-  const [hasStarted, setHasStarted]     = useState(false);
-  const [messages, setMessages]         = useState<Message[]>([]);
-  const [input, setInput]               = useState('');
-  const [loading, setLoading]           = useState(false);
-  const [activeSandbox, setActiveSandbox] = useState<SandboxResult | null>(null);
+  const [hasStarted, setHasStarted]           = useState(false);
+  const [messages, setMessages]               = useState<Message[]>([]);
+  const [input, setInput]                     = useState('');
+  const [loading, setLoading]                 = useState(false);
+  const [activeSandbox, setActiveSandbox]     = useState<SandboxResult | null>(null);
 
   const [liveToolEvents, setLiveToolEvents] = useState<LiveToolEvent[]>([]);
   const [livePlanDetail, setLivePlanDetail] = useState<string>('');
 
-  const [history, setHistory]               = useState<HistoryTrace[]>([]);
-  const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
+  // ThinkingPanel state (Stage 6)
+  const [thinkingEvents, setThinkingEvents]   = useState<ThinkingEvent[]>([]);
+  const thinkingCounterRef                    = useRef<number>(0);
+
+  const [history, setHistory]                       = useState<HistoryTrace[]>([]);
+  const [activeHistoryId, setActiveHistoryId]       = useState<string | null>(null);
   const [historySidebarOpen, setHistorySidebarOpen] = useState(true);
   const [mobileSidebarOpen, setMobileSidebarOpen]   = useState(false);
 
@@ -892,21 +985,19 @@ export default function Home() {
   const [currentDetail, setCurrentDetail] = useState<string>('');
   const [elapsedMs, setElapsedMs]         = useState<number>(0);
 
-  // Health check
-  const [backendDown, setBackendDown]         = useState(false);
+  const [backendDown, setBackendDown]                 = useState(false);
   const [healthBannerDismissed, setHealthBannerDismissed] = useState(false);
 
-  const bottomRef       = useRef<HTMLDivElement>(null);
-  const esRef           = useRef<EventSource | null>(null);
-  const tickRef         = useRef<ReturnType<typeof setInterval> | null>(null);
-  const startTimeRef    = useRef<number>(0);
-  const lastEventAtRef  = useRef<number>(0);
-  const sseTimeoutRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const sseRetryCount   = useRef<number>(0);
-  // stored so error bubble Retry can re-invoke
+  const bottomRef      = useRef<HTMLDivElement>(null);
+  const esRef          = useRef<EventSource | null>(null);
+  const tickRef        = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startTimeRef   = useRef<number>(0);
+  const lastEventAtRef = useRef<number>(0);
+  const sseTimeoutRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sseRetryCount  = useRef<number>(0);
   const pendingRetryText = useRef<string>('');
 
-  // ── Health check on mount ──────────────────────────────────────────────────
+  // ── Health check ───────────────────────────────────────────────────────────
   useEffect(() => {
     async function checkHealth() {
       try {
@@ -969,6 +1060,7 @@ export default function Home() {
     if (sandbox) setActiveSandbox(sandbox);
     setLiveToolEvents([]);
     setLivePlanDetail('');
+    setThinkingEvents([]);          // clear thinking feed on completion
     setLoading(false);
     stopElapsedTick();
     clearSseTimeout();
@@ -980,6 +1072,7 @@ export default function Home() {
     setMessages((prev) => [...prev, { role: 'error', content: detail, retryQuery }]);
     setLiveToolEvents([]);
     setLivePlanDetail('');
+    setThinkingEvents([]);          // clear thinking feed on error
     setLoading(false);
     stopElapsedTick();
     clearSseTimeout();
@@ -1013,6 +1106,76 @@ export default function Home() {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // handleThinkingEvent — routes structured PipelineEvents into ThinkingPanel
+  //
+  // Called when an SSE frame carries a phase_name that belongs to the
+  // THINKING_PHASES set. The function either appends a new ThinkingEvent or
+  // updates an existing one in-place (matched by kind + substep) so that a
+  // running → done transition animates smoothly rather than producing a
+  // duplicate row. Heartbeat events are always appended (never deduplicated)
+  // because they represent distinct continuity pings.
+  // ---------------------------------------------------------------------------
+
+  function handleThinkingEvent(event: SseEvent) {
+    const kind = (event.phase_name ?? event.phase) as ThinkingEventKind;
+    const state = event.state ?? (event.phase === 'done' ? 'done' : 'running');
+    const message = event.message ?? event.detail ?? '';
+    const detail  = event.detail ?? '';
+    const metadata = event.metadata ?? {};
+
+    if (kind === 'heartbeat') {
+      // Always append heartbeats — they are distinct continuity pings
+      thinkingCounterRef.current += 1;
+      const newEv: ThinkingEvent = {
+        id: thinkingCounterRef.current,
+        kind,
+        state,
+        message,
+        detail,
+        metadata,
+        ts: Date.now(),
+      };
+      setThinkingEvents((prev) => [...prev, newEv]);
+      return;
+    }
+
+    // For all other kinds: upsert by (kind, substep) so running → done
+    // transitions update the existing row instead of duplicating it.
+    const substep = event.substep ?? '';
+    setThinkingEvents((prev) => {
+      const existingIdx = prev.findIndex(
+        (e) => e.kind === kind && (e.metadata?.substep ?? '') === substep
+      );
+      if (existingIdx !== -1) {
+        // Update existing row in-place
+        const updated = [...prev];
+        updated[existingIdx] = {
+          ...updated[existingIdx],
+          state,
+          message,
+          detail,
+          metadata: { ...metadata, substep },
+        };
+        return updated;
+      }
+      // New event — append
+      thinkingCounterRef.current += 1;
+      return [
+        ...prev,
+        {
+          id: thinkingCounterRef.current,
+          kind,
+          state,
+          message,
+          detail,
+          metadata: { ...metadata, substep },
+          ts: Date.now(),
+        },
+      ];
+    });
+  }
+
   function openSseStream(text: string) {
     const sseUrl = `${API_BASE}/api/v1/chat/stream?text=${encodeURIComponent(text)}`;
     const es = new EventSource(sseUrl);
@@ -1027,13 +1190,21 @@ export default function Home() {
 
     es.onmessage = (ev) => {
       lastEventAtRef.current = Date.now();
-      sseRetryCount.current = 0; // reset retry counter on first event
+      sseRetryCount.current = 0;
       try {
         const event: SseEvent = JSON.parse(ev.data);
         setCurrentPhase(event.phase);
         setCurrentDetail(event.detail);
         setElapsedMs(event.elapsed_ms);
+
+        // Route to ThinkingPanel if this is a structured pipeline event
+        const phaseName = event.phase_name ?? event.phase;
+        if (THINKING_PHASES.has(phaseName) && event.visibility !== 'internal') {
+          handleThinkingEvent(event);
+        }
+
         if (isSandboxPhase(event.phase)) handleSandboxEvent(event.phase, event.detail, event.elapsed_ms);
+
         if (event.phase === 'done' && event.payload) {
           gotDone = true; es.close(); esRef.current = null; finishWithResponse(event.payload);
         } else if (event.phase === 'error') {
@@ -1047,12 +1218,8 @@ export default function Home() {
       if (gotDone) return;
       const silentForMs = Date.now() - lastEventAtRef.current;
       const neverReceived = lastEventAtRef.current === 0;
-
-      // If we got events before but connection dropped briefly, ignore transient errors
       if (!neverReceived && silentForMs < 20_000) return;
-
       es.close(); esRef.current = null;
-
       if (sseRetryCount.current < SSE_RETRY_ATTEMPTS) {
         sseRetryCount.current += 1;
         setCurrentDetail(`SSE disconnected — retrying (${sseRetryCount.current}/${SSE_RETRY_ATTEMPTS})…`);
@@ -1066,17 +1233,15 @@ export default function Home() {
   }
 
   async function handleSend(overrideText?: string) {
-    // Bug fix: coerce overrideText to string before calling .trim() to guard
-    // against non-string values (e.g. stale closures, event objects).
     const text = (typeof overrideText === 'string' ? overrideText : input).trim();
     if (!text || loading) return;
-
     if (!hasStarted) setHasStarted(true);
     setMessages((prev) => [...prev, { role: 'user', content: text }]);
     if (!overrideText) setInput('');
     setLoading(true);
     setLiveToolEvents([]);
     setLivePlanDetail('');
+    setThinkingEvents([]);          // reset thinking feed for new query
     setActiveSandbox(null);
     setCurrentPhase('routing');
     setCurrentDetail('Connecting to Mycelium…');
@@ -1084,7 +1249,6 @@ export default function Home() {
     lastEventAtRef.current = 0;
     sseRetryCount.current = 0;
     pendingRetryText.current = text;
-
     openSseStream(text);
   }
 
@@ -1155,12 +1319,10 @@ export default function Home() {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
 
-      {/* Health banner */}
       {backendDown && !healthBannerDismissed && (
         <HealthBanner onDismiss={() => setHealthBannerDismissed(true)} />
       )}
 
-      {/* Mobile sidebar overlay backdrop */}
       {mobileSidebarOpen && (
         <div
           className={styles.mobileSidebarBackdrop}
@@ -1169,10 +1331,8 @@ export default function Home() {
         />
       )}
 
-      {/* Header */}
       <header className={styles.header}>
         <div className={styles.headerLeft}>
-          {/* Desktop: toggle history inline; Mobile: opens overlay sheet */}
           <button
             className={styles.sidebarToggle}
             onClick={() => {
@@ -1215,10 +1375,7 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Body */}
       <div className={styles.body}>
-
-        {/* History sidebar — desktop: inline; mobile: overlay sheet */}
         {(historySidebarOpen || mobileSidebarOpen) && (
           <aside
             className={`${styles.historySidebar} ${mobileSidebarOpen ? styles.historySidebarMobile : ''}`}
@@ -1248,7 +1405,6 @@ export default function Home() {
 
         <main className={styles.chatPane} id="main-content">
           <div className={styles.chatWindow} role="log" aria-live="polite" aria-label="Conversation">
-            {/* Empty state — only when no messages and not loading */}
             {messages.length === 0 && !loading && (
               <ChatEmptyState onSuggestion={(s) => { setInput(s); handleSend(s); }} />
             )}
@@ -1309,6 +1465,8 @@ export default function Home() {
             {loading && (
               <div className={styles.assistantBubbleWrap}>
                 <div className={styles.assistantBubble}>
+                  {/* ThinkingPanel sits above PhaseIndicator when events exist */}
+                  <ThinkingPanel events={thinkingEvents} />
                   <PhaseIndicator phase={currentPhase} detail={currentDetail} elapsedMs={elapsedMs} />
                 </div>
               </div>
