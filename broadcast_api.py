@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any, Dict, Generator, List, Optional
 
 import requests as _requests
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -30,11 +30,12 @@ from conversation_agent import get_conversation_agent
 from patch_batch_logger import patch_logger
 from sandbox_manager import get_sandbox_manager
 from sandbox_models import build_sandbox_task_from_run
+from pipeline_event import PipelineEvent, ReplayJournal
 import config_loader as cfg
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Mycelium Broadcast API", version="0.5.4")
+app = FastAPI(title="Mycelium Broadcast API", version="0.6.0")
 
 origins = [
     "http://localhost:3000",
@@ -124,15 +125,26 @@ class ChatResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# SSE helper
+# SSE helpers
 # ---------------------------------------------------------------------------
 
 def _sse_event(phase: str, detail: str = "", elapsed_ms: int = 0, payload: Any = None) -> str:
-    """Serialise one SSE data line."""
+    """Serialise one SSE data line (legacy shape — kept for sandbox progress callbacks)."""
     obj: Dict[str, Any] = {"phase": phase, "detail": detail, "elapsed_ms": elapsed_ms}
     if payload is not None:
         obj["payload"] = payload
     return f"data: {json.dumps(obj)}\n\n"
+
+
+def _pipeline_event_to_sse(ev_dict: Dict[str, Any]) -> str:
+    """Serialise a PipelineEvent dict to an SSE data line.
+
+    Uses ``id: <sequence_number>`` so the browser EventSource can send
+    ``Last-Event-ID`` on reconnect for replay recovery.
+    """
+    seq = ev_dict.get("sequence_number", 0)
+    data = json.dumps(ev_dict)
+    return f"id: {seq}\ndata: {data}\n\n"
 
 
 # ---------------------------------------------------------------------------
@@ -142,9 +154,21 @@ def _sse_event(phase: str, detail: str = "", elapsed_ms: int = 0, payload: Any =
 def _build_run_summary(
     req_text: str,
     trace_id: str,
+    on_event: Optional[Any] = None,
 ) -> MyceliumRunSummary:
-    """Run the Mycelium workflow and assemble a typed MyceliumRunSummary."""
-    all_data, metrics = run_mycelium_workflow([req_text], trace_id=trace_id)
+    """Run the Mycelium workflow and assemble a typed MyceliumRunSummary.
+
+    Args:
+        req_text:  The raw user query.
+        trace_id:  Caller-supplied trace UUID.
+        on_event:  Optional structured-event callback forwarded directly to
+                   ``run_mycelium_workflow``.  When provided, ``PipelineEvent``
+                   dicts are delivered to this callback after coalescing and
+                   visibility filtering.
+    """
+    all_data, metrics = run_mycelium_workflow(
+        [req_text], trace_id=trace_id, on_event=on_event
+    )
     record = all_data[0]
 
     layer0_raw: Dict[str, Any] = record.get("layer0_routing", {}) or {}
@@ -254,40 +278,61 @@ def _full_pipeline_generator(
     trace_id: str,
     sse_queue: Optional[Any] = None,
     loop: Optional[Any] = None,
+    replay_journal: Optional[ReplayJournal] = None,
 ) -> Generator[str, None, None]:
     """
     Run the full chat pipeline and yield SSE events at each phase boundary.
 
-    When sse_queue + loop are provided (SSE path), sandbox progress events
-    are posted directly into the queue via call_soon_threadsafe so the
-    frontend sees each tool call as it starts/finishes rather than waiting
-    for the whole sandbox block to complete.
+    PipelineEvent forwarding
+    ------------------------
+    run_mycelium_workflow now accepts an ``on_event`` callback.  Every
+    PipelineEvent (after coalescing + visibility filtering) is serialised
+    via ``_pipeline_event_to_sse`` and injected into the SSE stream.
+    The ``id: <sequence_number>`` SSE field is set on each event so the
+    browser ``EventSource`` can send ``Last-Event-ID`` on reconnect.
+
+    The legacy ``_sse_event`` format is kept for sandbox progress callbacks
+    only (those still use the old (phase, detail) callback signature).
+
+    Replay journal
+    --------------
+    When ``replay_journal`` is provided (SSE path), every PipelineEvent
+    dict is recorded there.  On reconnect ``/api/v1/chat/stream`` reads
+    ``Last-Event-ID`` from the request headers and replays missed events
+    from the journal before resuming live streaming.
 
     Phase sequence
     --------------
-    setting_up       — warmup still in progress when request arrives
-    environment_ready — warmup finished (only emitted if setting_up was sent)
-    routing          — multi-lens router + Phase 1/2 running
-    expert_decision  — unified decision analysis + expert selection done
-    sandbox_plan     — DomainToolPlanner produced tool plan
-    sandbox_tool/<n> — each MCP tool call started
-    sandbox_tool/<n>_ok / _err — each MCP tool call completed
-    sandbox_summary  — all tool calls done
-    conversation     — ConversationAgent generating user-facing answer
-    done             — complete ChatResponse payload attached
+    The following phases are emitted by the EventEmitter inside
+    run_mycelium_workflow (via pipeline_event.py):
+
+      setting_up        — warmup / model loading
+      environment_ready — warmup complete
+      graph_expert_init — expert system initialised
+      graph_spectral_sync — spectral signatures synced
+      graph_router_ready — routing layer ready
+      graph_layer0      — Layer 0 classification per sentence
+      routing           — tag extraction
+      graph_routing     — routing complete
+      graph_phase2      — Phase 2 reasoning pipeline
+      heartbeat         — semantic continuity signal
+      graph_unified_decision — unified expert decision
+      expert_decision   — decision reached
+      graph_phase3      — Phase 3 validation pipeline
+      graph_clustering  — post-processing / tag clustering
+
+    The following legacy phases are still emitted directly in this function:
+
+      sandbox_plan / sandbox_tool/<n> / sandbox_summary — sandbox progress
+      conversation — ConversationAgent generating answer
+      done         — complete ChatResponse payload
+      error        — fatal error
 
     Heartbeat
     ---------
-    _build_run_summary typically takes 60-150 s (Qwen3.5 cold-start included).
-    During this window no SSE data is emitted and nginx / OS TCP / browser
-    EventSource will close the connection after ~45-60 s of silence,
-    triggering an onerror + pipeline restart on the frontend.
-
-    To prevent this the function runs _build_run_summary in a sub-thread and
-    emits a raw SSE comment line (': heartbeat\n\n') every 15 s while the
-    future is pending.  Comment lines begin with ':' and are defined by the
-    SSE spec to be silently ignored by clients — they carry no data but
-    keep TCP keepalive and browser EventSource connections alive.
+    _build_run_summary typically takes 60-150 s (Qwen3.5 cold-start
+    included).  During this window raw SSE comment lines ('': heartbeat'')
+    are emitted every 15 s to prevent nginx / EventSource timeout.
     """
     import concurrent.futures as _cf
 
@@ -296,7 +341,7 @@ def _full_pipeline_generator(
     def elapsed() -> int:
         return int((time.monotonic() - wall_start) * 1000)
 
-    # ── Phase: setting_up (if warmup is still running) ───────────────────────────────────────────────
+    # ── Phase: setting_up (if warmup is still running) ─────────────────────
     sent_setting_up = False
     if not _warmup_done.is_set():
         sent_setting_up = True
@@ -312,31 +357,72 @@ def _full_pipeline_generator(
         yield _sse_event("environment_ready", "Environment ready — starting pipeline", elapsed())
         logger.info("[SSE %s] phase=environment_ready elapsed=%dms", trace_id, elapsed())
 
-    # ── Phase: routing + pipeline ──────────────────────────────────────────────────────────────
-    yield _sse_event("routing", "Running multi-lens router and reasoning pipeline…", elapsed())
-    logger.info("[SSE %s] phase=routing", trace_id)
+    # ── PipelineEvent forwarding callback ──────────────────────────────────
+    # This callback is called by the EventEmitter inside run_mycelium_workflow
+    # (after coalescing + visibility filtering).  It forwards each
+    # PipelineEvent dict directly into the SSE queue.
+    def on_pipeline_event(ev_dict: Dict[str, Any]) -> None:
+        sse_line = _pipeline_event_to_sse(ev_dict)
+        if replay_journal is not None:
+            # Record into journal for reconnect replay.
+            # We reconstruct a lightweight PipelineEvent shell for the journal.
+            from pipeline_event import PipelineEvent as _PE
+            _shell = _PE(
+                event_id=ev_dict.get("event_id", ""),
+                request_id=ev_dict.get("request_id", ""),
+                sequence_number=ev_dict.get("sequence_number", 0),
+                timestamp=ev_dict.get("timestamp", 0.0),
+                phase_id=ev_dict.get("phase_id", 0),
+                phase_name=ev_dict.get("phase_name", ""),
+                substep=ev_dict.get("substep", ""),
+                state=ev_dict.get("state", "running"),
+                visibility=ev_dict.get("visibility", "public"),
+                message=ev_dict.get("message", ""),
+                detail=ev_dict.get("detail", ""),
+                elapsed_ms=ev_dict.get("elapsed_ms", 0.0),
+                metadata=ev_dict.get("metadata", {}),
+            )
+            replay_journal.record(_shell)
+        logger.debug(
+            "[SSE %s] pipeline_event phase=%s seq=%d",
+            trace_id, ev_dict.get("phase_name"), ev_dict.get("sequence_number"),
+        )
+        if sse_queue is not None and loop is not None:
+            try:
+                loop.call_soon_threadsafe(sse_queue.put_nowait, sse_line)
+            except RuntimeError:
+                pass  # loop closed — drop event, never abort pipeline
+        # Not yielded here — the queue-based path handles delivery.
+        # For the non-SSE (buffer) path we buffer below in _pipeline_event_buf.
+        else:
+            _pipeline_event_buf.append(sse_line)
 
-    # Run the heavy blocking pipeline in a sub-thread so we can emit
-    # heartbeat SSE comment lines while it is executing.  This prevents
-    # nginx / OS TCP / browser EventSource from closing the connection
-    # during the typically 60-150 s silent window.
+    _pipeline_event_buf: List[str] = []
+
+    # ── Phase: routing + pipeline ───────────────────────────────────────────
+    logger.info("[SSE %s] phase=routing — submitting workflow to thread", trace_id)
+
     try:
         with _cf.ThreadPoolExecutor(max_workers=1) as _exec:
-            _future = _exec.submit(_build_run_summary, req_text, trace_id)
+            _future = _exec.submit(
+                _build_run_summary, req_text, trace_id, on_pipeline_event
+            )
             while not _future.done():
                 time.sleep(15)
                 if _future.done():
                     break
-                # SSE comment lines (start with ':') are invisible to the
-                # frontend onmessage handler but keep the TCP connection and
-                # browser EventSource alive.
                 yield ": heartbeat\n\n"
                 logger.debug("[SSE %s] heartbeat elapsed=%dms", trace_id, elapsed())
-            summary = _future.result()  # re-raises any exception from the thread
+            summary = _future.result()
     except Exception as exc:
         logger.error("[SSE %s] pipeline failed — %s", trace_id, exc)
         yield _sse_event("error", f"Pipeline error: {exc}", elapsed())
         return
+
+    # Flush any pipeline events buffered in the non-queue path
+    for ev_line in _pipeline_event_buf:
+        yield ev_line
+    _pipeline_event_buf.clear()
 
     decision_type = (
         summary.expert_decision.decision_type
@@ -346,11 +432,6 @@ def _full_pipeline_generator(
     logger.info(
         "[SSE %s] phase=expert_decision type=%s domains=%s elapsed=%dms",
         trace_id, decision_type, domains, elapsed(),
-    )
-    yield _sse_event(
-        "expert_decision",
-        f"{decision_type or 'unknown'} · domains: {', '.join(domains) or 'none'}",
-        elapsed(),
     )
 
     is_patch_query = decision_type == "CREATE_NEW_PATCH"
@@ -370,28 +451,22 @@ def _full_pipeline_generator(
         except Exception as exc:
             logger.warning("patch_logger.log_query failed — %s", exc)
 
-    # ── Phase: sandbox — live forwarding ───────────────────────────────────────────────
-    # If we have direct access to the SSE queue + event loop, post sandbox
-    # progress events there immediately (bypassing the generator yield cycle)
-    # so the frontend sees each tool call as it starts, not all at once.
-    sandbox_buffer: List[str] = []  # fallback for non-SSE path
+    # ── Phase: sandbox — live forwarding ────────────────────────────────────
+    sandbox_buffer: List[str] = []
 
     def on_sandbox_progress(phase: str, detail: str) -> None:
         ev = _sse_event(phase, detail, elapsed())
         logger.info("[SSE %s] phase=%s detail=%r elapsed=%dms", trace_id, phase, detail, elapsed())
         if sse_queue is not None and loop is not None:
-            # Live path: post directly into the async queue
             try:
                 loop.call_soon_threadsafe(sse_queue.put_nowait, ev)
             except RuntimeError:
                 sandbox_buffer.append(ev)
         else:
-            # Fallback (non-SSE path): buffer for later yield
             sandbox_buffer.append(ev)
 
     sandbox_result = _run_sandbox(summary, req_text, on_progress=on_sandbox_progress)
 
-    # Flush any buffered sandbox events (non-SSE path or queue-not-available)
     for ev in sandbox_buffer:
         yield ev
     sandbox_buffer.clear()
@@ -406,7 +481,7 @@ def _full_pipeline_generator(
         trace_id, len(sandbox_result.steps), elapsed(),
     )
 
-    # ── Phase: conversation ──────────────────────────────────────────────────────────────────
+    # ── Phase: conversation ─────────────────────────────────────────────────
     yield _sse_event("conversation", "Generating answer…", elapsed())
     logger.info("[SSE %s] phase=conversation elapsed=%dms", trace_id, elapsed())
 
@@ -419,7 +494,7 @@ def _full_pipeline_generator(
 
     logger.info("[SSE %s] phase=conversation done elapsed=%dms", trace_id, elapsed())
 
-    # ── Persist trace ───────────────────────────────────────────────────────────────────
+    # ── Persist trace ───────────────────────────────────────────────────────
     sandbox_dict = _to_jsonable(sandbox_result.model_dump())
     trace = ReasoningTrace(
         trace_id=trace_id,
@@ -436,7 +511,7 @@ def _full_pipeline_generator(
         except Exception as exc:
             logger.warning("patch_logger.fill_response failed — %s", exc)
 
-    # ── Phase: done ─────────────────────────────────────────────────────────────────────
+    # ── Phase: done ─────────────────────────────────────────────────────────
     sandbox_out = _sandbox_result_to_out(sandbox_result)
     response_payload = ChatResponse(
         trace=summary, answer=answer, sandbox=sandbox_out
@@ -472,40 +547,24 @@ async def health() -> Dict[str, Any]:
 
 @app.get("/api/v1/health")
 async def health_v1() -> Dict[str, Any]:
-    """Versioned health check alias — delegates to /health.
-
-    The frontend polls /api/v1/health on a 30 s interval to decide
-    whether to show the backend-down banner.  This route ensures that
-    poll never returns 404.
-    """
+    """Versioned health check alias — delegates to /health."""
     return await health()
 
 
 @app.post("/api/v1/query", response_model=MyceliumRunSummary)
 async def query(req: QueryRequest) -> MyceliumRunSummary:
-    """Run a single-sentence Mycelium workflow and return a typed summary.
-
-    M5 §8.1 — Both _build_run_summary (blocking Ollama inference + BERT
-    expert models) and _run_sandbox (blocking MCP tool calls) are offloaded
-    to the default thread-pool executor via loop.run_in_executor() so the
-    asyncio event loop is never blocked.  This allows FastAPI/Uvicorn to
-    continue serving health checks and concurrent SSE streams while the
-    pipeline is running (previously the single-threaded event loop was
-    frozen for the full ~60-150 s pipeline duration).
-    """
+    """Run a single-sentence Mycelium workflow and return a typed summary."""
     import asyncio
     from concurrent.futures import ThreadPoolExecutor
 
     loop = asyncio.get_running_loop()
     trace_id = str(uuid4())
 
-    # Offload the heavy pipeline to a dedicated worker thread
     with ThreadPoolExecutor(max_workers=1) as pool:
         summary = await loop.run_in_executor(
-            pool, _build_run_summary, req.text, trace_id
+            pool, _build_run_summary, req.text, trace_id, None
         )
 
-    # Sandbox is also blocking (HTTP calls to MCP servers); offload too
     sandbox_result = await loop.run_in_executor(
         None, _run_sandbox, summary, req.text
     )
@@ -563,39 +622,42 @@ async def get_trace(trace_id: str) -> ReasoningTrace:
     raise HTTPException(status_code=404, detail="Trace not found")
 
 
+# ---------------------------------------------------------------------------
+# Per-request replay journals (kept in memory, bounded by active connections)
+# ---------------------------------------------------------------------------
+
+# trace_id → ReplayJournal; cleaned up when the SSE generator exits.
+_replay_journals: Dict[str, ReplayJournal] = {}
+_replay_journals_lock = threading.Lock()
+
+
 @app.get("/api/v1/chat/stream")
-async def chat_stream(text: str) -> StreamingResponse:
+async def chat_stream(text: str, request: Request) -> StreamingResponse:
     """
     SSE endpoint — streams one JSON event per pipeline phase.
 
-    Event shape: { phase, detail, elapsed_ms, payload? }
+    PipelineEvent fields
+    --------------------
+    Each event is a full PipelineEvent dict with:
+      event_id, request_id, sequence_number, timestamp,
+      phase_id, phase_name, substep, state, visibility,
+      message, detail, elapsed_ms, metadata
 
-    Phases emitted (in order):
-      setting_up       — warmup still in progress (first cold start only)
-      environment_ready — warmup just finished
-      routing          — pipeline starting
-      expert_decision  — decision_type + domains resolved
-      sandbox_plan     — tool plan produced
-      sandbox_tool/<n> — each MCP call started    ← forwarded live
-      sandbox_tool/<n>_ok / _err — call result    ← forwarded live
-      sandbox_summary  — all tools done
-      conversation     — generating answer
-      done             — complete ChatResponse in `payload`
-      error            — fatal error in `detail`
+    The SSE ``id:`` field is set to ``sequence_number`` so the browser
+    ``EventSource`` sends ``Last-Event-ID`` on reconnect and missed events
+    are replayed from the per-request ReplayJournal.
 
-    SSE bridge design
-    -----------------
-    _full_pipeline_generator is synchronous (calls blocking Ollama/BERT/MCP
-    code).  It runs inside a ThreadPoolExecutor so it never blocks the loop.
+    Replay on reconnect
+    -------------------
+    If the request includes a ``Last-Event-ID`` header (or query param),
+    all journal events with sequence_number > last_seen are replayed
+    immediately before the live stream resumes.
 
-    Sandbox progress events are posted directly from the producer thread
-    into the asyncio queue via call_soon_threadsafe — not buffered — so
-    the frontend sees each tool call as it happens, not all at once after
-    the sandbox block finishes.
-
-    Uses asyncio.get_running_loop() — NOT get_event_loop() — to get the loop
-    actually executing this coroutine, preventing stale-loop sentinel loss
-    on long pipelines (>60 s).
+    Cancellation isolation
+    ----------------------
+    Client disconnect sets ``_cancel`` which only stops SSE streaming.
+    It does NOT cancel the reasoning pipeline, graph persistence,
+    stabilisation, or ontology updates running in the producer thread.
     """
     if not text or not text.strip():
         async def _empty():
@@ -604,6 +666,20 @@ async def chat_stream(text: str) -> StreamingResponse:
 
     trace_id = str(uuid4())
     logger.info("[SSE] new stream trace_id=%s query=%r", trace_id, text[:80])
+
+    # ── Replay-journal setup ────────────────────────────────────────────────
+    journal = ReplayJournal(maxlen=200)
+    with _replay_journals_lock:
+        _replay_journals[trace_id] = journal
+
+    # Last-Event-ID from the browser EventSource on reconnect
+    last_event_id_header = request.headers.get("Last-Event-ID", "")
+    last_seen_seq: int = 0
+    if last_event_id_header:
+        try:
+            last_seen_seq = int(last_event_id_header)
+        except (ValueError, TypeError):
+            last_seen_seq = 0
 
     import asyncio
     from concurrent.futures import ThreadPoolExecutor
@@ -619,26 +695,45 @@ async def chat_stream(text: str) -> StreamingResponse:
             for chunk in _full_pipeline_generator(
                 text.strip(), trace_id,
                 sse_queue=queue, loop=loop,
+                replay_journal=journal,
             ):
                 if cancel.is_set():
-                    logger.info("[SSE %s] producer cancelled by client disconnect", trace_id)
-                    break
+                    logger.info("[SSE %s] producer SSE cancelled — pipeline continues", trace_id)
+                    # Do NOT break here — pipeline must complete regardless of
+                    # client disconnect (cancellation isolation, spec §5).
+                    # Only stop forwarding SSE chunks to the queue.
+                    continue
                 try:
                     loop.call_soon_threadsafe(queue.put_nowait, chunk)
                 except RuntimeError:
-                    logger.warning("[SSE %s] call_soon_threadsafe: loop closed, aborting producer", trace_id)
+                    logger.warning(
+                        "[SSE %s] call_soon_threadsafe: loop closed", trace_id
+                    )
                     return
         finally:
             try:
                 loop.call_soon_threadsafe(queue.put_nowait, _sentinel)
             except RuntimeError:
                 pass
+            with _replay_journals_lock:
+                _replay_journals.pop(trace_id, None)
 
     executor = ThreadPoolExecutor(max_workers=1)
     executor.submit(_producer, _cancel)
     executor.shutdown(wait=False)
 
     async def _async_gen():
+        # ── Replay missed events on reconnect ───────────────────────────────
+        if last_seen_seq > 0:
+            replayed = journal.replay_from(last_seen_seq)
+            logger.info(
+                "[SSE %s] reconnect: replaying %d missed event(s) after seq=%d",
+                trace_id, len(replayed), last_seen_seq,
+            )
+            for ev in replayed:
+                yield _pipeline_event_to_sse(ev.to_sse_dict())
+
+        # ── Live stream ─────────────────────────────────────────────────────
         try:
             while True:
                 item = await queue.get()
@@ -646,8 +741,13 @@ async def chat_stream(text: str) -> StreamingResponse:
                     break
                 yield item
         except GeneratorExit:
+            # Client disconnected — cancel SSE forwarding only.
+            # The producer thread continues running the pipeline.
             _cancel.set()
-            logger.info("[SSE %s] client disconnected, cancel signal sent", trace_id)
+            logger.info(
+                "[SSE %s] client disconnected — SSE cancelled, pipeline continues",
+                trace_id,
+            )
 
     return StreamingResponse(
         _async_gen(),
@@ -665,29 +765,19 @@ async def chat(req: ChatRequest) -> ChatResponse:
 
     Identical to the SSE stream but returned as a single JSON response.
     Useful as fallback when EventSource is unavailable.
-
-    Both the warmup wait and _build_run_summary are offloaded to a thread
-    pool via run_in_executor so the event loop is never blocked.  Without
-    this, Uvicorn (single-threaded) would be completely frozen for the
-    ~120 s pipeline duration, making health checks and any concurrent
-    request unresponsive.
     """
     import asyncio
     from concurrent.futures import ThreadPoolExecutor
 
     loop = asyncio.get_running_loop()
 
-    # Non-blocking wait for warmup — yields control to the event loop
-    # while the warmup thread is still running.
     await loop.run_in_executor(None, _warmup_done.wait)
 
     trace_id = str(uuid4())
 
-    # Run the blocking pipeline in a dedicated thread so the event loop
-    # remains free for health checks, SSE streams, etc.
     with ThreadPoolExecutor(max_workers=1) as pool:
         summary = await loop.run_in_executor(
-            pool, _build_run_summary, req.text, trace_id
+            pool, _build_run_summary, req.text, trace_id, None
         )
 
     decision_type = (
