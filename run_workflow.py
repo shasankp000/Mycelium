@@ -7,9 +7,10 @@ except ImportError:
 
 import json  # still used for NumpyEncoder writes
 import datetime
+import time as _time
 from collections import Counter, deque
 from dataclasses import asdict, dataclass, is_dataclass
-from typing import List, Dict, Any, Optional, Sequence, Tuple
+from typing import Callable, List, Dict, Any, Optional, Sequence, Tuple
 
 import numpy as np
 from layer_1_prototype import (
@@ -35,6 +36,7 @@ from tuning_config import ENABLE_LOGGING, LOG_SAMPLE_RATE
 from patch_batch_logger import patch_logger
 from dynamic_signature_manager import DynamicSignatureManager
 from model_registry import warmup, loaded_models, STARTUP_SPECS
+from pipeline_event import EventEmitter, make_emitter
 
 
 class NumpyEncoder(json.JSONEncoder):
@@ -226,59 +228,116 @@ class WorkflowMetrics:
 def run_mycelium_workflow(
     sentences: Sequence[str],
     trace_id: Optional[str] = None,
+    on_event: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Tuple[List[Dict[str, Any]], WorkflowMetrics]:
     """Run the full Mycelium workflow on a batch of sentences.
 
     Returns the per-sentence analysis records and aggregated WorkflowMetrics.
 
     Args:
-        sentences:  One or more user queries to process.
-        trace_id:   Optional caller-supplied trace UUID.  When provided, any
-                    CREATE_NEW_PATCH response for the first sentence will be
-                    patched back into the batch log under this ID.
+        sentences:   One or more user queries to process.
+        trace_id:    Optional caller-supplied trace UUID.  When provided, any
+                     CREATE_NEW_PATCH response for the first sentence will be
+                     patched back into the batch log under this ID.
+        on_event:    Optional SSE callback ``(event_dict) -> None``.
+                     When provided, structured :class:`PipelineEvent` dicts
+                     are forwarded to this callback after coalescing and
+                     visibility filtering.  The callback must never raise;
+                     exceptions are swallowed by the EventEmitter.
     """
+    import uuid as _uuid
+    _wall_start = _time.monotonic()
+    _request_id = trace_id or str(_uuid.uuid4())
 
     # -----------------------------------------------------------------------
-    # Step 0 -- Pre-flight: warm up all non-LLM model weights before any
-    # subsystem is constructed.  This guarantees that every downstream
-    # component (encoder, SRL pipeline, NLI classifier, NER tagger, POS
-    # tagger, cross-encoder reranker) gets a hot cache hit from
-    # model_registry instead of a cold disk read on its first inference
-    # call.  warmup() is individually try/except-guarded per model, so a
-    # single missing weight file never aborts the entire startup.
+    # Build the EventEmitter for this run.
+    # on_event may be None (CLI / test path) — emitter handles it gracefully.
     # -----------------------------------------------------------------------
+    def _sse_callback(ev):
+        if on_event is not None:
+            on_event(ev.to_sse_dict())
+
+    emitter: EventEmitter = make_emitter(
+        request_id=_request_id,
+        wall_start=_wall_start,
+        on_public_event=_sse_callback,
+        max_hz=10.0,
+    )
+
+    # -----------------------------------------------------------------------
+    # Injection site 1 — setting_up / environment_ready
+    # -----------------------------------------------------------------------
+    emitter.emit(
+        phase_name="setting_up",
+        message="Warming up model registry…",
+        detail="Pre-flight: loading non-LLM model weights into registry",
+        state="running",
+    )
+
     print("\U0001f9e0 Pre-flight: loading non-LLM model weights into registry...")
     warmup(STARTUP_SPECS)
     _resident = loaded_models()
     print(f"\u2705 ModelRegistry warm -- {len(_resident)} model(s) resident: "
           f"{[k.split(':')[1] for k in _resident]}\n")
 
+    emitter.emit(
+        phase_name="environment_ready",
+        message="Environment ready",
+        detail=f"{len(_resident)} model(s) resident",
+        state="running",
+        metadata={"model_count": len(_resident), "models": [k.split(':')[1] for k in _resident]},
+    )
+
     phase2_pipeline = Phase2Pipeline()
     phase3_pipeline = Phase3To5Pipeline()
 
     # -----------------------------------------------------------------------
-    # Step 0a: Initialise unified expert system first so we know which domains
-    # are registered before the router tries to load spectral signatures.
+    # Injection site 2 — graph_expert_init
     # -----------------------------------------------------------------------
+    emitter.emit(
+        phase_name="graph_expert_init",
+        message="Initialising expert system…",
+        detail="K-Medoids + Calibration + OOD Detection",
+        state="running",
+    )
     print("Initializing unified expert system (K-Medoids + Calibration + OOD Detection)...")
     expert_system = UnifiedExpertSystem()
     registered_domains = set(expert_system.experts.keys())
     print(f"Initialized unified expert system with {len(registered_domains)} experts\n")
 
+    emitter.emit(
+        phase_name="graph_expert_init",
+        message="Expert system ready",
+        detail=f"{len(registered_domains)} expert domain(s) registered",
+        state="running",
+        metadata={"expert_count": len(registered_domains)},
+    )
+
     # -----------------------------------------------------------------------
-    # Step 0b: Sync spectral signatures -- auto-generates any .npy files that
-    # are missing or whose corpus has changed since the last run.  The
-    # returned analyzer is pre-loaded with all current signatures so the
-    # router never cold-reads a stale or absent file.
+    # Injection site 3 — graph_spectral_sync
     # -----------------------------------------------------------------------
+    emitter.emit(
+        phase_name="graph_spectral_sync",
+        message="Syncing spectral signatures…",
+        detail="Checking for stale or missing .npy files",
+        state="running",
+    )
     print("Syncing spectral signatures with registered expert domains...")
     sig_manager = DynamicSignatureManager(signature_dir="signatures")
     spectral_analyzer = sig_manager.sync_signatures(registered_domains)
-    print(f"\u2705 Spectral signatures synced ({len(spectral_analyzer.get_available_domains())} domains loaded)\n")
+    _synced_domains = len(spectral_analyzer.get_available_domains())
+    print(f"\u2705 Spectral signatures synced ({_synced_domains} domains loaded)\n")
+
+    emitter.emit(
+        phase_name="graph_spectral_sync",
+        message="Spectral signatures synced",
+        detail=f"{_synced_domains} domain signature(s) loaded",
+        state="running",
+        metadata={"synced_domains": _synced_domains},
+    )
 
     # -----------------------------------------------------------------------
-    # Step 0c: Initialise the router with the already-synced analyzer so it
-    # never re-loads from disk (which would miss signatures written in 0b).
+    # Injection site 4 — graph_router_ready
     # -----------------------------------------------------------------------
     router = MultiLensRouter(spectral_analyzer=spectral_analyzer)
 
@@ -290,14 +349,21 @@ def run_mycelium_workflow(
     )
     print("\u2705 Expert filter initialized with auto-clustering\n")
 
-    temporal_layer = TemporalLocalityLayer(max_size=50, time_window_hours=24)
-    all_sentence_data: List[Dict[str, Any]] = []
-    # M4 item 9.2: bounded deque prevents unbounded memory growth over long runs
-    all_tags: deque = deque(maxlen=5000)
-
     print("Initializing Layer0 question router...")
     question_router = QuestionRouter()
     print("\u2705 Layer0 router initialized\n")
+
+    emitter.emit(
+        phase_name="graph_router_ready",
+        message="Routing layer ready",
+        detail="MultiLens router + expert filter + Layer0 router initialised",
+        state="running",
+        metadata={"expert_filter_threshold": 0.45},
+    )
+
+    temporal_layer = TemporalLocalityLayer(max_size=50, time_window_hours=24)
+    all_sentence_data: List[Dict[str, Any]] = []
+    all_tags: deque = deque(maxlen=5000)
     metrics = WorkflowMetrics()
 
     for idx, text in enumerate(sentences, start=1):
@@ -306,7 +372,17 @@ def run_mycelium_workflow(
         timestamp = datetime.datetime.now().isoformat()
         temporal_layer.add_statement(text, normalized_tags, timestamp)
 
-        # Step 1a: Layer0 classification
+        # ------------------------------------------------------------------
+        # Injection site 5 — graph_layer0
+        # ------------------------------------------------------------------
+        emitter.emit(
+            phase_name="graph_layer0",
+            message="Classifying query…",
+            detail=f"Sentence {idx}/{len(sentences)}: {text[:80]}",
+            state="running",
+            metadata={"sentence_index": idx, "sentence_count": len(sentences)},
+        )
+
         layer0_result = question_router.route(text)
         metrics.layer0_routes[layer0_result.route] += 1
 
@@ -314,6 +390,14 @@ def run_mycelium_workflow(
         if layer0_result.route != "REASONING_PIPELINE":
             if ENABLE_LOGGING and idx % LOG_SAMPLE_RATE == 0:
                 print(f"\U0001f6ab Layer0 route: {layer0_result.route.upper()}\n")
+
+            emitter.emit(
+                phase_name="graph_layer0",
+                message="Query handled by Layer 0",
+                detail=f"Route: {layer0_result.route}",
+                state="running",
+                metadata={"layer0_route": layer0_result.route},
+            )
 
             all_sentence_data.append(
                 {
@@ -332,15 +416,31 @@ def run_mycelium_workflow(
             )
             continue
 
-        # Routing and Phase 2/3 processing
+        # ------------------------------------------------------------------
+        # Injection site 6 — graph_routing
+        # ------------------------------------------------------------------
+        emitter.emit(
+            phase_name="routing",
+            message="Routing query through semantic lenses…",
+            detail=f"{len(normalized_tags)} tag(s) extracted",
+            state="running",
+            metadata={"tag_count": len(normalized_tags)},
+        )
+
         routing_context = router.route(text)
         classification = getattr(routing_context, "classification", None)
         if classification:
             metrics.routing_classifications[classification] += 1
 
-        # ------------------------------------------------------------------
+        emitter.emit(
+            phase_name="graph_routing",
+            message="Routing complete",
+            detail=f"Classification: {classification}",
+            state="running",
+            metadata={"classification": str(classification) if classification else ""},
+        )
+
         # Resolve relevant_domains from the routing result.
-        # ------------------------------------------------------------------
         relevant_domains: List[str] = []
 
         for domain in getattr(routing_context, "selected_domains", []):
@@ -388,25 +488,35 @@ def run_mycelium_workflow(
         }
 
         # ------------------------------------------------------------------
-        # FIX (Bug C -- ordering): run unified_decision_analysis() BEFORE
-        # Phase 3 so that Phase 3 is driven by the authoritative decision
-        # rather than Phase 2's intermediate guess.
-        #
-        # Old order:  Phase2 -> adapt_phase2_to_p3 -> Phase3 -> unified_decision
-        # New order:  Phase2 -> unified_decision -> adapt_unified_to_p3 -> Phase3
-        #
-        # Phase 2 is still run first because unified_decision_analysis()
-        # may internally rely on Phase 2 signals (calibration scores,
-        # expert predictions) that are only available after Phase 2 runs.
-        # Its output is stored unchanged in phase2_result for the record.
+        # Injection site 7 — graph_phase2 (reasoning)
         # ------------------------------------------------------------------
+        emitter.emit(
+            phase_name="graph_phase2",
+            message="Running reasoning pipeline…",
+            detail=f"{len(filtered_experts)} expert(s) active",
+            state="running",
+            metadata={"active_domains": list(filtered_experts.keys())},
+        )
+        # Semantic heartbeat — long reasoning phases appear frozen without it
+        emitter.emit_heartbeat(idx % 5)
+
         phase2_result = phase2_pipeline.run(
             text,
             routing_context=routing_context,
             filtered_experts=filtered_experts,
         )
 
-        # Step 2b: Get the authoritative unified decision now, before Phase 3.
+        # ------------------------------------------------------------------
+        # Injection site 8 — graph_unified_decision / expert_decision
+        # ------------------------------------------------------------------
+        emitter.emit(
+            phase_name="graph_unified_decision",
+            message="Computing unified expert decision…",
+            detail=f"{len(filtered_experts)} expert(s) evaluated",
+            state="running",
+            metadata={"active_domains": list(filtered_experts.keys())},
+        )
+
         expert_decision = expert_system.unified_decision_analysis(
             text,
             routing_result=routing_context,
@@ -418,18 +528,42 @@ def run_mycelium_workflow(
             expert_decision,
         )
 
-        # Harvest Phase-2-only metadata (reasoning chain, expert_predictions,
-        # etc.) so it is merged into the unified FinalDecisionResult and
-        # flows through to Phase 3 and the trace record without being lost.
+        emitter.emit(
+            phase_name="expert_decision",
+            message="Expert decision reached",
+            detail=(
+                f"{getattr(expert_decision, 'decision_type', 'N/A')} · "
+                f"confidence {float(getattr(expert_decision, 'expert_confidence', 0.0)):.2f}"
+            ),
+            state="running",
+            metadata={
+                "decision_type": getattr(expert_decision, "decision_type", ""),
+                "selected_experts": list(getattr(expert_decision, "selected_experts", []) or []),
+                "confidence": float(getattr(expert_decision, "expert_confidence", 0.0)),
+            },
+        )
+
+        # Harvest Phase-2-only metadata
         p2_fdr = _adapt_phase2_to_p3(phase2_result, original_text=text)
         phase2_extra_metadata: Dict[str, Any] = dict(p2_fdr.metadata or {})
 
-        # Build the FinalDecisionResult from the unified decision.
+        # Build FinalDecisionResult from the unified decision.
         phase3_input = _adapt_unified_to_p3(
             expert_decision,
             original_text=text,
             phase2_metadata=phase2_extra_metadata,
         )
+
+        # ------------------------------------------------------------------
+        # Injection site 9 — graph_phase3 (validation)
+        # ------------------------------------------------------------------
+        emitter.emit(
+            phase_name="graph_phase3",
+            message="Running validation pipeline…",
+            detail="Phase 3-5: action execution + feedback collection",
+            state="running",
+        )
+
         phase3_result = phase3_pipeline.run_complete_pipeline(phase3_input)
 
         metrics.expert_decisions[expert_decision.decision_type] += 1
@@ -496,6 +630,22 @@ def run_mycelium_workflow(
                 trace_id=sentence_trace_id,
                 response=final_answer,
             )
+
+        # ------------------------------------------------------------------
+        # Injection site 10 — graph_clustering (post-processing)
+        # ------------------------------------------------------------------
+        emitter.emit(
+            phase_name="graph_clustering",
+            message="Updating tag cluster model…",
+            detail=f"Sentence {idx}/{len(sentences)} complete",
+            state="running",
+            metadata={
+                "sentence_index": idx,
+                "flag": flag,
+                "selected_domain": selected_domain,
+                "confidence": round(confidence, 4),
+            },
+        )
 
         all_sentence_data.append(
             {
@@ -582,6 +732,9 @@ def run_mycelium_workflow(
     with open("evaluation_data/temporal_analysis.json", "w", encoding="utf-8") as f:
         json.dump(temporal_analysis_data, f, indent=4)
     print("Temporal analysis saved to temporal_analysis.json")
+
+    # Flush any coalesced events still in the buffer before returning.
+    emitter.flush()
 
     return all_sentence_data, metrics
 
