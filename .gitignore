@@ -46,3 +46,12 @@ web-ui/package-lock.json
 web-ui/.next/
 .venv/
 .venv2/
+
+# Runtime artifacts
+semantic_clusters_cache.pkl
+post_check_weights.json
+signatures/
+traces/
+patch_batches/
+__pycache__/
+*.pyc
