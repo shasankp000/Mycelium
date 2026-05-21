@@ -44,3 +44,5 @@ Thumbs.db
 web-ui/node_modules/
 web-ui/package-lock.json
 web-ui/.next/
+.venv/
+.venv2/
