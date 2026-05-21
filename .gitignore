@@ -1,15 +1,60 @@
-reports/initial_findings_report_22_09_2025.md
-__pycache__
-pycache_
-.vscode
-reports/unified_expert_system_report.md
-.safetensors
-*.pt
-*.bin
-.pytest_cache/*
+# ── Python cache ────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# ── MCP Server working directories ────────────────────────────────────────
+.serena/*
+
+# ── Virtual environments ────────────────────────────────────────
+venv/
+.venv/
+env/
+.env
+
+# ── Testing / coverage ──────────────────────────────────────────
+.pytest_cache/
 htmlcov/
 .coverage
-web-ui/node_modules
+coverage.xml
+
+# ── Model weights / large binary assets ─────────────────────────
+*.pt
+*.bin
+*.safetensors
+*.gguf
+*.onnx
+
+# ── Runtime output dirs (generated at run-time, not source) ─────
+patch_batches/
+traces/
+reports/
+runtime/
+
+# ── IDE / editor ────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── OS cruft ────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Web UI build artifacts ──────────────────────────────────────
+web-ui/node_modules/
 web-ui/package-lock.json
-web-ui/.next/*
-tests/pycache_/*
+web-ui/.next/
+.venv/
+.venv2/
+
+# Runtime artifacts
+semantic_clusters_cache.pkl
+post_check_weights.json
+signatures/
+traces/
+patch_batches/
+__pycache__/
+*.pyc

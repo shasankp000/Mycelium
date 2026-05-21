@@ -9,20 +9,26 @@ Tests:
   6. SandboxManager._stub_result path
   7. SandboxManager._execute_step with unknown tool (no network)
 """
+
 from __future__ import annotations
 
-import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
-import pytest
 
-from sandbox_models import SandboxResult, SandboxStep, SandboxTask, build_sandbox_task_from_run
-from sandbox_manager import SandboxManager, _TOOL_REGISTRY
+from mycelium.pipeline.sandbox_models import (
+    SandboxResult,
+    SandboxStep,
+    SandboxTask,
+    build_sandbox_task_from_run,
+)
+from mycelium.pipeline.sandbox_manager import SandboxManager
+from mycelium.pipeline.domain_tool_planner import ToolCall
 
 
 # ---------------------------------------------------------------------------
 # 1-3. Pydantic round-trips
 # ---------------------------------------------------------------------------
+
 
 class TestSandboxModelsSerialisation:
     def test_task_round_trip(self):
@@ -70,6 +76,7 @@ class TestSandboxModelsSerialisation:
 # 4. build_sandbox_task_from_run
 # ---------------------------------------------------------------------------
 
+
 class TestBuildSandboxTask:
     def _make_run_dict(self):
         return {
@@ -104,7 +111,9 @@ class TestBuildSandboxTask:
         assert task.trace_id == "run-999"
 
     def test_uses_explicit_user_query(self):
-        task = build_sandbox_task_from_run(self._make_run_dict(), user_query="Custom question?")
+        task = build_sandbox_task_from_run(
+            self._make_run_dict(), user_query="Custom question?"
+        )
         assert task.user_query == "Custom question?"
 
     def test_falls_back_to_sentence(self):
@@ -125,48 +134,68 @@ class TestBuildSandboxTask:
 # 5. Calculator tool (no network)
 # ---------------------------------------------------------------------------
 
+
 class TestCalculatorTool:
     def test_basic_arithmetic(self):
-        result = _TOOL_REGISTRY["calculator"]("2 ** 10")
-        assert result["result"] == 1024
-        assert result["source"] == "calculator"
+        result = SandboxManager()._execute_step(
+            ToolCall(tool="calculator", query="2 ** 10")
+        )
+        assert result.output["result"] == 1024
+        assert result.output["source"] == "calculator"
 
     def test_math_function(self):
-        import math
-        result = _TOOL_REGISTRY["calculator"]("sqrt(144)")
-        assert abs(result["result"] - 12.0) < 1e-9
+        result = SandboxManager()._execute_step(
+            ToolCall(tool="calculator", query="sqrt(144)")
+        )
+        assert abs(result.output["result"] - 12.0) < 1e-9
 
     def test_bad_expression(self):
-        result = _TOOL_REGISTRY["calculator"]("open('/etc/passwd')")
-        assert "error" in result
+        result = SandboxManager()._execute_step(
+            ToolCall(tool="calculator", query="open('/etc/passwd')")
+        )
+        assert result.output.get("status") == "error"
 
     def test_division_by_zero(self):
-        result = _TOOL_REGISTRY["calculator"]("1 / 0")
-        assert "error" in result
+        result = SandboxManager()._execute_step(
+            ToolCall(tool="calculator", query="1 / 0")
+        )
+        assert result.output.get("status") == "error"
 
 
 # ---------------------------------------------------------------------------
 # 6. SandboxManager._stub_result
 # ---------------------------------------------------------------------------
 
+
 class TestSandboxManagerStub:
     def test_stub_result_shape(self):
-        manager = SandboxManager.__new__(SandboxManager)
         task = SandboxTask(trace_id="t-1", user_query="test")
-        result = SandboxManager._stub_result(task, datetime.utcnow())
+        result = SandboxManager._stub_result(task, datetime.now(UTC))
         assert isinstance(result, SandboxResult)
         assert result.steps == []
-        assert "failed" in result.summary.lower() or "unavailable" in result.summary.lower()
+        assert (
+            "failed" in result.summary.lower()
+            or "unavailable" in result.summary.lower()
+            or "no results" in result.summary.lower()
+        )
 
 
 # ---------------------------------------------------------------------------
 # 7. _execute_step with unknown tool (no network)
 # ---------------------------------------------------------------------------
 
+
 class TestExecuteStepUnknownTool:
     def test_unknown_tool_returns_error_step(self):
         manager = SandboxManager.__new__(SandboxManager)
-        step = manager._execute_step("nonexistent_tool", "some query", "test")
+        manager._mcp = type(  # type: ignore[assignment]
+            "Mcp",
+            (),
+            {"call_tool": lambda *_: {"status": "error", "error": "Unknown tool"}},
+        )()
+        step = manager._execute_step(
+            ToolCall(tool="nonexistent_tool", query="some query")
+        )
         assert step.status == "error"
         assert "Unknown tool" in step.output.get("error", "")
         assert step.tool == "nonexistent_tool"

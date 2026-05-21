@@ -4,8 +4,8 @@ Tests for the Phase 2.1 Input Normalization Pipeline.
 
 import pytest
 
-from phase2_validation.config.phase2_config import Phase2Config
-from phase2_validation.phases.phase_2_1_input_normalization import (
+from mycelium.pipeline.phase2.config.phase2_config import Phase2Config
+from mycelium.pipeline.phase2.phases.phase_2_1_input_normalization import (
     ContentValidator,
     DomainTagExtractor,
     EarlyRejectionFilter,

@@ -5,7 +5,7 @@ Tests for Phase 2.2 — Semantic Understanding.
 import numpy as np
 import pytest
 
-from phase2_validation.phases.phase_2_2_semantic_understanding import (
+from mycelium.pipeline.phase2.phases.phase_2_2_semantic_understanding import (
     DomainRelevanceScorer,
     EmbeddingGenerator,
     EntityRecognizer,
@@ -13,7 +13,7 @@ from phase2_validation.phases.phase_2_2_semantic_understanding import (
     SemanticGraphBuilder,
     SemanticUnderstandingPipeline,
 )
-from phase2_validation.utils.semantic_types import (
+from mycelium.pipeline.phase2.utils.semantic_types import (
     Concept,
     Entity,
     SemanticGraph,

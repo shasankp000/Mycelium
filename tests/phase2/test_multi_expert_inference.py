@@ -2,7 +2,7 @@
 
 import pytest
 
-from phase2_validation.phases.phase_2_4_inference import (
+from mycelium.pipeline.phase2.phases.phase_2_4_inference import (
     AggregationError,
     ExpertConfidenceCompute,
     ExpertInference,
@@ -11,7 +11,7 @@ from phase2_validation.phases.phase_2_4_inference import (
     ParallelInferenceExecutor,
     PredictionAggregator,
 )
-from phase2_validation.utils.semantic_types import RankedExpert
+from mycelium.pipeline.phase2.utils.semantic_types import RankedExpert
 
 
 # ------------------------------------------------------------------

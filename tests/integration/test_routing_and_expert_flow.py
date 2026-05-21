@@ -1,5 +1,5 @@
-from core.types import ExpertDecisionResult, RoutingResult
-from orchestration import combine_routing_and_expert_decisions
+from mycelium.core.types import ExpertDecisionResult, RoutingResult
+from mycelium.pipeline.orchestration import combine_routing_and_expert_decisions
 
 
 def test_single_domain_use_existing_expert_path():

@@ -3,12 +3,11 @@
 import numpy as np
 import pytest
 
-from phase2_validation.phases.phase_2_4_inference import (
+from mycelium.pipeline.phase2.phases.phase_2_4_inference import (
     InferenceResult,
 )
-from phase2_validation.phases.phase_2_5_calibration import (
+from mycelium.pipeline.phase2.phases.phase_2_5_calibration import (
     BayesianAggregator,
-    CalibrationError,
     CalibrationMetrics,
     CalibrationPipeline,
     CalibrationResult,

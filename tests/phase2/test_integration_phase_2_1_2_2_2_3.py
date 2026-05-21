@@ -4,18 +4,16 @@ Integration tests for Phase 2.1 → 2.2 → 2.3 pipeline flow.
 
 import pytest
 
-from phase2_validation.config.phase2_config import Phase2Config
-from phase2_validation.phases.phase_2_1_input_normalization import (
+from mycelium.pipeline.phase2.phases.phase_2_1_input_normalization import (
     InputNormalizationPipeline,
-    NormalizationResult,
 )
-from phase2_validation.phases.phase_2_2_semantic_understanding import (
+from mycelium.pipeline.phase2.phases.phase_2_2_semantic_understanding import (
     SemanticUnderstandingPipeline,
 )
-from phase2_validation.phases.phase_2_3_expert_selection import (
+from mycelium.pipeline.phase2.phases.phase_2_3_expert_selection import (
     ExpertSelectionPipeline,
 )
-from phase2_validation.utils.semantic_types import (
+from mycelium.pipeline.phase2.utils.semantic_types import (
     ExpertSelectionResult,
     SemanticResult,
 )

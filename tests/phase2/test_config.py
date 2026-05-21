@@ -2,12 +2,10 @@
 Tests for the Phase 2 configuration module.
 """
 
-import os
-import tempfile
 
 import pytest
 
-from phase2_validation.config.phase2_config import (
+from mycelium.pipeline.phase2.config.phase2_config import (
     Phase2Config,
     _env_bool,
     _env_float,

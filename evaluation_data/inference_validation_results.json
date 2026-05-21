@@ -1,5 +1,5 @@
 {
-    "timestamp": "2026-05-02T20:23:13.143742",
+    "timestamp": "2026-05-21T20:46:18.727496",
     "total_cases": 12,
     "use_existing_expert_cases": 0,
     "correct_predictions": 0,
@@ -7,73 +7,106 @@
     "detailed_results": [
         {
             "sentence": "The photoelectric effect demonstrates that light has particle properties, as Einstein showed in 1905.",
-            "tags": [],
+            "tags": [
+                "physics",
+                "maths"
+            ],
             "decision": "create_new_expert",
             "reason": "No matching expert"
         },
         {
             "sentence": "Quantum entanglement occurs when particles interact and remain correlated regardless of distance.",
-            "tags": [],
+            "tags": [
+                "physics",
+                "maths"
+            ],
             "decision": "create_new_expert",
             "reason": "No matching expert"
         },
         {
             "sentence": "The Heisenberg uncertainty principle states that you cannot simultaneously know both position and momentum.",
-            "tags": [],
+            "tags": [
+                "physics",
+                "maths"
+            ],
             "decision": "create_new_expert",
             "reason": "No matching expert"
         },
         {
             "sentence": "The Haber process synthesizes ammonia from nitrogen and hydrogen using an iron catalyst.",
-            "tags": [],
+            "tags": [
+                "chemistry",
+                "technology"
+            ],
             "decision": "create_new_expert",
             "reason": "No matching expert"
         },
         {
             "sentence": "Covalent bonds form when atoms share electrons to achieve stable electron configurations.",
-            "tags": [],
+            "tags": [
+                "chemistry",
+                "physics"
+            ],
             "decision": "create_new_expert",
             "reason": "No matching expert"
         },
         {
             "sentence": "Oxidation-reduction reactions involve the transfer of electrons between chemical species.",
-            "tags": [],
+            "tags": [
+                "chemistry",
+                "physics"
+            ],
             "decision": "create_new_expert",
             "reason": "No matching expert"
         },
         {
             "sentence": "Metastatic carcinoma requires systemic chemotherapy rather than localized radiation treatment.",
-            "tags": [],
+            "tags": [
+                "healthcare"
+            ],
             "decision": "create_new_expert",
             "reason": "No matching expert"
         },
         {
             "sentence": "Immunotherapy has revolutionized cancer treatment by harnessing the body's immune system.",
-            "tags": [],
+            "tags": [
+                "healthcare",
+                "biology"
+            ],
             "decision": "create_new_expert",
             "reason": "No matching expert"
         },
         {
             "sentence": "Radiation therapy uses high-energy particles to destroy cancer cells.",
-            "tags": [],
+            "tags": [
+                "biology",
+                "physics"
+            ],
             "decision": "create_new_expert",
             "reason": "No matching expert"
         },
         {
             "sentence": "People still got cancer before we knew about radiation it was causing harm.",
-            "tags": [],
+            "tags": [
+                "healthcare"
+            ],
             "decision": "create_new_expert",
             "reason": "No matching expert"
         },
         {
             "sentence": "The stock market crashed in 1929, leading to the Great Depression.",
-            "tags": [],
+            "tags": [
+                "finance"
+            ],
             "decision": "create_new_expert",
             "reason": "No matching expert"
         },
         {
             "sentence": "Artificial intelligence models require large datasets for training.",
-            "tags": [],
+            "tags": [
+                "AI",
+                "technology"
+            ],
             "decision": "create_new_expert",
             "reason": "No matching expert"
         }

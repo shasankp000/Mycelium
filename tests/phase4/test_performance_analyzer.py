@@ -2,14 +2,14 @@
 
 import pytest
 
-from phase3_validation.config.phase3_config import Phase3Config
-from phase3_validation.phases.phase_4_2_performance_analyzer import (
+from mycelium.pipeline.phase3.config.phase3_config import Phase3Config
+from mycelium.pipeline.phase3.phases.phase_4_2_performance_analyzer import (
     PerformanceAnalyzer,
     ExpertPerformanceAnalyzer,
     PerformanceAnalysisPipeline,
     PerformanceAnalysisError,
 )
-from phase3_validation.utils.types import (
+from mycelium.pipeline.phase3.utils.types import (
     AggregatedFeedback,
     ExpertAnalysis,
     PerformanceAnalysis,

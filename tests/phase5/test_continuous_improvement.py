@@ -1,15 +1,13 @@
 """Tests for Phase 5.2 Continuous Improvement."""
 
-import pytest
 
-from phase3_validation.config.phase3_config import Phase3Config
-from phase3_validation.phases.phase_5_2_continuous_improvement import (
+from mycelium.pipeline.phase3.phases.phase_5_2_continuous_improvement import (
     ContinuousImprovementLoop,
     ContinuousImprovementPipeline,
     ImprovementExecutor,
     ImprovementMetricsTracker,
 )
-from phase3_validation.utils.types import (
+from mycelium.pipeline.phase3.utils.types import (
     ExpertAnalysis,
     ImprovementPlan,
     ImprovementProgress,
