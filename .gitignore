@@ -31,6 +31,7 @@ coverage.xml
 traces/*.jsonl
 
 # Runtime cache
+runtime/cache/
 *.pkl
 
 # ── Runtime output dirs (generated at run-time, not source) ─────
