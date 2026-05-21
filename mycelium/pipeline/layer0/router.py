@@ -1,4 +1,4 @@
-from core.types import Layer0Result
+from mycelium.core.types import Layer0Result
 from mycelium.pipeline.layer0.manipulation_detector import ManipulationDetector
 from mycelium.pipeline.layer0.objectivity_classifier import ObjectivityClassifier
 from mycelium.pipeline.layer0.value_assumption_extractor import ValueAssumptionExtractor

@@ -24,7 +24,7 @@ from sklearn.covariance import EllipticEnvelope
 import warnings
 warnings.filterwarnings('ignore', category=UserWarning, module='sklearn')
 
-from core.types import ExpertDecisionResult, RoutingResult
+from mycelium.core.types import ExpertDecisionResult, RoutingResult
 
 import threading as _threading
 import pathlib as _pathlib

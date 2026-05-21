@@ -7,7 +7,7 @@ import logging
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
-from core.types import RoutingResult
+from mycelium.core.types import RoutingResult
 
 try:
     from mycelium.pipeline.tuning_config import (

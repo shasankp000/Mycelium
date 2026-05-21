@@ -40,7 +40,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
-from core.types import RoutingResult
+from mycelium.core.types import RoutingResult
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())

@@ -1,6 +1,6 @@
 from typing import Union, Dict, Any
 from dataclasses import replace
-from core.types import ExpertDecisionResult, RoutingResult
+from mycelium.core.types import ExpertDecisionResult, RoutingResult
 
 
 def _extract_bool(field: str, source: Union[Dict[str, Any], object], default: bool = False) -> bool:
