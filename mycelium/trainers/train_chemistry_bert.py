@@ -4,13 +4,11 @@ Trains a BERT model to classify chemistry vs non-chemistry content
 """
 
 import torch
-import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from torch.optim import AdamW
 from transformers import BertTokenizer, BertForSequenceClassification
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support, classification_report
 import pandas as pd
-import numpy as np
 from pathlib import Path
 from tqdm import tqdm
 import json
@@ -120,7 +118,7 @@ class ChemistryBERTTrainer:
         predictions = []
         true_labels = []
         
-        progress_bar = tqdm(train_loader, desc=f"Training")
+        progress_bar = tqdm(train_loader, desc="Training")
         
         for batch in progress_bar:
             input_ids = batch['input_ids'].to(self.device)
@@ -255,14 +253,14 @@ class ChemistryBERTTrainer:
             test_loader, "Test"
         )
         
-        print(f"\n📊 Test Results:")
+        print("\n📊 Test Results:")
         print(f"   Accuracy: {test_acc:.4f}")
         print(f"   Precision: {test_precision:.4f}")
         print(f"   Recall: {test_recall:.4f}")
         print(f"   F1 Score: {test_f1:.4f}")
         
         # Detailed classification report
-        print(f"\n📋 Detailed Classification Report:")
+        print("\n📋 Detailed Classification Report:")
         target_names = [self.reverse_label_map[i] for i in sorted(self.reverse_label_map.keys())]
         print(classification_report(true_labels, predictions, target_names=target_names))
         
@@ -296,7 +294,7 @@ def main():
     trainer.initialize_model(num_labels=2)
     
     # Train
-    history = trainer.train(
+    trainer.train(
         train_loader, val_loader,
         epochs=3,
         learning_rate=2e-5,
@@ -308,7 +306,7 @@ def main():
     
     print("\n" + "="*60)
     print("🎉 Training complete!")
-    print(f"📁 Model saved to: dummy_models/Chemistry_BERT")
+    print("📁 Model saved to: dummy_models/Chemistry_BERT")
     print("="*60)
 
 if __name__ == "__main__":

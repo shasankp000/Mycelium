@@ -2,7 +2,6 @@
 Tests for the text processing utilities.
 """
 
-import pytest
 
 from phase2_validation.utils.text_processors import (
     TextProcessor,

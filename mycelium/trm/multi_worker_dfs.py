@@ -46,7 +46,7 @@ import logging
 import os
 import queue
 import threading
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, List, Optional
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())

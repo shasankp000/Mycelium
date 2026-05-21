@@ -4,10 +4,8 @@ Integration tests for Phase 2.1 → 2.2 → 2.3 pipeline flow.
 
 import pytest
 
-from phase2_validation.config.phase2_config import Phase2Config
 from phase2_validation.phases.phase_2_1_input_normalization import (
     InputNormalizationPipeline,
-    NormalizationResult,
 )
 from phase2_validation.phases.phase_2_2_semantic_understanding import (
     SemanticUnderstandingPipeline,

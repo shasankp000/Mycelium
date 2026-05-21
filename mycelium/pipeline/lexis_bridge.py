@@ -161,7 +161,8 @@ def lexi_analyse(text_path: str) -> str:
 # Convenience smoke-test (run directly: python lexis_bridge.py)
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    import sys, textwrap
+    import sys
+    import textwrap
 
     sample = textwrap.dedent("""\
         The mitochondria is the powerhouse of the cell.

@@ -1,6 +1,5 @@
 """Tests for Phase 2.6 — Decision Synthesis."""
 
-import pytest
 from types import SimpleNamespace
 
 from phase2_validation.phases.phase_2_6_synthesis import (

@@ -17,7 +17,7 @@ Phase 6 Updates:
 - Clamps extreme values for robustness
 """
 
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 import sys
 
 # Import tuning config (graceful fallback if not available)

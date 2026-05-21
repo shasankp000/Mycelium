@@ -1,11 +1,9 @@
 """End-to-end tests for the full Phase 3-5 system pipeline."""
 
-import pytest
 
 from phase3_validation.config.phase3_config import Phase3Config
 from phase3_validation.pipeline import Phase3To5Pipeline
 from phase3_validation.utils.types import (
-    ActionResult,
     FeedbackData,
     FinalDecisionResult,
     SystemExecutionResult,

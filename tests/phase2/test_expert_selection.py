@@ -10,7 +10,6 @@ from phase2_validation.phases.phase_2_3_expert_selection import (
     ExpertRankingEngine,
     ExpertSelectionPipeline,
     InvalidStrategyError,
-    NoSuitableExpertError,
 )
 from phase2_validation.utils.semantic_types import (
     ExpertSelectionResult,

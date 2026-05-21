@@ -4,13 +4,12 @@ Multi-Lens Router — Complete Rewrite
 See original docstring for full design notes.
 """
 import logging
-import sys
 from typing import Any, Dict, List, Optional, Tuple
 
 from mycelium.core.types import RoutingResult
 
 try:
-    from mycelium.pipeline.tuning_config import (
+    from mycelium.trainers.tuning_config import (
         COVERAGE_THRESHOLD,
         MAX_EXPERTS,
         DOMAIN_SCORE_THRESHOLD,
@@ -29,7 +28,7 @@ except ImportError:
 _ABSOLUTE_MAX_EXPERTS: int = max(1, MAX_EXPERTS)
 
 try:
-    from mycelium.pipeline.layer_1_prototype import multi_lens_route
+    from mycelium.pipeline.layer1_router import multi_lens_route
 except ImportError:
     multi_lens_route = None  # type: ignore[assignment]
 

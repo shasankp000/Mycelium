@@ -20,7 +20,7 @@ Example:
 import os
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import List
 
 try:
     import yaml

@@ -2,8 +2,6 @@
 Tests for the Phase 2 configuration module.
 """
 
-import os
-import tempfile
 
 import pytest
 

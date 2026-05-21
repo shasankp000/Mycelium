@@ -6,7 +6,6 @@ Eliminates manual dictionary maintenance by learning tag relationships from embe
 import numpy as np
 import pickle
 import os
-from pathlib import Path
 from sklearn.metrics.pairwise import cosine_similarity
 import json
 

@@ -31,7 +31,7 @@ import sys
 import time
 import unicodedata
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from mycelium.pipeline.phase2.config.phase2_config import Phase2Config
 from mycelium.pipeline.phase2.utils.text_processors import (

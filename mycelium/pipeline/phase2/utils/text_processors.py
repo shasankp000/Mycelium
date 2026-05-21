@@ -19,7 +19,6 @@ Example:
 import html
 import logging
 import re
-import unicodedata
 from typing import Dict
 
 import bleach

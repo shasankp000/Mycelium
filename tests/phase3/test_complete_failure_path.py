@@ -15,11 +15,10 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-import pytest
 
 from phase3_validation.config.validation_config import ValidationConfig
 from phase3_validation.phases.layer_1_types import (

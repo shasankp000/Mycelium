@@ -27,8 +27,6 @@ domains, reducing CPU time from O(D) serial dot products to a single
 vectorised O(D × L) call.
 """
 
-import os
-import json
 import numpy as np
 from typing import Dict, List, Optional, Tuple
 from pathlib import Path

@@ -9,20 +9,25 @@ Tests:
   6. SandboxManager._stub_result path
   7. SandboxManager._execute_step with unknown tool (no network)
 """
+
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 
-import pytest
 
-from sandbox_models import SandboxResult, SandboxStep, SandboxTask, build_sandbox_task_from_run
+from sandbox_models import (
+    SandboxResult,
+    SandboxStep,
+    SandboxTask,
+    build_sandbox_task_from_run,
+)
 from sandbox_manager import SandboxManager, _TOOL_REGISTRY
 
 
 # ---------------------------------------------------------------------------
 # 1-3. Pydantic round-trips
 # ---------------------------------------------------------------------------
+
 
 class TestSandboxModelsSerialisation:
     def test_task_round_trip(self):
@@ -70,6 +75,7 @@ class TestSandboxModelsSerialisation:
 # 4. build_sandbox_task_from_run
 # ---------------------------------------------------------------------------
 
+
 class TestBuildSandboxTask:
     def _make_run_dict(self):
         return {
@@ -104,7 +110,9 @@ class TestBuildSandboxTask:
         assert task.trace_id == "run-999"
 
     def test_uses_explicit_user_query(self):
-        task = build_sandbox_task_from_run(self._make_run_dict(), user_query="Custom question?")
+        task = build_sandbox_task_from_run(
+            self._make_run_dict(), user_query="Custom question?"
+        )
         assert task.user_query == "Custom question?"
 
     def test_falls_back_to_sentence(self):
@@ -125,6 +133,7 @@ class TestBuildSandboxTask:
 # 5. Calculator tool (no network)
 # ---------------------------------------------------------------------------
 
+
 class TestCalculatorTool:
     def test_basic_arithmetic(self):
         result = _TOOL_REGISTRY["calculator"]("2 ** 10")
@@ -132,7 +141,6 @@ class TestCalculatorTool:
         assert result["source"] == "calculator"
 
     def test_math_function(self):
-        import math
         result = _TOOL_REGISTRY["calculator"]("sqrt(144)")
         assert abs(result["result"] - 12.0) < 1e-9
 
@@ -149,19 +157,23 @@ class TestCalculatorTool:
 # 6. SandboxManager._stub_result
 # ---------------------------------------------------------------------------
 
+
 class TestSandboxManagerStub:
     def test_stub_result_shape(self):
-        manager = SandboxManager.__new__(SandboxManager)
         task = SandboxTask(trace_id="t-1", user_query="test")
         result = SandboxManager._stub_result(task, datetime.utcnow())
         assert isinstance(result, SandboxResult)
         assert result.steps == []
-        assert "failed" in result.summary.lower() or "unavailable" in result.summary.lower()
+        assert (
+            "failed" in result.summary.lower()
+            or "unavailable" in result.summary.lower()
+        )
 
 
 # ---------------------------------------------------------------------------
 # 7. _execute_step with unknown tool (no network)
 # ---------------------------------------------------------------------------
+
 
 class TestExecuteStepUnknownTool:
     def test_unknown_tool_returns_error_step(self):

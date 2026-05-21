@@ -331,7 +331,7 @@ class ExpertFilter:
         Dynamically add a new domain to the clustering system.
         """
         if not self.use_auto_clustering:
-            print(f"\u26a0\ufe0f Cannot add domain dynamically - auto-clustering is disabled")
+            print("⚠️ Cannot add domain dynamically - auto-clustering is disabled")
             return False
 
         self.clusterer.domain_anchors[domain_name] = anchor_terms

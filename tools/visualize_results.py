@@ -4,7 +4,7 @@ import seaborn as sns
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from collections import Counter, defaultdict
+from collections import Counter
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _EVAL_DATA_DIR = _PROJECT_ROOT / "evaluation_data"

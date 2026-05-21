@@ -1,8 +1,6 @@
 """Tests for Phase 5.1 Feedback Integrator."""
 
-import pytest
 
-from phase3_validation.config.phase3_config import Phase3Config
 from phase3_validation.phases.phase_5_1_feedback_integrator import (
     ExpertParameterUpdater,
     FeedbackIntegrationPipeline,

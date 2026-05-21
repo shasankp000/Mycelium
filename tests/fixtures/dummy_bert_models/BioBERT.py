@@ -1,6 +1,4 @@
-import os
 import pandas as pd
-import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.optim import AdamW
@@ -252,7 +250,7 @@ class BioBERTTrainer:
         print("🧪 Testing on held-out test set...")
         print(f"{'='*60}")
         test_metrics = self.evaluate(test_loader, "Test")
-        print(f"\n📊 Test Results:")
+        print("\n📊 Test Results:")
         print(f"   Accuracy: {test_metrics['accuracy']:.4f}")
         print(f"   Precision: {test_metrics['precision']:.4f}")
         print(f"   Recall: {test_metrics['recall']:.4f}")

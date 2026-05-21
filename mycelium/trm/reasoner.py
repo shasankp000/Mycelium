@@ -190,8 +190,6 @@ class TRMReasoner(nn.Module):
         Returns TRMOutput.
         """
         cfg = self.cfg
-        device = token_ids.device
-
         # Build x and y0
         x  = self.query_embedder(token_ids, spectral_vec, predicate_family_id)
         y  = self.answer_embedder(initial_domain_probs)

@@ -1,10 +1,6 @@
 import pandas as pd
 import os
 import pickle
-from sklearn.model_selection import train_test_split
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.svm import LinearSVC
-from sklearn.metrics import classification_report, accuracy_score
 
 csv_path = os.path.join(os.path.dirname(__file__), "physics_data.csv")
 df = pd.read_csv(csv_path)

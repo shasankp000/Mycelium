@@ -11,23 +11,18 @@ import pickle
 import pandas as pd
 import numpy as np
 import os
+import threading as _threading
+import pathlib as _pathlib
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.model_selection import train_test_split
 from sklearn.calibration import CalibratedClassifierCV
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, classification_report, brier_score_loss, log_loss
+from sklearn.metrics import brier_score_loss
 from sklearn.preprocessing import LabelEncoder
-from sklearn.neighbors import LocalOutlierFactor, NearestNeighbors
+from sklearn.neighbors import NearestNeighbors
 from sklearn.ensemble import IsolationForest
-from sklearn.covariance import EllipticEnvelope
 import warnings
 warnings.filterwarnings('ignore', category=UserWarning, module='sklearn')
-
-from mycelium.core.types import ExpertDecisionResult, RoutingResult
-
-import threading as _threading
-import pathlib as _pathlib
 
 
 class _ExpertLRUCache:
@@ -263,7 +258,6 @@ class UnifiedExpert:
             X_train, X_val, y_train, y_val = train_test_split(
                 X_temp, y_temp, test_size=val_size, random_state=42, stratify=y_temp
             )
-            X_train_tfidf = self.vectorizer.transform(X_train)
             X_val_tfidf = self.vectorizer.transform(X_val)
             X_test_tfidf = self.vectorizer.transform(X_test)
             self.calibrated_model = CalibratedClassifierCV(self.model, method='isotonic')
@@ -384,7 +378,7 @@ class UnifiedExpert:
                 return 1 - brier
             else:
                 return 0.5
-        except:
+        except Exception:
             return 0.5
 
     def calculate_similarity_to_centroid(self, text, model_name="all-MiniLM-L6-v2"):

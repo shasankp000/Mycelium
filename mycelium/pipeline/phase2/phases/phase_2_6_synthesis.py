@@ -22,7 +22,7 @@ Example:
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
@@ -35,7 +35,6 @@ from mycelium.pipeline.phase2.phases.phase_2_5_calibration import (
 )
 from mycelium.pipeline.phase2.utils.semantic_types import (
     ExpertSelectionResult,
-    RankedExpert,
     SemanticResult,
 )
 

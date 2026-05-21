@@ -52,7 +52,7 @@ from concurrent.futures import (
     ThreadPoolExecutor,
     TimeoutError as FuturesTimeoutError,
 )
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import Any, Dict, Tuple
 
 from mycelium.pipeline.expert_post_check.trm_adapter import TRMAdapter, ReasoningResult

@@ -38,7 +38,7 @@ import copy
 import logging
 import math
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Optional
+from typing import Dict, Optional
 
 import torch
 import torch.nn as nn

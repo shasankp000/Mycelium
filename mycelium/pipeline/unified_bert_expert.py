@@ -346,7 +346,7 @@ class UnifiedBERTExpert(UnifiedExpert):
             pickle.dump(calibration_metrics, f)
         self.calibration_score = accuracy
         self.calibration_metrics = calibration_metrics
-        print(f"   \u2705 Calibration computed and cached")
+        print("   \u2705 Calibration computed and cached")
         print(f"   Validation accuracy: {accuracy:.4f}, F1: {f1:.4f}")
         print(f"   Fingerprint: {model_fingerprint['composite_hash']}")
         print("   \U0001f4be Unloading model to save memory (will lazy-load when needed)")

@@ -4,9 +4,7 @@ BERT-based Physics Expert Training - Phase 1
 Fine-tunes a BERT model for physics domain classification and understanding
 """
 
-import os
 import pandas as pd
-import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.optim import AdamW
@@ -323,7 +321,7 @@ class PhysicsBERTTrainer:
         
         test_metrics = self.evaluate(test_loader, "Test")
         
-        print(f"\n📊 Test Results:")
+        print("\n📊 Test Results:")
         print(f"   Accuracy: {test_metrics['accuracy']:.4f}")
         print(f"   Precision: {test_metrics['precision']:.4f}")
         print(f"   Recall: {test_metrics['recall']:.4f}")
@@ -398,7 +396,7 @@ def main():
     trainer.initialize_model()
     
     # Train
-    history = trainer.train(
+    trainer.train(
         train_loader,
         val_loader,
         epochs=EPOCHS,
@@ -406,7 +404,7 @@ def main():
     )
     
     # Test
-    test_metrics = trainer.test_model(test_loader)
+    trainer.test_model(test_loader)
     
     print("\n" + "="*60)
     print("🎉 Training complete!")

@@ -14,8 +14,7 @@ All architectural choices are justified by ablation results in the paper:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import List
+from dataclasses import dataclass
 
 
 @dataclass

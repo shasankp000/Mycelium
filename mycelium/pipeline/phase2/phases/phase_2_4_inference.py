@@ -30,7 +30,6 @@ import numpy as np
 
 from mycelium.pipeline.phase2.config.phase2_config import Phase2Config
 from mycelium.pipeline.phase2.utils.semantic_types import (
-    ExpertPrediction,
     PredictionStatistics,
     RankedExpert,
 )

@@ -8,7 +8,6 @@ from phase2_validation.phases.phase_2_4_inference import (
 )
 from phase2_validation.phases.phase_2_5_calibration import (
     BayesianAggregator,
-    CalibrationError,
     CalibrationMetrics,
     CalibrationPipeline,
     CalibrationResult,

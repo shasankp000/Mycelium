@@ -2,7 +2,6 @@
 Tests for the validation utilities.
 """
 
-import pytest
 
 from phase2_validation.utils.validators import (
     InputValidator,

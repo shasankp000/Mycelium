@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import Dict, Optional
+from typing import Dict
 
 from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.responses import JSONResponse

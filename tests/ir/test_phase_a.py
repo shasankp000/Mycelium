@@ -13,7 +13,6 @@ Additional tests aligned with consolidation notes:
     7. graph_fingerprint hashes are stable across two identical graphs
 """
 
-import json
 from dataclasses import asdict
 
 import pytest

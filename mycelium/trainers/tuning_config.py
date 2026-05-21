@@ -102,5 +102,5 @@ if __name__ == "__main__":
     print(f"\nENABLE_ATTRIBUTE_OVERRIDE        : {ENABLE_ATTRIBUTE_OVERRIDE}")
     print(f"ENABLE_LOGGING                   : {ENABLE_LOGGING}")
     print(f"LOG_SAMPLE_RATE                  : {LOG_SAMPLE_RATE}")
-    print(f"\n\u2705 Configuration validated successfully")
+    print("\n\u2705 Configuration validated successfully")
     print("=" * 80)

@@ -38,8 +38,6 @@ from .primitives import (
     GraphFingerprint,
 )
 from .graph import IRNode, IREdge, IRGraph
-from .leverage import LeverageEdge
-from .contradiction import ContradictionEdge
 
 
 # ---------------------------------------------------------------------------

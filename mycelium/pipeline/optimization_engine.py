@@ -22,7 +22,7 @@ from typing import Dict, List, Tuple
 import sys
 
 try:
-    from mycelium.pipeline.tuning_config import (
+    from mycelium.trainers.tuning_config import (
         COVERAGE_THRESHOLD,
         MAX_EXPERTS,
         SOFT_STOP_PERCENTAGE,

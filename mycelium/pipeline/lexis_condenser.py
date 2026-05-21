@@ -22,8 +22,6 @@ are intentionally NOT used here – they produce binary output unsuitable for LL
 from __future__ import annotations
 
 import subprocess
-import tempfile
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from mycelium.pipeline.lexis_bridge import LEXIS_MAIN, LEXIS_PYTHON, _check_paths

@@ -1,6 +1,5 @@
 """Tests for Phase 3.1 — Action Executor components."""
 
-import pytest
 
 from phase3_validation.config.phase3_config import Phase3Config
 from phase3_validation.phases.phase_3_1_action_executor import (
@@ -9,7 +8,6 @@ from phase3_validation.phases.phase_3_1_action_executor import (
     ExistingExpertRouter,
     ExpertPatchCreator,
     NewExpertCreator,
-    ActionExecutionError,
 )
 from phase3_validation.utils.types import (
     ActionResult,

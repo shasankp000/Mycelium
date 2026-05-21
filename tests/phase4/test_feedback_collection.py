@@ -12,7 +12,6 @@ from phase3_validation.phases.phase_4_1_feedback_collector import (
     FeedbackCollectionPipeline,
     FeedbackAggregator,
     PerformanceMetricsCompute,
-    FeedbackCollectionError,
 )
 from phase3_validation.utils.types import (
     AggregatedFeedback,

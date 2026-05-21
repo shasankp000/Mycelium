@@ -10,7 +10,6 @@ Consolidation Notes gate tests (§16, §46):
   5. predicate_family fallback is CORRELATIONAL for unknown predicates
 """
 
-import pytest
 
 from mycelium.canonicalization import (
     classify_predicate_family,

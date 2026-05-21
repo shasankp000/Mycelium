@@ -12,7 +12,6 @@ Tests the complete workflow:
 """
 
 import json
-import torch
 from unified_expert_system import UnifiedExpertSystem
 from expert_filter import ExpertFilter
 from layer_1_prototype import extract_tags_llama, normalize_tags

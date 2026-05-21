@@ -41,6 +41,7 @@ import logging
 from typing import Any, Dict, Optional
 
 from mycelium.core.types import RoutingResult
+from .ir_bridge import IRBridge
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
@@ -54,8 +55,6 @@ try:
 except ImportError:
     MultiLensRouter = None  # type: ignore[assignment,misc]
     _ROUTER_AVAILABLE = False
-
-from .ir_bridge import IRBridge
 
 
 class SemanticRouter:
