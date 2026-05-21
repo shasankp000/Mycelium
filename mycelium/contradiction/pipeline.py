@@ -47,6 +47,7 @@ logger.addHandler(logging.NullHandler())
 
 try:
     from mycelium.trm.promotion import PromotionPolicy
+
     _TRM_THRESHOLD = PromotionPolicy.THRESHOLDS["contradiction_severity"]
 except Exception:
     _TRM_THRESHOLD = 0.4  # fallback
@@ -113,9 +114,8 @@ class PhaseEPipeline:
         self._trm = trm_engine
         self._clf = ContradictionClassifier(embedding_fn=embedding_fn)
         self._prop = LeveragePropagator(
-            graph_store=graph_store or (
-                trm_engine.store if trm_engine is not None else None
-            ),
+            graph_store=graph_store
+            or (trm_engine.store if trm_engine is not None else None),
         )
 
     def run(
@@ -157,13 +157,14 @@ class PhaseEPipeline:
         -------
         ContradictionReport
         """
-        now = datetime.datetime.utcnow().isoformat() + "Z"
+        now = datetime.datetime.now(datetime.UTC).isoformat()
 
         # Step 8: classify
         classification = self._clf.classify(node_a, node_b)
         logger.debug(
             "PhaseEPipeline: classified %s vs %s → %s (severity=%.2f)",
-            node_a.id, node_b.id,
+            node_a.id,
+            node_b.id,
             classification.contradiction_type,
             classification.severity,
         )
@@ -171,10 +172,7 @@ class PhaseEPipeline:
         trm_contested = False
 
         # Step 9a: TRM contestation if threshold met
-        if (
-            self._trm is not None
-            and classification.severity >= _TRM_THRESHOLD
-        ):
+        if self._trm is not None and classification.severity >= _TRM_THRESHOLD:
             try:
                 # Build a ContradictionEdge-compatible object for TRMEngine
                 ce = _ContradictionEdgeProxy(
@@ -190,7 +188,8 @@ class PhaseEPipeline:
                 trm_contested = True
                 logger.debug(
                     "PhaseEPipeline: TRM contested %s and %s",
-                    source_graph.graph_id, target_graph.graph_id,
+                    source_graph.graph_id,
+                    target_graph.graph_id,
                 )
             except Exception as exc:
                 logger.warning("PhaseEPipeline: TRM contestation failed: %s", exc)
@@ -234,8 +233,12 @@ class _ContradictionEdgeProxy:
     """
 
     __slots__ = (
-        "type", "severity", "confidence", "scope",
-        "source_graph_id", "target_graph_id",
+        "type",
+        "severity",
+        "confidence",
+        "scope",
+        "source_graph_id",
+        "target_graph_id",
     )
 
     def __init__(self, **kwargs: Any) -> None:

@@ -41,14 +41,14 @@ logger.addHandler(logging.NullHandler())
 # Domain-specific decay rates (per-inference-cycle).
 # Lower = slower decay = more stable claim type.
 DOMAIN_DECAY_RATES: Dict[str, float] = {
-    "CAUSAL":        0.05,   # causal claims: evidence-backed, stable
-    "CORRELATIONAL": 0.10,   # correlations: softer evidence, faster decay
-    "TEMPORAL":      0.20,   # temporal claims: time-sensitive, fastest decay
-    "DEFINITIONAL":  0.02,   # definitions: near-permanent
-    "COMPARATIVE":   0.08,   # comparisons: moderately stable
-    "HIERARCHICAL":  0.03,   # taxonomy: rarely changes
-    "ADVERSARIAL":   0.15,   # contested claims: decay under scrutiny
-    "PROCEDURAL":    0.07,   # procedures: moderately stable
+    "CAUSAL": 0.05,  # causal claims: evidence-backed, stable
+    "CORRELATIONAL": 0.10,  # correlations: softer evidence, faster decay
+    "TEMPORAL": 0.20,  # temporal claims: time-sensitive, fastest decay
+    "DEFINITIONAL": 0.02,  # definitions: near-permanent
+    "COMPARATIVE": 0.08,  # comparisons: moderately stable
+    "HIERARCHICAL": 0.03,  # taxonomy: rarely changes
+    "ADVERSARIAL": 0.15,  # contested claims: decay under scrutiny
+    "PROCEDURAL": 0.07,  # procedures: moderately stable
 }
 
 DEFAULT_DECAY_RATE: float = 0.10  # used for unknown/unmapped families
@@ -102,9 +102,7 @@ class OntologyGovernor:
             "OntologyGovernor: custom rate set %s=%.4f", predicate_family, rate
         )
 
-    def stability_after_cycles(
-        self, predicate_family: str, n_cycles: int
-    ) -> float:
+    def stability_after_cycles(self, predicate_family: str, n_cycles: int) -> float:
         """Compute leverage stability after n inference cycles.
 
         stability_n = 1.0 * (1 - decay_rate)^n
@@ -151,18 +149,14 @@ class OntologyGovernor:
         self._version = new_version
         entry = (new_version, _now(), reason)
         self._version_history.append(entry)
-        logger.info(
-            "OntologyGovernor: version bumped to %s — %s", new_version, reason
-        )
+        logger.info("OntologyGovernor: version bumped to %s — %s", new_version, reason)
         return new_version
 
     def version_history(self) -> List[Tuple[str, str, str]]:
         """Return full version history as list of (version, timestamp, reason)."""
         return list(self._version_history)
 
-    def graphs_needing_migration(
-        self, graph_store: any
-    ) -> List[str]:
+    def graphs_needing_migration(self, graph_store: any) -> List[str]:
         """Return graph_ids whose ontology_version is older than current.
 
         Parameters
@@ -190,8 +184,9 @@ class OntologyGovernor:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _now() -> str:
-    return datetime.datetime.utcnow().isoformat() + "Z"
+    return datetime.datetime.now(datetime.UTC).isoformat()
 
 
 def _auto_increment(version: str) -> str:

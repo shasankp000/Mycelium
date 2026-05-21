@@ -106,9 +106,7 @@ class ValidationResultClassifier:
             layer1_result.contradiction_detected
             and layer1_result.severity == "CRITICAL"
         ):
-            return self._build_complete_failure(
-                layer1_result, original_decision
-            )
+            return self._build_complete_failure(layer1_result, original_decision)
 
         # Other paths (major_failure, minor_discrepancy) built in
         # future weeks; for now everything else passes.
@@ -143,9 +141,7 @@ class ValidationResultClassifier:
         failure_info = CompleteFailureInfo(
             original_decision=original_decision,
             failure_reason=layer1_result.reason,
-            affected_layers=list(
-                range(1, self.config.total_reasoning_layers + 1)
-            ),
+            affected_layers=list(range(1, self.config.total_reasoning_layers + 1)),
             recommended_action="rerun_full_pipeline",
             retry_count=0,
             max_retries=self.config.max_retries,
@@ -224,9 +220,7 @@ class CompleteFailureHandler:
     def __init__(
         self,
         config: Optional[ValidationConfig] = None,
-        pipeline_fn: Optional[
-            Callable[..., Any]
-        ] = None,
+        pipeline_fn: Optional[Callable[..., Any]] = None,
     ) -> None:
         """Initialise the handler.
 
@@ -241,9 +235,7 @@ class CompleteFailureHandler:
         self.config = config or ValidationConfig()
         self.pipeline_fn = pipeline_fn
         self.analyzer = ContradictionAnalyzer(config=self.config)
-        self.classifier = ValidationResultClassifier(
-            config=self.config
-        )
+        self.classifier = ValidationResultClassifier(config=self.config)
         self._retry_count: int = 0
 
     # ------------------------------------------------------------------
@@ -308,13 +300,10 @@ class CompleteFailureHandler:
 
         if self._retry_count >= self.config.max_retries:
             logger.error(
-                "CompleteFailureHandler: max retries (%d) reached; "
-                "escalating failure.",
+                "CompleteFailureHandler: max retries (%d) reached; escalating failure.",
                 self.config.max_retries,
             )
-            return self._build_max_retries_exceeded(
-                validation_decision
-            )
+            return self._build_max_retries_exceeded(validation_decision)
 
         self._retry_count += 1
         failure_info.retry_count = self._retry_count
@@ -336,15 +325,11 @@ class CompleteFailureHandler:
                 "CompleteFailureHandler: pipeline re-run failed: %s",
                 exc,
             )
-            return self._build_pipeline_error(
-                validation_decision, str(exc)
-            )
+            return self._build_pipeline_error(validation_decision, str(exc))
 
         # Re-validate the new decision
         new_layer1 = self._revalidate(new_decision)
-        new_val_decision = self.classifier.classify(
-            new_layer1, new_decision
-        )
+        new_val_decision = self.classifier.classify(new_layer1, new_decision)
 
         if new_val_decision.result_class == "complete_failure":
             logger.warning(
@@ -354,12 +339,8 @@ class CompleteFailureHandler:
             )
             # Preserve original request for next retry
             if new_val_decision.failure_info:
-                new_val_decision.failure_info.original_decision = (
-                    original
-                )
-                new_val_decision.failure_info.retry_count = (
-                    self._retry_count
-                )
+                new_val_decision.failure_info.original_decision = original
+                new_val_decision.failure_info.retry_count = self._retry_count
 
         return new_val_decision
 
@@ -454,9 +435,11 @@ class CompleteFailureHandler:
         """
         if decision is None:
             return ""
-        return getattr(decision, "original_text", "") or getattr(
-            decision, "decision", ""
-        ) or ""
+        return (
+            getattr(decision, "original_text", "")
+            or getattr(decision, "decision", "")
+            or ""
+        )
 
     @staticmethod
     def _extract_answer(decision: Any) -> str:
@@ -473,6 +456,10 @@ class CompleteFailureHandler:
         answer = getattr(decision, "final_decision", None)
         if answer:
             return str(answer)
+        metadata = getattr(decision, "metadata", {}) or {}
+        meta_answer = metadata.get("final_decision") or metadata.get("decision")
+        if meta_answer:
+            return str(meta_answer)
         pred = getattr(decision, "aggregated_prediction", None)
         if pred:
             return str(pred)
@@ -490,7 +477,10 @@ class CompleteFailureHandler:
         """
         if decision is None:
             return []
-        chain = getattr(decision, "reasoning_chain", None) or []
+        chain = getattr(decision, "reasoning_chain", None)
+        if not chain:
+            metadata = getattr(decision, "metadata", {}) or {}
+            chain = metadata.get("reasoning_chain", []) or []
         steps: List[str] = []
         for item in chain:
             if isinstance(item, dict):
@@ -524,12 +514,15 @@ class CompleteFailureHandler:
         ev = action_details.get("evidence", [])
         if isinstance(ev, list):
             evidence.extend(str(e) for e in ev)
+        if not evidence:
+            metadata = getattr(decision, "metadata", {}) or {}
+            meta_ev = metadata.get("evidence", [])
+            if isinstance(meta_ev, list):
+                evidence.extend(str(e) for e in meta_ev)
 
         # Fall back to expert predictions as evidence
         if not evidence:
-            predictions = (
-                getattr(decision, "expert_predictions", {}) or {}
-            )
+            predictions = getattr(decision, "expert_predictions", {}) or {}
             for expert, pred in predictions.items():
                 if isinstance(pred, dict):
                     ev_val = pred.get("prediction", "")
@@ -563,16 +556,11 @@ class CompleteFailureHandler:
             confidence=0.0,
             layer1_result=decision.layer1_result,
             failure_info=CompleteFailureInfo(
-                original_decision=(
-                    fi.original_decision if fi else None
-                ),
+                original_decision=(fi.original_decision if fi else None),
                 failure_reason=(
-                    (fi.failure_reason if fi else "")
-                    + " [max_retries_exceeded]"
+                    (fi.failure_reason if fi else "") + " [max_retries_exceeded]"
                 ),
-                affected_layers=(
-                    fi.affected_layers if fi else list(range(1, 7))
-                ),
+                affected_layers=(fi.affected_layers if fi else list(range(1, 7))),
                 recommended_action="escalate_to_human_review",
                 retry_count=self._retry_count,
                 max_retries=self.config.max_retries,
@@ -597,21 +585,13 @@ class CompleteFailureHandler:
         return ValidationDecision(
             result_class="complete_failure",
             action="escalate",
-            next_step=(
-                f"Pipeline re-run failed ({error_msg}); escalate"
-            ),
+            next_step=(f"Pipeline re-run failed ({error_msg}); escalate"),
             confidence=0.0,
             layer1_result=decision.layer1_result,
             failure_info=CompleteFailureInfo(
-                original_decision=(
-                    fi.original_decision if fi else None
-                ),
-                failure_reason=(
-                    f"pipeline_rerun_error: {error_msg}"
-                ),
-                affected_layers=(
-                    fi.affected_layers if fi else list(range(1, 7))
-                ),
+                original_decision=(fi.original_decision if fi else None),
+                failure_reason=(f"pipeline_rerun_error: {error_msg}"),
+                affected_layers=(fi.affected_layers if fi else list(range(1, 7))),
                 recommended_action="escalate_to_human_review",
                 retry_count=self._retry_count,
                 max_retries=self.config.max_retries,
@@ -650,9 +630,7 @@ class ValidationOrchestrator:
         """
         self.config = config or ValidationConfig()
         self.analyzer = ContradictionAnalyzer(config=self.config)
-        self.classifier = ValidationResultClassifier(
-            config=self.config
-        )
+        self.classifier = ValidationResultClassifier(config=self.config)
         self.handler = CompleteFailureHandler(
             config=self.config,
             pipeline_fn=pipeline_fn,
@@ -679,25 +657,17 @@ class ValidationOrchestrator:
         start = time.perf_counter()
         logger.info("ValidationOrchestrator.validate() started")
 
-        answer = CompleteFailureHandler._extract_answer(
-            final_decision
-        )
+        answer = CompleteFailureHandler._extract_answer(final_decision)
         steps = CompleteFailureHandler._extract_steps(final_decision)
-        evidence = CompleteFailureHandler._extract_evidence(
-            final_decision
-        )
+        evidence = CompleteFailureHandler._extract_evidence(final_decision)
 
         layer1_result = self.analyzer.analyze(answer, steps, evidence)
-        validation_decision = self.classifier.classify(
-            layer1_result, final_decision
-        )
+        validation_decision = self.classifier.classify(layer1_result, final_decision)
 
         if validation_decision.result_class == "complete_failure":
             # Reset retry counter for fresh handling
             self.handler.reset_retry_count()
-            validation_decision = self.handler.handle(
-                validation_decision
-            )
+            validation_decision = self.handler.handle(validation_decision)
 
         elapsed = (time.perf_counter() - start) * 1000.0
         logger.info(

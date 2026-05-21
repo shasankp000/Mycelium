@@ -12,9 +12,9 @@ Tests the complete workflow:
 """
 
 import json
-from unified_expert_system import UnifiedExpertSystem
-from expert_filter import ExpertFilter
-from layer_1_prototype import extract_tags_llama, normalize_tags
+from mycelium.pipeline.unified_expert_system import UnifiedExpertSystem
+from mycelium.pipeline.expert_filter import ExpertFilter
+from mycelium.pipeline.layer1_router import extract_tags_llama, normalize_tags
 import datetime
 
 import pytest

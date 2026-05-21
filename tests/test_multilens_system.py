@@ -30,16 +30,8 @@ import time
 import statistics
 from typing import Any
 
-try:
-    from multi_lens_router import MultiLensRouter
-except ImportError as e:
-    print(f"Error importing MultiLensRouter: {e}")
-    sys.exit(1)
-
-try:
-    from core.types import RoutingResult
-except ImportError:
-    RoutingResult = None  # type: ignore
+from mycelium.pipeline.multi_lens_router import MultiLensRouter
+from mycelium.core.types import RoutingResult
 
 
 def _is_routing_mapping(result: Any) -> bool:
@@ -69,13 +61,31 @@ class TestSingleDomainRouting(unittest.TestCase):
     def test_astronomy_single_domain(self):
         result = self.router.route("Earth orbits the Sun")
         self.assertTrue(_is_routing_mapping(result))
-        self.assertIn(_get_field(result, "classification"), ["SINGLE_DOMAIN", "NORMAL", "NO_EXPERT_AVAILABLE", "AMBIGUOUS", "ATTRIBUTE_ONLY"])
+        self.assertIn(
+            _get_field(result, "classification"),
+            [
+                "SINGLE_DOMAIN",
+                "NORMAL",
+                "NO_EXPERT_AVAILABLE",
+                "AMBIGUOUS",
+                "ATTRIBUTE_ONLY",
+            ],
+        )
         self.assertIsInstance(_get_field(result, "selected_experts", []), list)
         self.assertIsNotNone(_get_field(result, "coverage_met"))
 
     def test_biology_single_domain(self):
         result = self.router.route("Photosynthesis occurs in plants")
-        self.assertIn(_get_field(result, "classification"), ["SINGLE_DOMAIN", "NORMAL", "NO_EXPERT_AVAILABLE", "AMBIGUOUS", "ATTRIBUTE_ONLY"])
+        self.assertIn(
+            _get_field(result, "classification"),
+            [
+                "SINGLE_DOMAIN",
+                "NORMAL",
+                "NO_EXPERT_AVAILABLE",
+                "AMBIGUOUS",
+                "ATTRIBUTE_ONLY",
+            ],
+        )
         self.assertIsInstance(_get_field(result, "selected_experts", []), list)
         self.assertIsNotNone(_get_field(result, "coverage_met"))
 
@@ -87,19 +97,37 @@ class TestMultiDomainRouting(unittest.TestCase):
 
     def test_automobile_multi_domain(self):
         result = self.router.route("Red car with 700cc engine")
-        self.assertIn(_get_field(result, "classification"), ["MULTI_DOMAIN", "AMBIGUOUS", "SINGLE_DOMAIN", "NORMAL"])
+        self.assertIn(
+            _get_field(result, "classification"),
+            ["MULTI_DOMAIN", "AMBIGUOUS", "SINGLE_DOMAIN", "NORMAL"],
+        )
         self.assertIsInstance(_get_field(result, "candidate_domains", []), list)
 
     def test_medical_physics_multi_domain(self):
         result = self.router.route("Medical ultrasound uses physics principles")
-        self.assertIn(_get_field(result, "classification"), ["MULTI_DOMAIN", "AMBIGUOUS", "SINGLE_DOMAIN", "NORMAL", "NO_EXPERT_AVAILABLE", "ATTRIBUTE_ONLY"])
+        self.assertIn(
+            _get_field(result, "classification"),
+            [
+                "MULTI_DOMAIN",
+                "AMBIGUOUS",
+                "SINGLE_DOMAIN",
+                "NORMAL",
+                "NO_EXPERT_AVAILABLE",
+                "ATTRIBUTE_ONLY",
+            ],
+        )
 
     def test_deterministic_multi_domain(self):
         text = "Red car with 700cc engine"
         r1 = self.router.route(text)
         r2 = self.router.route(text)
-        self.assertEqual(_get_field(r1, "classification"), _get_field(r2, "classification"))
-        self.assertEqual(_get_field(r1, "selected_experts", []), _get_field(r2, "selected_experts", []))
+        self.assertEqual(
+            _get_field(r1, "classification"), _get_field(r2, "classification")
+        )
+        self.assertEqual(
+            _get_field(r1, "selected_experts", []),
+            _get_field(r2, "selected_experts", []),
+        )
         self.assertEqual(_get_field(r1, "variance"), _get_field(r2, "variance"))
 
 
@@ -110,11 +138,17 @@ class TestAttributeOnlyDetection(unittest.TestCase):
 
     def test_color_finish_attribute(self):
         result = self.router.route("Glossy metallic red finish")
-        self.assertIn(_get_field(result, "classification"), ["ATTRIBUTE_ONLY", "SINGLE_DOMAIN", "NO_EXPERT_AVAILABLE", "AMBIGUOUS"])
+        self.assertIn(
+            _get_field(result, "classification"),
+            ["ATTRIBUTE_ONLY", "SINGLE_DOMAIN", "NO_EXPERT_AVAILABLE", "AMBIGUOUS"],
+        )
 
     def test_performance_attribute(self):
         result = self.router.route("High torque low noise")
-        self.assertIn(_get_field(result, "classification"), ["ATTRIBUTE_ONLY", "SINGLE_DOMAIN", "NO_EXPERT_AVAILABLE", "AMBIGUOUS"])
+        self.assertIn(
+            _get_field(result, "classification"),
+            ["ATTRIBUTE_ONLY", "SINGLE_DOMAIN", "NO_EXPERT_AVAILABLE", "AMBIGUOUS"],
+        )
 
 
 class TestNoExpertScenario(unittest.TestCase):
@@ -134,7 +168,9 @@ class TestBackwardCompatibility(unittest.TestCase):
     def test_disable_multi_lens(self):
         router = MultiLensRouter(use_multi_lens=False, use_spectral=False)
         result = router.route("Earth orbits the Sun")
-        self.assertIn(_get_field(result, "classification"), ["NORMAL", "ATTRIBUTE_ONLY"])
+        self.assertIn(
+            _get_field(result, "classification"), ["NORMAL", "ATTRIBUTE_ONLY"]
+        )
 
     def test_disable_spectral_only(self):
         router = MultiLensRouter(use_multi_lens=True, use_spectral=False)
@@ -180,13 +216,24 @@ class TestDeterminism(unittest.TestCase):
         text = "Red sports car with turbocharged engine"
         results = [self.router.route(text) for _ in range(5)]
         for i in range(1, 5):
-            self.assertEqual(_get_field(results[0], "classification"), _get_field(results[i], "classification"))
-            self.assertEqual(_get_field(results[0], "selected_experts", []), _get_field(results[i], "selected_experts", []))
-            self.assertEqual(_get_field(results[0], "variance"), _get_field(results[i], "variance"))
+            self.assertEqual(
+                _get_field(results[0], "classification"),
+                _get_field(results[i], "classification"),
+            )
+            self.assertEqual(
+                _get_field(results[0], "selected_experts", []),
+                _get_field(results[i], "selected_experts", []),
+            )
+            self.assertEqual(
+                _get_field(results[0], "variance"), _get_field(results[i], "variance")
+            )
 
     def test_deterministic_ordering(self):
         text = "Medical imaging uses physics and engineering"
-        results = [_get_field(self.router.route(text), "selected_experts", []) for _ in range(3)]
+        results = [
+            _get_field(self.router.route(text), "selected_experts", [])
+            for _ in range(3)
+        ]
         self.assertEqual(results[0], results[1])
         self.assertEqual(results[0], results[2])
 
@@ -198,10 +245,16 @@ class TestPerformance(unittest.TestCase):
 
     def test_routing_performance(self):
         inputs = [
-            "Earth orbits the Sun", "Red car with engine", "Glossy metallic finish",
-            "Photosynthesis in plants", "Medical ultrasound imaging", "High torque performance",
-            "Quantum mechanics principles", "Turbocharged sports car",
-            "Stellar evolution theory", "Chemical reaction kinetics",
+            "Earth orbits the Sun",
+            "Red car with engine",
+            "Glossy metallic finish",
+            "Photosynthesis in plants",
+            "Medical ultrasound imaging",
+            "High torque performance",
+            "Quantum mechanics principles",
+            "Turbocharged sports car",
+            "Stellar evolution theory",
+            "Chemical reaction kinetics",
         ]
         times = []
         for text in inputs:
@@ -230,9 +283,16 @@ class TestPerformance(unittest.TestCase):
 if __name__ == "__main__":
     loader = unittest.TestLoader()
     suite = unittest.TestSuite()
-    for cls in [TestSingleDomainRouting, TestMultiDomainRouting, TestAttributeOnlyDetection,
-                TestNoExpertScenario, TestBackwardCompatibility, TestGracefulDegradation,
-                TestDeterminism, TestPerformance]:
+    for cls in [
+        TestSingleDomainRouting,
+        TestMultiDomainRouting,
+        TestAttributeOnlyDetection,
+        TestNoExpertScenario,
+        TestBackwardCompatibility,
+        TestGracefulDegradation,
+        TestDeterminism,
+        TestPerformance,
+    ]:
         suite.addTests(loader.loadTestsFromTestCase(cls))
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)

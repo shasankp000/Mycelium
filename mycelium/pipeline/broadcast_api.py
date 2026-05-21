@@ -4,7 +4,7 @@ import time
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Any, Dict, Generator, List, Optional
 
 import requests as _requests
@@ -174,7 +174,7 @@ def _build_run_summary(
     )
 
     metrics_summary = metrics_to_summary(metrics)
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
 
     return MyceliumRunSummary(
         trace_id=trace_id,
@@ -202,7 +202,7 @@ def _run_sandbox(
         logger.warning("Sandbox run failed — %s", exc)
         from mycelium.pipeline.sandbox_models import SandboxResult
 
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         return SandboxResult(
             trace_id=summary.trace_id,
             started_at=now,

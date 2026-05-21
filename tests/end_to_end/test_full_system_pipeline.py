@@ -1,9 +1,8 @@
 """End-to-end tests for the full Phase 3-5 system pipeline."""
 
-
-from phase3_validation.config.phase3_config import Phase3Config
-from phase3_validation.pipeline import Phase3To5Pipeline
-from phase3_validation.utils.types import (
+from mycelium.pipeline.phase3.config.phase3_config import Phase3Config
+from mycelium.pipeline.phase3.pipeline import Phase3To5Pipeline
+from mycelium.pipeline.phase3.utils.types import (
     FeedbackData,
     FinalDecisionResult,
     SystemExecutionResult,
@@ -13,8 +12,10 @@ from phase3_validation.utils.types import (
 def _make_decision(action="use_existing", domain="medical"):
     return FinalDecisionResult(
         decision="Use existing medical expert",
-        confidence=0.85, reasoning="High domain match",
-        action=action, expert_name="expert_medical",
+        confidence=0.85,
+        reasoning="High domain match",
+        action=action,
+        expert_name="expert_medical",
         domain=domain,
     )
 
@@ -24,31 +25,23 @@ class TestFullSystemPipeline:
         self.pipeline = Phase3To5Pipeline()
 
     def test_complete_flow_use_existing(self):
-        result = self.pipeline.run_complete_pipeline(
-            _make_decision("use_existing")
-        )
+        result = self.pipeline.run_complete_pipeline(_make_decision("use_existing"))
         assert isinstance(result, SystemExecutionResult)
         assert result.success is True
         assert result.action_result is not None
 
     def test_complete_flow_create_new(self):
-        result = self.pipeline.run_complete_pipeline(
-            _make_decision("create_new")
-        )
+        result = self.pipeline.run_complete_pipeline(_make_decision("create_new"))
         assert isinstance(result, SystemExecutionResult)
         assert result.success is True
 
     def test_complete_flow_create_patch(self):
-        result = self.pipeline.run_complete_pipeline(
-            _make_decision("create_patch")
-        )
+        result = self.pipeline.run_complete_pipeline(_make_decision("create_patch"))
         assert isinstance(result, SystemExecutionResult)
         assert result.success is True
 
     def test_feedback_data_collected(self):
-        result = self.pipeline.run_complete_pipeline(
-            _make_decision()
-        )
+        result = self.pipeline.run_complete_pipeline(_make_decision())
         assert result.feedback_data is not None
         assert isinstance(result.feedback_data, FeedbackData)
 
@@ -59,24 +52,18 @@ class TestFullSystemPipeline:
         assert result.success is True
 
     def test_with_user_rating(self):
-        result = self.pipeline.run_complete_pipeline(
-            _make_decision(), user_rating=4.5
-        )
+        result = self.pipeline.run_complete_pipeline(_make_decision(), user_rating=4.5)
         assert result.success is True
 
     def test_pipeline_metrics(self):
-        self.pipeline.run_complete_pipeline(
-            _make_decision()
-        )
+        self.pipeline.run_complete_pipeline(_make_decision())
         metrics = self.pipeline.get_pipeline_metrics()
         assert isinstance(metrics, dict)
         assert metrics["execution_count"] == 1
 
     def test_multiple_executions(self):
         for _ in range(3):
-            self.pipeline.run_complete_pipeline(
-                _make_decision()
-            )
+            self.pipeline.run_complete_pipeline(_make_decision())
         metrics = self.pipeline.get_pipeline_metrics()
         assert metrics["execution_count"] == 3
         assert metrics["feedback_count"] == 3
@@ -86,21 +73,15 @@ class TestFullSystemPipeline:
         config.min_samples_for_analysis = 3
         pipeline = Phase3To5Pipeline(config=config)
         for _ in range(5):
-            pipeline.run_complete_pipeline(
-                _make_decision()
-            )
+            pipeline.run_complete_pipeline(_make_decision())
         assert pipeline.should_trigger_improvement_cycle()
 
     def test_total_latency_recorded(self):
-        result = self.pipeline.run_complete_pipeline(
-            _make_decision()
-        )
+        result = self.pipeline.run_complete_pipeline(_make_decision())
         assert result.total_latency_ms >= 0
 
     def test_phase_latencies_recorded(self):
-        result = self.pipeline.run_complete_pipeline(
-            _make_decision()
-        )
+        result = self.pipeline.run_complete_pipeline(_make_decision())
         assert isinstance(result.phase_latencies, dict)
 
     def test_run_analysis_and_improvement(self):
@@ -108,9 +89,7 @@ class TestFullSystemPipeline:
         config.min_samples_for_analysis = 3
         pipeline = Phase3To5Pipeline(config=config)
         for _ in range(5):
-            pipeline.run_complete_pipeline(
-                _make_decision()
-            )
+            pipeline.run_complete_pipeline(_make_decision())
         plan = pipeline.run_analysis_and_improvement()
         # May or may not return a plan depending on data
         assert plan is None or hasattr(plan, "plan_id")
@@ -131,9 +110,9 @@ class TestFullSystemPipeline:
                 ]
             },
         )
-        decision.final_decision = "Use existing medical expert"
-        pipeline._validator.analyzer.embedding_gen.generate_embedding = (
-            lambda text: __import__("numpy").zeros(
+        decision.metadata["final_decision"] = "Use existing medical expert"
+        pipeline._validator.analyzer.embedding_gen.generate_embedding = lambda text: (
+            __import__("numpy").zeros(
                 pipeline._validator.analyzer.config.embedding_dim,
                 dtype=__import__("numpy").float32,
             )
@@ -144,7 +123,7 @@ class TestFullSystemPipeline:
         pipeline._validator.analyzer.chain_validator.embedding_gen = (
             pipeline._validator.analyzer.embedding_gen
         )
-        decision.reasoning_chain = [
+        decision.metadata["reasoning_chain"] = [
             {"content": "Quantum wavefunctions describe electrons."},
             {"content": "Entropy increases in closed systems."},
         ]

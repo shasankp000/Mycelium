@@ -28,7 +28,7 @@ Design divergence from impl spec (§B.4):
 from __future__ import annotations
 
 import datetime
-from typing import Optional
+from typing import Optional, Callable
 
 from mycelium.ir.primitives import (
     SemanticSignature,
@@ -63,7 +63,7 @@ class CanonicalizeAndHash:
     def __init__(
         self,
         *,
-        embedding_fn: Optional[callable] = None,
+        embedding_fn: Optional[Callable[[str], list[float]]] = None,
         srl_extractor: Optional[SRLExtractor] = None,
         canonical_generator: Optional[CanonicalFormGenerator] = None,
     ) -> None:
@@ -107,13 +107,15 @@ class CanonicalizeAndHash:
         triples = self.srl.extract(text)
         if not triples:
             # Fallback: treat the whole text as a single opaque claim
-            triples = [SRLTriple(
-                subject=text,
-                predicate="relates to",
-                obj="",
-                raw_sentence=text,
-                confidence=0.3,
-            )]
+            triples = [
+                SRLTriple(
+                    subject=text,
+                    predicate="relates to",
+                    obj="",
+                    raw_sentence=text,
+                    confidence=0.3,
+                )
+            ]
 
         nodes: list[IRNode] = []
         for i, triple in enumerate(triples):
@@ -150,9 +152,7 @@ class CanonicalizeAndHash:
                 type=node_type,
                 label=triple.raw_sentence or text,
                 semantic_signature=placeholder_sig,
-                confidence_state=ConfidenceState(
-                    overall_confidence=triple.confidence
-                ),
+                confidence_state=ConfidenceState(overall_confidence=triple.confidence),
                 temporal_state=TemporalState(type=temporal_type),
                 provenance=ProvenanceChain(
                     sources=[source] if source else [],
@@ -161,7 +161,7 @@ class CanonicalizeAndHash:
                     evidence_nodes=[],
                     ontology_resolution_path=[],
                     worker_threads=["main"],
-                    timestamp=datetime.datetime.utcnow().isoformat() + "Z",
+                    timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
                 ),
             )
 
@@ -182,9 +182,7 @@ class CanonicalizeAndHash:
                 type=node_type,
                 label=triple.raw_sentence or text,
                 semantic_signature=final_sig,
-                confidence_state=ConfidenceState(
-                    overall_confidence=triple.confidence
-                ),
+                confidence_state=ConfidenceState(overall_confidence=triple.confidence),
                 temporal_state=TemporalState(type=temporal_type),
                 provenance=tmp_node.provenance,
             )

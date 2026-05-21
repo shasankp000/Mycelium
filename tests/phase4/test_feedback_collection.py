@@ -6,14 +6,14 @@ FeedbackAggregator, and FeedbackCollectionPipeline.
 
 import pytest
 
-from phase3_validation.config.phase3_config import Phase3Config
-from phase3_validation.phases.phase_4_1_feedback_collector import (
+from mycelium.pipeline.phase3.config.phase3_config import Phase3Config
+from mycelium.pipeline.phase3.phases.phase_4_1_feedback_collector import (
     FeedbackCollector,
     FeedbackCollectionPipeline,
     FeedbackAggregator,
     PerformanceMetricsCompute,
 )
-from phase3_validation.utils.types import (
+from mycelium.pipeline.phase3.utils.types import (
     AggregatedFeedback,
     FeedbackData,
 )

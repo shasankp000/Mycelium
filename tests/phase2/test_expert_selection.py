@@ -4,14 +4,14 @@ Tests for Phase 2.3 — Expert Selection.
 
 import pytest
 
-from phase2_validation.phases.phase_2_3_expert_selection import (
+from mycelium.pipeline.phase2.phases.phase_2_3_expert_selection import (
     ExpertGrouping,
     ExpertPoolFilter,
     ExpertRankingEngine,
     ExpertSelectionPipeline,
     InvalidStrategyError,
 )
-from phase2_validation.utils.semantic_types import (
+from mycelium.pipeline.phase2.utils.semantic_types import (
     ExpertSelectionResult,
     RankedExpert,
     SemanticResult,

@@ -1,13 +1,13 @@
 """Tests for Phase 5.1 Feedback Integrator."""
 
 
-from phase3_validation.phases.phase_5_1_feedback_integrator import (
+from mycelium.pipeline.phase3.phases.phase_5_1_feedback_integrator import (
     ExpertParameterUpdater,
     FeedbackIntegrationPipeline,
     FeedbackIntegrator,
     RetrainingDataCollector,
 )
-from phase3_validation.utils.types import (
+from mycelium.pipeline.phase3.utils.types import (
     ExpertAnalysis,
     FeedbackData,
     PerformanceAnalysis,

@@ -3,7 +3,7 @@ Tests for the text processing utilities.
 """
 
 
-from phase2_validation.utils.text_processors import (
+from mycelium.pipeline.phase2.utils.text_processors import (
     TextProcessor,
     TokenCounter,
 )

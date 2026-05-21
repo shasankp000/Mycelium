@@ -10,7 +10,6 @@ Consolidation Notes gate tests (§16, §46):
   5. predicate_family fallback is CORRELATIONAL for unknown predicates
 """
 
-
 from mycelium.canonicalization import (
     classify_predicate_family,
     generate_canonical_form,
@@ -65,7 +64,8 @@ class TestCanonicalFormGeneration:
     def test_canonical_form_is_lowercase(self):
         triple = SRLTriple(subject="Earth", predicate="orbits", obj="the Sun")
         canonical, _ = generate_canonical_form(triple)
-        assert canonical == canonical.lower()
+        _, body = canonical.split("::", 1)
+        assert body == body.lower()
 
     def test_canonical_form_depth_suffix(self):
         triple = SRLTriple(subject="A", predicate="causes", obj="B")
@@ -79,8 +79,14 @@ class TestCanonicalFormGeneration:
         parts = canonical.split("::")
         assert len(parts) == 5
         assert parts[0] in (
-            "CAUSAL", "CORRELATIONAL", "TEMPORAL", "DEFINITIONAL",
-            "COMPARATIVE", "HIERARCHICAL", "ADVERSARIAL", "PROCEDURAL",
+            "CAUSAL",
+            "CORRELATIONAL",
+            "TEMPORAL",
+            "DEFINITIONAL",
+            "COMPARATIVE",
+            "HIERARCHICAL",
+            "ADVERSARIAL",
+            "PROCEDURAL",
         )
         assert parts[4].startswith("depth")
 
@@ -113,6 +119,7 @@ class TestSemanticHashPipeline:
             raw_sentence="Lung cancer is caused by smoking",
         )
         from mycelium.canonicalization.canonical_form import generate_canonical_form
+
         canon_a, _ = generate_canonical_form(triple_a)
         canon_b, _ = generate_canonical_form(triple_b)
         # Identical triples must produce identical canonical forms
@@ -125,8 +132,10 @@ class TestSemanticHashPipeline:
         nodes_b = pipeline.process("Smoking causes lung cancer.")
         # Second call should find the same canonical form and update the family
         assert len(nodes_a) >= 1
-        assert nodes_a[0].semantic_signature.canonical_form == \
-               nodes_b[0].semantic_signature.canonical_form
+        assert (
+            nodes_a[0].semantic_signature.canonical_form
+            == nodes_b[0].semantic_signature.canonical_form
+        )
 
     def test_fallback_node_created_when_no_srl(self):
         """Even when SRL fails, a node is always produced."""

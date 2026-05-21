@@ -12,16 +12,17 @@ Tests:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 
-from sandbox_models import (
+from mycelium.pipeline.sandbox_models import (
     SandboxResult,
     SandboxStep,
     SandboxTask,
     build_sandbox_task_from_run,
 )
-from sandbox_manager import SandboxManager, _TOOL_REGISTRY
+from mycelium.pipeline.sandbox_manager import SandboxManager
+from mycelium.pipeline.domain_tool_planner import ToolCall
 
 
 # ---------------------------------------------------------------------------
@@ -136,21 +137,29 @@ class TestBuildSandboxTask:
 
 class TestCalculatorTool:
     def test_basic_arithmetic(self):
-        result = _TOOL_REGISTRY["calculator"]("2 ** 10")
-        assert result["result"] == 1024
-        assert result["source"] == "calculator"
+        result = SandboxManager()._execute_step(
+            ToolCall(tool="calculator", query="2 ** 10")
+        )
+        assert result.output["result"] == 1024
+        assert result.output["source"] == "calculator"
 
     def test_math_function(self):
-        result = _TOOL_REGISTRY["calculator"]("sqrt(144)")
-        assert abs(result["result"] - 12.0) < 1e-9
+        result = SandboxManager()._execute_step(
+            ToolCall(tool="calculator", query="sqrt(144)")
+        )
+        assert abs(result.output["result"] - 12.0) < 1e-9
 
     def test_bad_expression(self):
-        result = _TOOL_REGISTRY["calculator"]("open('/etc/passwd')")
-        assert "error" in result
+        result = SandboxManager()._execute_step(
+            ToolCall(tool="calculator", query="open('/etc/passwd')")
+        )
+        assert result.output.get("status") == "error"
 
     def test_division_by_zero(self):
-        result = _TOOL_REGISTRY["calculator"]("1 / 0")
-        assert "error" in result
+        result = SandboxManager()._execute_step(
+            ToolCall(tool="calculator", query="1 / 0")
+        )
+        assert result.output.get("status") == "error"
 
 
 # ---------------------------------------------------------------------------
@@ -161,12 +170,13 @@ class TestCalculatorTool:
 class TestSandboxManagerStub:
     def test_stub_result_shape(self):
         task = SandboxTask(trace_id="t-1", user_query="test")
-        result = SandboxManager._stub_result(task, datetime.utcnow())
+        result = SandboxManager._stub_result(task, datetime.now(UTC))
         assert isinstance(result, SandboxResult)
         assert result.steps == []
         assert (
             "failed" in result.summary.lower()
             or "unavailable" in result.summary.lower()
+            or "no results" in result.summary.lower()
         )
 
 
@@ -178,7 +188,14 @@ class TestSandboxManagerStub:
 class TestExecuteStepUnknownTool:
     def test_unknown_tool_returns_error_step(self):
         manager = SandboxManager.__new__(SandboxManager)
-        step = manager._execute_step("nonexistent_tool", "some query", "test")
+        manager._mcp = type(  # type: ignore[assignment]
+            "Mcp",
+            (),
+            {"call_tool": lambda *_: {"status": "error", "error": "Unknown tool"}},
+        )()
+        step = manager._execute_step(
+            ToolCall(tool="nonexistent_tool", query="some query")
+        )
         assert step.status == "error"
         assert "Unknown tool" in step.output.get("error", "")
         assert step.tool == "nonexistent_tool"

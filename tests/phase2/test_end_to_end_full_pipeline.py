@@ -10,22 +10,22 @@ import time
 
 import pytest
 
-from phase2_validation.phases.phase_2_1_input_normalization import (
+from mycelium.pipeline.phase2.phases.phase_2_1_input_normalization import (
     InputNormalizationPipeline,
 )
-from phase2_validation.phases.phase_2_2_semantic_understanding import (
+from mycelium.pipeline.phase2.phases.phase_2_2_semantic_understanding import (
     SemanticUnderstandingPipeline,
 )
-from phase2_validation.phases.phase_2_3_expert_selection import (
+from mycelium.pipeline.phase2.phases.phase_2_3_expert_selection import (
     ExpertSelectionPipeline,
 )
-from phase2_validation.phases.phase_2_4_inference import (
+from mycelium.pipeline.phase2.phases.phase_2_4_inference import (
     MultiExpertInferencePipeline,
 )
-from phase2_validation.phases.phase_2_5_calibration import (
+from mycelium.pipeline.phase2.phases.phase_2_5_calibration import (
     CalibrationPipeline,
 )
-from phase2_validation.phases.phase_2_6_synthesis import (
+from mycelium.pipeline.phase2.phases.phase_2_6_synthesis import (
     DecisionSynthesisPipeline,
     FinalDecisionResult,
 )

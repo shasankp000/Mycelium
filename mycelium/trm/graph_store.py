@@ -37,6 +37,7 @@ logger.addHandler(logging.NullHandler())
 try:
     from mycelium.ir.graph import IRGraph
     from mycelium.ir.primitives import ConfidenceState, GraphFingerprint
+
     _IR_AVAILABLE = True
 except ImportError:
     IRGraph = None  # type: ignore[assignment,misc]
@@ -129,7 +130,7 @@ class GraphStore:
 
         version_num = len(self._store[graph_id]) + 1
         new_version_str = f"v{version_num}"
-        now = datetime.datetime.utcnow().isoformat() + "Z"
+        now = datetime.datetime.now(datetime.UTC).isoformat()
 
         # Build updated confidence state if requested
         conf = current.confidence_state
@@ -148,7 +149,7 @@ class GraphStore:
 
         revised = IRGraph(
             graph_id=graph_id,
-            nodes=list(current.nodes),       # shallow copy — nodes are immutable
+            nodes=list(current.nodes),  # shallow copy — nodes are immutable
             edges=list(current.edges),
             fingerprint=current.fingerprint,  # fingerprint unchanged by state change
             state=new_state if new_state is not None else current.state,
@@ -164,7 +165,9 @@ class GraphStore:
         self._index_graph(revised)
         logger.debug(
             "GraphStore.add_revision: %s → %s (state=%s)",
-            graph_id, new_version_str, revised.state,
+            graph_id,
+            new_version_str,
+            revised.state,
         )
         return revised
 
@@ -200,7 +203,7 @@ class GraphStore:
                 f"GraphStore.branch_graph: parent '{parent_graph_id}' not found"
             )
 
-        now = datetime.datetime.utcnow().isoformat() + "Z"
+        now = datetime.datetime.now(datetime.UTC).isoformat()
         branch = IRGraph(
             graph_id=new_graph_id,
             nodes=list(parent.nodes),
@@ -214,13 +217,14 @@ class GraphStore:
             ontology_version=parent.ontology_version,
             created_at=now,
             updated_at=now,
-            parent_graph_id=parent_graph_id,   # ← §39 branching link
+            parent_graph_id=parent_graph_id,  # ← §39 branching link
         )
 
         self.put(branch)
         logger.debug(
             "GraphStore.branch_graph: %s ← parent=%s",
-            new_graph_id, parent_graph_id,
+            new_graph_id,
+            parent_graph_id,
         )
         return branch
 
@@ -244,9 +248,7 @@ class GraphStore:
         """Return all versions of a graph, oldest first."""
         return list(self._store.get(graph_id, []))
 
-    def find_by_semantic_hash(
-        self, semantic_hash: str
-    ) -> List[any]:
+    def find_by_semantic_hash(self, semantic_hash: str) -> List[any]:
         """Return latest versions of all graphs whose nodes include this hash."""
         results: List[any] = []
         for gid in self._hash_index.get(semantic_hash, set()):
@@ -261,15 +263,12 @@ class GraphStore:
         results = [
             self.get_latest(gid)
             for gid in self._store
-            if self.get_latest(gid) is not None
-            and self.get_latest(gid).state == state
+            if self.get_latest(gid) is not None and self.get_latest(gid).state == state
         ]
         results.sort(key=lambda g: g.graph_id)
         return results
 
-    def find_by_predicate_family(
-        self, predicate_family: str
-    ) -> List[any]:
+    def find_by_predicate_family(self, predicate_family: str) -> List[any]:
         """Return latest graphs where any node’s predicate_family matches."""
         results: List[any] = []
         for gid in self._store:

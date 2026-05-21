@@ -3,11 +3,11 @@ Tests for the validation utilities.
 """
 
 
-from phase2_validation.utils.validators import (
+from mycelium.pipeline.phase2.utils.validators import (
     InputValidator,
     ResultValidator,
 )
-from phase2_validation.phases.phase_2_1_input_normalization import (
+from mycelium.pipeline.phase2.phases.phase_2_1_input_normalization import (
     NormalizationResult,
 )
 

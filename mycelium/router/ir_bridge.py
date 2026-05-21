@@ -53,11 +53,12 @@ try:
     from mycelium.canonicalization.srl_extractor import SRLExtractor
     from mycelium.canonicalization.canonical_form import CanonicalFormGenerator
     from mycelium.canonicalization.semantic_hash_pipeline import CanonicalizeAndHash
+
     _CANONICALIZER_AVAILABLE = True
 except ImportError:
-    SRLExtractor = None          # type: ignore[assignment,misc]
+    SRLExtractor = None  # type: ignore[assignment,misc]
     CanonicalFormGenerator = None  # type: ignore[assignment,misc]
-    CanonicalizeAndHash = None   # type: ignore[assignment,misc]
+    CanonicalizeAndHash = None  # type: ignore[assignment,misc]
     _CANONICALIZER_AVAILABLE = False
 
 try:
@@ -68,12 +69,13 @@ try:
         SemanticSignature,
     )
     from mycelium.ir.serialization import compute_graph_fingerprint_hashes
+
     _IR_AVAILABLE = True
 except ImportError:
-    IRGraph = None        # type: ignore[assignment,misc]
-    IREdge = None         # type: ignore[assignment,misc]
+    IRGraph = None  # type: ignore[assignment,misc]
+    IREdge = None  # type: ignore[assignment,misc]
     GraphFingerprint = None  # type: ignore[assignment,misc]
-    ConfidenceState = None   # type: ignore[assignment,misc]
+    ConfidenceState = None  # type: ignore[assignment,misc]
     SemanticSignature = None  # type: ignore[assignment,misc]
     compute_graph_fingerprint_hashes = None  # type: ignore[assignment]
     _IR_AVAILABLE = False
@@ -83,6 +85,7 @@ except ImportError:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _pack_spectral_signature(spectral_scores: Dict[str, float]) -> List[Any]:
     """Convert {domain: score} dict to a sorted [[domain, score], ...] list.
 
@@ -91,8 +94,7 @@ def _pack_spectral_signature(spectral_scores: Dict[str, float]) -> List[Any]:
     Sorted by domain name for determinism.
     """
     return sorted(
-        [domain, round(score, 6)]
-        for domain, score in spectral_scores.items()
+        [domain, round(score, 6)] for domain, score in spectral_scores.items()
     )
 
 
@@ -111,6 +113,7 @@ def _graph_id_from_nodes(nodes: List[Any]) -> str:
 # ---------------------------------------------------------------------------
 # IRBridge
 # ---------------------------------------------------------------------------
+
 
 class IRBridge:
     """Converts raw routing pipeline artefacts into IR-layer structures.
@@ -198,7 +201,11 @@ class IRBridge:
         spectral_scores = spectral_scores or {}
         fused_scores = fused_scores or {}
 
-        if not _CANONICALIZER_AVAILABLE or not _IR_AVAILABLE or self._canonicalizer is None:
+        if (
+            not _CANONICALIZER_AVAILABLE
+            or not _IR_AVAILABLE
+            or self._canonicalizer is None
+        ):
             return {
                 "ir_nodes": [],
                 "ir_graph": None,
@@ -241,12 +248,13 @@ class IRBridge:
             except Exception as exc:
                 logger.warning(
                     "IRBridge.build: could not set spectral_signature on node %s: %s",
-                    getattr(node, "id", "?"), exc,
+                    getattr(node, "id", "?"),
+                    exc,
                 )
 
         # ── Step 6: IRGraph construction ───────────────────────────────
         graph_id = _graph_id_from_nodes(nodes)
-        now = datetime.datetime.utcnow().isoformat() + "Z"
+        now = datetime.datetime.now(datetime.UTC).isoformat()
 
         graph_confidence: float = 0.0
         if fused_scores:
@@ -298,9 +306,7 @@ class IRBridge:
             fingerprint=fingerprint,
             state="DRAFT",
             version="v1",
-            confidence_state=ConfidenceState(
-                overall_confidence=graph_confidence
-            ),
+            confidence_state=ConfidenceState(overall_confidence=graph_confidence),
             created_at=now,
             updated_at=now,
         )
@@ -324,5 +330,7 @@ class IRBridge:
             try:
                 result.append(asdict(node))
             except Exception:
-                result.append({"id": getattr(node, "id", "?"), "error": "serialization_failed"})
+                result.append(
+                    {"id": getattr(node, "id", "?"), "error": "serialization_failed"}
+                )
         return result

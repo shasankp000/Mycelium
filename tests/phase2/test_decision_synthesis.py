@@ -2,7 +2,7 @@
 
 from types import SimpleNamespace
 
-from phase2_validation.phases.phase_2_6_synthesis import (
+from mycelium.pipeline.phase2.phases.phase_2_6_synthesis import (
     ReasoningChainBuilder,
     DecisionMaker,
     ConfidenceScorer,
@@ -11,13 +11,13 @@ from phase2_validation.phases.phase_2_6_synthesis import (
     FinalDecisionResult,
     DEFAULT_THRESHOLDS,
 )
-from phase2_validation.phases.phase_2_4_inference import (
+from mycelium.pipeline.phase2.phases.phase_2_4_inference import (
     InferenceResult,
 )
-from phase2_validation.phases.phase_2_5_calibration import (
+from mycelium.pipeline.phase2.phases.phase_2_5_calibration import (
     CalibrationResult,
 )
-from phase2_validation.utils.semantic_types import (
+from mycelium.pipeline.phase2.utils.semantic_types import (
     ExpertSelectionResult,
     RankedExpert,
     SemanticResult,

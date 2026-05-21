@@ -31,6 +31,7 @@ from typing import List, Optional
 
 try:
     from mycelium.ir.primitives import ProvenanceChain
+
     _PC_AVAILABLE = True
 except ImportError:
     ProvenanceChain = None  # type: ignore[assignment,misc]
@@ -89,9 +90,7 @@ class ProvenanceBuilder:
         ProvenanceChain
         """
         if not _PC_AVAILABLE:
-            raise RuntimeError(
-                "ProvenanceBuilder: mycelium.ir.primitives unavailable"
-            )
+            raise RuntimeError("ProvenanceBuilder: mycelium.ir.primitives unavailable")
 
         worker_name = thread_name or threading.current_thread().name
 
@@ -101,8 +100,8 @@ class ProvenanceBuilder:
             decomposition_origin=decomposition_origin,
             evidence_nodes=list(evidence_nodes or []),
             ontology_resolution_path=list(ontology_resolution_path or []),
-            worker_threads=[worker_name],   # ← Phase F: real thread name
-            timestamp=datetime.datetime.utcnow().isoformat() + "Z",
+            worker_threads=[worker_name],  # ← Phase F: real thread name
+            timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
         )
 
     def from_existing(
@@ -129,7 +128,7 @@ class ProvenanceBuilder:
             evidence_nodes=list(existing.evidence_nodes),
             ontology_resolution_path=list(existing.ontology_resolution_path),
             worker_threads=new_threads,
-            timestamp=datetime.datetime.utcnow().isoformat() + "Z",
+            timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
         )
 
     # ------------------------------------------------------------------
@@ -183,15 +182,11 @@ class ProvenanceBuilder:
                 if prov_a.decomposition_origin == prov_b.decomposition_origin
                 else f"{prov_a.decomposition_origin}+{prov_b.decomposition_origin}"
             ),
-            evidence_nodes=union_ordered(
-                prov_a.evidence_nodes, prov_b.evidence_nodes
-            ),
+            evidence_nodes=union_ordered(prov_a.evidence_nodes, prov_b.evidence_nodes),
             ontology_resolution_path=union_ordered(
                 prov_a.ontology_resolution_path,
                 prov_b.ontology_resolution_path,
             ),
-            worker_threads=union_sorted(
-                prov_a.worker_threads, prov_b.worker_threads
-            ),
-            timestamp=datetime.datetime.utcnow().isoformat() + "Z",
+            worker_threads=union_sorted(prov_a.worker_threads, prov_b.worker_threads),
+            timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
         )
