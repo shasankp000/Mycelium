@@ -20,7 +20,9 @@ from mycelium.pipeline.layer1_router import (
 from mycelium.pipeline.multi_lens_router import MultiLensRouter
 from mycelium.pipeline.phase2.pipeline import Phase2Pipeline
 from mycelium.pipeline.phase3.pipeline import Phase3To5Pipeline
-from mycelium.pipeline.phase3.utils.types import FinalDecisionResult as P3FinalDecisionResult
+from mycelium.pipeline.phase3.utils.types import (
+    FinalDecisionResult as P3FinalDecisionResult,
+)
 from mycelium.pipeline.unified_expert_system import UnifiedExpertSystem
 from mycelium.pipeline.expert_filter import ExpertFilter
 from mycelium.pipeline.orchestration import combine_routing_and_expert_decisions
@@ -77,8 +79,14 @@ def _adapt_phase2_to_p3(p2: Any, original_text: str = "") -> P3FinalDecisionResu
     else:
         reasoning_str = str(reasoning_raw)
 
-    extra_fields = ("original_text", "input_text", "query", "sentence",
-                    "action_details", "expert_predictions")
+    extra_fields = (
+        "original_text",
+        "input_text",
+        "query",
+        "sentence",
+        "action_details",
+        "expert_predictions",
+    )
     metadata: Dict[str, Any] = {}
     for f in extra_fields:
         val = getattr(p2, f, None)
@@ -99,7 +107,9 @@ def _adapt_phase2_to_p3(p2: Any, original_text: str = "") -> P3FinalDecisionResu
         decision=_get("decision_label", "prediction", "final_decision", "decision"),
         confidence=float(_get("confidence", "expert_confidence", default=0.5)),
         reasoning=reasoning_str,
-        action=_get("action_type", "action", "recommended_action", default="use_existing"),
+        action=_get(
+            "action_type", "action", "recommended_action", default="use_existing"
+        ),
         expert_name=_get("selected_expert", "expert_name", "expert"),
         domain=_get("domain", "selected_domain", default=""),
         metadata=metadata,
@@ -148,9 +158,13 @@ class WorkflowMetrics:
     domains: Counter = None
 
     def __post_init__(self) -> None:
-        self.layer0_routes = Counter() if self.layer0_routes is None else self.layer0_routes
+        self.layer0_routes = (
+            Counter() if self.layer0_routes is None else self.layer0_routes
+        )
         self.routing_classifications = (
-            Counter() if self.routing_classifications is None else self.routing_classifications
+            Counter()
+            if self.routing_classifications is None
+            else self.routing_classifications
         )
         self.expert_decisions = (
             Counter() if self.expert_decisions is None else self.expert_decisions
@@ -172,6 +186,7 @@ def run_mycelium_workflow(
     on_event: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Tuple[List[Dict[str, Any]], WorkflowMetrics]:
     import uuid as _uuid
+
     _wall_start = _time.monotonic()
     _request_id = trace_id or str(_uuid.uuid4())
 
@@ -196,15 +211,20 @@ def run_mycelium_workflow(
     print("\U0001f9e0 Pre-flight: loading non-LLM model weights into registry...")
     warmup(STARTUP_SPECS)
     _resident = loaded_models()
-    print(f"\u2705 ModelRegistry warm -- {len(_resident)} model(s) resident: "
-          f"{[k.split(':')[1] for k in _resident]}\n")
+    print(
+        f"\u2705 ModelRegistry warm -- {len(_resident)} model(s) resident: "
+        f"{[k.split(':')[1] for k in _resident]}\n"
+    )
 
     emitter.emit(
         phase_name="environment_ready",
         message="Environment ready",
         detail=f"{len(_resident)} model(s) resident",
         state="running",
-        metadata={"model_count": len(_resident), "models": [k.split(':')[1] for k in _resident]},
+        metadata={
+            "model_count": len(_resident),
+            "models": [k.split(":")[1] for k in _resident],
+        },
     )
 
     phase2_pipeline = Phase2Pipeline()
@@ -216,7 +236,9 @@ def run_mycelium_workflow(
         detail="K-Medoids + Calibration + OOD Detection",
         state="running",
     )
-    print("Initializing unified expert system (K-Medoids + Calibration + OOD Detection)...")
+    print(
+        "Initializing unified expert system (K-Medoids + Calibration + OOD Detection)..."
+    )
     expert_system = UnifiedExpertSystem()
     registered_domains = set(expert_system.experts.keys())
     print(f"Initialized unified expert system with {len(registered_domains)} experts\n")
@@ -366,7 +388,7 @@ def run_mycelium_workflow(
             relevant_domains = list(registered_domains)
             if ENABLE_LOGGING and idx % LOG_SAMPLE_RATE == 0:
                 print(
-                    f"\u2139\ufe0f  No domain resolved from routing or tags for \"{text[:60]}...\". "
+                    f'\u2139\ufe0f  No domain resolved from routing or tags for "{text[:60]}...". '
                     "Supplying all experts to reasoning pipeline.\n"
                 )
             pre_check_result = expert_filter.filter_experts_by_tags(
@@ -432,7 +454,9 @@ def run_mycelium_workflow(
             state="running",
             metadata={
                 "decision_type": getattr(expert_decision, "decision_type", ""),
-                "selected_experts": list(getattr(expert_decision, "selected_experts", []) or []),
+                "selected_experts": list(
+                    getattr(expert_decision, "selected_experts", []) or []
+                ),
                 "confidence": float(getattr(expert_decision, "expert_confidence", 0.0)),
             },
         )
@@ -474,14 +498,14 @@ def run_mycelium_workflow(
 
         is_patch_decision = expert_decision.decision_type == "CREATE_NEW_PATCH"
         import uuid as _uuid
-        sentence_trace_id = (
-            trace_id if (idx == 1 and trace_id) else str(_uuid.uuid4())
-        )
+
+        sentence_trace_id = trace_id if (idx == 1 and trace_id) else str(_uuid.uuid4())
 
         if is_patch_decision:
             phase_latencies: Dict[str, float] = (
                 _to_jsonable(phase3_result).get("phase_latencies", {})
-                if isinstance(phase3_result, (dict,)) or hasattr(phase3_result, "__dict__")
+                if isinstance(phase3_result, (dict,))
+                or hasattr(phase3_result, "__dict__")
                 else {}
             )
             patch_logger.log_query(
@@ -517,6 +541,7 @@ def run_mycelium_workflow(
             patch_logger.fill_response(
                 trace_id=sentence_trace_id,
                 response=final_answer,
+                phase_latencies_ms=phase_latencies,
             )
 
         emitter.emit(
@@ -578,7 +603,9 @@ def run_mycelium_workflow(
             expert_evaluation_results["flag_summary"].get(flag, 0) + 1
         )
 
-    with open("evaluation_data/expert_evaluation_results.json", "w", encoding="utf-8") as f:
+    with open(
+        "evaluation_data/expert_evaluation_results.json", "w", encoding="utf-8"
+    ) as f:
         json.dump(expert_evaluation_results, f, indent=4, cls=NumpyEncoder)
     print("Expert evaluation results saved to expert_evaluation_results.json")
 
@@ -593,7 +620,9 @@ def run_mycelium_workflow(
         clusters = {}
 
     clustering_data = {"tags": unique_tags, "clusters": clusters}
-    with open("evaluation_data/tag_clusters_transformer.json", "w", encoding="utf-8") as f:
+    with open(
+        "evaluation_data/tag_clusters_transformer.json", "w", encoding="utf-8"
+    ) as f:
         json.dump(clustering_data, f, indent=4)
     print("Clusters saved to tag_clusters_transformer.json:", clusters)
 
