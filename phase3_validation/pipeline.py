@@ -88,7 +88,7 @@ class Phase3To5Pipeline:
         self.config = config or Phase3Config()
 
         def _phase2_rerun(text: str, skip_cache: bool = False):
-            from phase2_validation.pipeline import Phase2Pipeline
+            from mycelium.pipeline.phase2.pipeline import Phase2Pipeline
 
             pipeline = Phase2Pipeline()
             return pipeline.run(text, skip_cache=skip_cache)
