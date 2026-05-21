@@ -217,6 +217,7 @@ const PHASE_META: Record<string, { label: string; progress: number }> = {
 };
 
 function phaseLabel(phase: string): string {
+  if (!phase) return 'Processing…';
   if (PHASE_META[phase]) return PHASE_META[phase].label;
   if (phase.startsWith('sandbox_tool/')) {
     const rest = phase.replace('sandbox_tool/', '');
@@ -228,6 +229,7 @@ function phaseLabel(phase: string): string {
 }
 
 function phaseProgress(phase: string): number {
+  if (!phase) return 50;
   if (PHASE_META[phase]) return PHASE_META[phase].progress;
   if (phase.startsWith('sandbox_tool/')) {
     const n = parseInt(phase.replace(/\D/g, '') || '1', 10);
@@ -1193,7 +1195,7 @@ export default function Home() {
       sseRetryCount.current = 0;
       try {
         const event: SseEvent = JSON.parse(ev.data);
-        setCurrentPhase(event.phase);
+        setCurrentPhase(event.phase ?? event.phase_name ?? 'heartbeat');
         setCurrentDetail(event.detail);
         setElapsedMs(event.elapsed_ms);
 

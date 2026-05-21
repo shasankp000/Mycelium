@@ -27,6 +27,9 @@ coverage.xml
 *.gguf
 *.onnx
 
+# --- Expert model directories ------
+mycelium/pipeline/experts/*
+
 # Runtime trace logs
 traces/*.jsonl
 runtime/calibration_state.json
