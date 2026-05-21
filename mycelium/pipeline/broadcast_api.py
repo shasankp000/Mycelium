@@ -422,7 +422,15 @@ def _full_pipeline_generator(
 
     if is_patch_query and answer:
         try:
-            patch_logger.fill_response(trace_id=trace_id, response=answer)
+            sandbox_evidence = sandbox_dict.get("steps")
+            patch_logger.fill_response(
+                trace_id=trace_id,
+                response=answer,
+                sandbox_evidence=sandbox_evidence
+                if isinstance(sandbox_evidence, list)
+                else None,
+                phase_latencies_ms=dict(summary.phase3.phase_latencies_ms),
+            )
         except Exception as exc:
             logger.warning("patch_logger.fill_response failed — %s", exc)
 
