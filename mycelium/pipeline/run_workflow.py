@@ -23,9 +23,9 @@ from mycelium.pipeline.layer_1_prototype import (
     assign_domain_patch,
 )
 from mycelium.pipeline.multi_lens_router import MultiLensRouter
-from phase2_validation.pipeline import Phase2Pipeline
-from phase3_validation.pipeline import Phase3To5Pipeline
-from phase3_validation.utils.types import FinalDecisionResult as P3FinalDecisionResult
+from mycelium.pipeline.phase2.pipeline import Phase2Pipeline
+from mycelium.pipeline.phase3.pipeline import Phase3To5Pipeline
+from mycelium.pipeline.phase3.utils.types import FinalDecisionResult as P3FinalDecisionResult
 from mycelium.pipeline.layer_2_prototype import get_expert_model
 import mycelium.pipeline.layer_2_prototype as layer_2_prototype
 from mycelium.pipeline.unified_expert_system import UnifiedExpertSystem
