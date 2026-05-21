@@ -240,7 +240,7 @@ class UnifiedExpert:
             with open(self.vectorizer_path, "rb") as f:
                 self.vectorizer = pickle.load(f)
         else:
-            base_dir = os.path.dirname(self.model_path)
+            base_dir = self.model_path if os.path.isdir(self.model_path) else os.path.dirname(self.model_path)
             vectorizer_files = [
                 f
                 for f in os.listdir(base_dir)
@@ -254,7 +254,7 @@ class UnifiedExpert:
                 raise FileNotFoundError("Vectorizer file not found")
 
     def _setup_k_medoids_system(self):
-        base_dir = os.path.dirname(self.model_path)
+        base_dir = self.model_path if os.path.isdir(self.model_path) else os.path.dirname(self.model_path)
         existing_centroid = self._find_existing_centroid(base_dir)
         if existing_centroid:
             print(f"   Found existing centroid: {existing_centroid}")
@@ -398,7 +398,7 @@ class UnifiedExpert:
         return embeddings[medoid_indices], medoid_indices, assignments
 
     def _save_centroid(self):
-        base_dir = os.path.dirname(self.model_path)
+        base_dir = self.model_path if os.path.isdir(self.model_path) else os.path.dirname(self.model_path)
         centroid_filename = f"centroid_{self.centroid_uuid}.pkl"
         self.centroid_path = os.path.join(base_dir, centroid_filename)
         centroid_data = {
@@ -716,14 +716,14 @@ def create_unified_expert_from_domain_folder(
 def initialize_unified_experts(enable_calibration=True, enable_ood_detection=True):
     experts = {}
     base_dir = os.path.dirname(__file__)
-    dummy_models_dir = os.path.join(base_dir, "..", "..", "dummy_models")
+    dummy_models_dir = os.path.join(base_dir, "experts")
     svm_domain_configs = {
         "music": {"folder": "Music", "text_column": "sentence", "type": "svm"}
     }
     bert_domain_configs = {
-        "physics": {"folder": "Physics_BERT", "text_column": "text", "type": "bert"},
+        "physics": {"folder": "physics", "text_column": "text", "type": "bert"},
         "chemistry": {
-            "folder": "Chemistry_BERT",
+            "folder": "chemistry",
             "text_column": "text",
             "type": "bert",
         },
@@ -744,20 +744,32 @@ def initialize_unified_experts(enable_calibration=True, enable_ood_detection=Tru
                 print(f"\u2705 Unified SVM expert created for {domain_name}")
             except Exception as e:
                 print(f"\u274c Failed to create SVM expert for {domain_name}: {e}")
-    from mycelium.pipeline.unified_bert_expert import (
-        create_unified_bert_expert_from_folder,
-    )
-
+    project_root = os.path.join(base_dir, "..", "..")
     for domain_name, config in bert_domain_configs.items():
         domain_folder = os.path.join(dummy_models_dir, config["folder"])
         if os.path.exists(domain_folder):
             try:
-                expert = create_unified_bert_expert_from_folder(
-                    domain_folder,
-                    domain_name,
-                    config["text_column"],
-                    enable_calibration,
-                    enable_ood_detection,
+                dataset_path = None
+                for candidate in [
+                    os.path.join(domain_folder, "train.csv"),
+                    os.path.join(domain_folder, f"{domain_name}_combined_dataset.csv"),
+                    os.path.join(domain_folder, "dataset.csv"),
+                    os.path.join(project_root, "training_data", domain_name, "train.csv"),
+                ]:
+                    if os.path.exists(candidate):
+                        dataset_path = candidate
+                        break
+                if dataset_path is None:
+                    print(f"⚠️  No dataset found for {domain_name}, skipping")
+                    continue
+                from mycelium.pipeline.unified_bert_expert import UnifiedBERTExpert
+                expert = UnifiedBERTExpert(
+                    domain=domain_name,
+                    model_path=domain_folder,
+                    dataset_path=dataset_path,
+                    text_column=config["text_column"],
+                    enable_calibration=enable_calibration,
+                    enable_ood_detection=enable_ood_detection,
                 )
                 experts[domain_name] = expert
                 print(f"\u2705 Unified BERT expert created for {domain_name}")
