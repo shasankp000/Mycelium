@@ -15,7 +15,7 @@ class AutoSemanticClusterer:
     No manual dictionary maintenance required!
     """
     
-    def __init__(self, model_name='all-MiniLM-L6-v2', cache_file='semantic_clusters_cache.pkl'):
+    def __init__(self, model_name='all-MiniLM-L6-v2', cache_file=None):
         """
         Initialize the auto-clustering system.
         
@@ -23,8 +23,11 @@ class AutoSemanticClusterer:
             model_name: Sentence transformer model to use
             cache_file: Where to cache computed embeddings
         """
+        _project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         self.model_name = model_name
-        self.cache_file = cache_file
+        self.cache_file = cache_file if cache_file is not None else os.path.join(
+            _project_root, 'runtime', 'cache', 'semantic_clusters_cache.pkl'
+        )
         self.model = None
         
         # Core domain anchors — keys MUST match the canonical domain names used
@@ -235,6 +238,7 @@ class AutoSemanticClusterer:
             # not be restored from a stale pickle on the next run.
         }
         
+        os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
         with open(self.cache_file, 'wb') as f:
             pickle.dump(cache_data, f)
         

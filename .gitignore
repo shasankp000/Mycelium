@@ -27,6 +27,13 @@ coverage.xml
 *.gguf
 *.onnx
 
+# Runtime trace logs
+traces/*.jsonl
+
+# Runtime cache
+runtime/cache/
+*.pkl
+
 # ── Runtime output dirs (generated at run-time, not source) ─────
 patch_batches/
 traces/
