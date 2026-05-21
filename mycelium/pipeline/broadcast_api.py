@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 import logging
 import time
 import threading
@@ -59,7 +60,8 @@ _warmup_lock = threading.Lock()
 @app.on_event("startup")
 async def preload_models() -> None:
     import asyncio
-    from model_registry import warmup
+    from mycelium.pipeline.model_registry import warmup
+    _write_calibration_state("running", progress=5)
 
     specs = [
         {
@@ -79,6 +81,7 @@ async def preload_models() -> None:
         await loop.run_in_executor(pool, warmup, specs)
 
     _warmup_done.set()
+    _write_calibration_state("complete", progress=100)
     logger.info("broadcast_api: model warmup complete — _warmup_done set")
 
 
@@ -443,9 +446,51 @@ def _full_pipeline_generator(
     yield _sse_event("done", "", elapsed(), payload=_to_jsonable(response_payload))
 
 
+
+# ---------------------------------------------------------------------------
+# Calibration state file — IPC bridge between backend startup and frontend
+# ---------------------------------------------------------------------------
+
+_CAL_STATE_FILE = Path(__file__).parents[2] / "runtime" / "calibration_state.json"
+
+
+def _read_calibration_state() -> dict:
+    if _CAL_STATE_FILE.exists():
+        try:
+            return json.loads(_CAL_STATE_FILE.read_text())
+        except Exception:
+            pass
+    return {"status": "pending", "progress": 0, "error": None}
+
+
+def _write_calibration_state(status: str, progress: int = 0, error: str | None = None) -> None:
+    _CAL_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _CAL_STATE_FILE.write_text(
+        json.dumps({"status": status, "progress": progress, "error": error})
+    )
+
+
+@app.get("/api/calibrate/ready")
+async def calibrate_ready() -> dict:
+    state = _read_calibration_state()
+    return {"ready": state.get("status") == "complete"}
+
+
+@app.post("/api/calibrate/start")
+async def calibrate_start() -> dict:
+    state = _read_calibration_state()
+    return {"job_id": str(uuid4()), "status": state.get("status", "pending")}
+
+
+@app.get("/api/calibrate/status/{job_id}")
+async def calibrate_status(job_id: str) -> dict:
+    state = _read_calibration_state()
+    return {"job_id": job_id, **state}
+
+
 @app.get("/health")
 async def health() -> Dict[str, Any]:
-    from model_registry import loaded_models
+    from mycelium.pipeline.model_registry import loaded_models
 
     ollama_url = cfg.ollama_base_url()
     ollama_ok = False
