@@ -26,7 +26,7 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from lexis_bridge import LEXIS_MAIN, LEXIS_PYTHON, _check_paths
+from mycelium.pipeline.lexis_bridge import LEXIS_MAIN, LEXIS_PYTHON, _check_paths
 
 if TYPE_CHECKING:
     pass

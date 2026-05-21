@@ -24,7 +24,7 @@ run_mycelium_workflow).  Two structured PipelineEvents are emitted:
 
 from functools import lru_cache
 from typing import Any, Callable, Dict, Iterable, Optional
-from auto_semantic_clusterer import AutoSemanticClusterer
+from mycelium.pipeline.auto_semantic_clusterer import AutoSemanticClusterer
 
 
 class ExpertFilter:

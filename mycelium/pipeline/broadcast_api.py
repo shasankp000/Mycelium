@@ -27,8 +27,8 @@ from mycelium.pipeline.api_models import (
     TRACES_DIR,
 )
 from mycelium.pipeline.conversation_agent import get_conversation_agent
-from patch_batch_logger import patch_logger
-from sandbox_manager import get_sandbox_manager
+from mycelium.pipeline.patch_batch_logger import patch_logger
+from mycelium.pipeline.sandbox_manager import get_sandbox_manager
 from mycelium.pipeline.sandbox_models import build_sandbox_task_from_run
 from mycelium.pipeline.pipeline_event import PipelineEvent, ReplayJournal
 import mycelium.pipeline.config_loader as cfg

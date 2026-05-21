@@ -55,11 +55,11 @@ from concurrent.futures import (
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, Tuple
 
-from expert_post_check.trm_adapter import TRMAdapter, ReasoningResult
-from expert_post_check.p6_adapter import P6Adapter
-from expert_post_check.fuzzy_verifier import FuzzyVerifier
-from expert_post_check.rl_weight import RLWeightStore
-from expert_post_check.ollama_guard import evict_all as _evict_ollama
+from mycelium.pipeline.expert_post_check.trm_adapter import TRMAdapter, ReasoningResult
+from mycelium.pipeline.expert_post_check.p6_adapter import P6Adapter
+from mycelium.pipeline.expert_post_check.fuzzy_verifier import FuzzyVerifier
+from mycelium.pipeline.expert_post_check.rl_weight import RLWeightStore
+from mycelium.pipeline.expert_post_check.ollama_guard import evict_all as _evict_ollama
 
 logger = logging.getLogger(__name__)
 

@@ -33,7 +33,7 @@ import logging
 import time
 from typing import Any, Dict
 
-from expert_post_check.trm_adapter import ReasoningResult  # shared dataclass
+from mycelium.pipeline.expert_post_check.trm_adapter import ReasoningResult  # shared dataclass
 
 logger = logging.getLogger(__name__)
 

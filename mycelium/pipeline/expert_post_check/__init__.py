@@ -13,8 +13,8 @@ Public API
     result = runner.run(query, expert_answer, domain, expert_name)
 """
 
-from expert_post_check.runner import PostCheckRunner, PostCheckResult
-from expert_post_check.hardware_check import probe_hardware, PostCheckMode
+from mycelium.pipeline.expert_post_check.runner import PostCheckRunner, PostCheckResult
+from mycelium.pipeline.expert_post_check.hardware_check import probe_hardware, PostCheckMode
 
 __all__ = [
     "PostCheckRunner",

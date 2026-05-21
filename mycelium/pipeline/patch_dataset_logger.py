@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, List
 
-from api_models import PatchRecord
+from mycelium.pipeline.api_models import PatchRecord
 
 # Root directory relative to the repo root (wherever broadcast_api.py lives)
 PATCH_DATASET_ROOT = Path("patch_dataset")
