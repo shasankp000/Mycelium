@@ -59,20 +59,20 @@ DOMAIN_REGISTRY = {
     "medical": {
         "positive_label": "Biology",
         "negative_label": "Non-Biology",
-        "default_data_dir": str(_PROJECT_ROOT / "dummy_models" / "Medical_BERT"),
-        "default_output_dir": str(_PROJECT_ROOT / "dummy_models" / "Medical_BERT"),
+        "default_data_dir": str(_PROJECT_ROOT / "tests" / "fixtures" / "dummy_models" / "Medical_BERT"),
+        "default_output_dir": str(_PROJECT_ROOT / "tests" / "fixtures" / "dummy_models" / "Medical_BERT"),
     },
     "chemistry": {
         "positive_label": "Chemistry",
         "negative_label": "Non-Chemistry",
-        "default_data_dir": str(_PROJECT_ROOT / "dummy_models" / "Chemistry_BERT"),
-        "default_output_dir": str(_PROJECT_ROOT / "dummy_models" / "Chemistry_BERT"),
+        "default_data_dir": str(_PROJECT_ROOT / "tests" / "fixtures" / "dummy_models" / "Chemistry_BERT"),
+        "default_output_dir": str(_PROJECT_ROOT / "tests" / "fixtures" / "dummy_models" / "Chemistry_BERT"),
     },
     "physics": {
         "positive_label": "Physics",
         "negative_label": "Non-Physics",
-        "default_data_dir": str(_PROJECT_ROOT / "dummy_models" / "Physics_BERT"),
-        "default_output_dir": str(_PROJECT_ROOT / "dummy_models" / "Physics_BERT"),
+        "default_data_dir": str(_PROJECT_ROOT / "tests" / "fixtures" / "dummy_models" / "Physics_BERT"),
+        "default_output_dir": str(_PROJECT_ROOT / "tests" / "fixtures" / "dummy_models" / "Physics_BERT"),
     },
 }
 
