@@ -31,7 +31,7 @@ import mycelium.pipeline.layer_2_prototype as layer_2_prototype
 from mycelium.pipeline.unified_expert_system import UnifiedExpertSystem
 from mycelium.pipeline.expert_filter import ExpertFilter
 from mycelium.pipeline.orchestration import combine_routing_and_expert_decisions
-from layer0.router import QuestionRouter
+from mycelium.pipeline.layer0.router import QuestionRouter
 from mycelium.pipeline.tuning_config import ENABLE_LOGGING, LOG_SAMPLE_RATE
 from mycelium.pipeline.patch_batch_logger import patch_logger
 from mycelium.pipeline.dynamic_signature_manager import DynamicSignatureManager
