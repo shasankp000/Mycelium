@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from patch_batch_logger import PatchBatchLogger
+from mycelium.pipeline.patch_batch_logger import PatchBatchLogger
 
 
 class TestPatchBatchLogger(unittest.TestCase):
