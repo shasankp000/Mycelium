@@ -13,7 +13,7 @@ from dataclasses import asdict, dataclass, is_dataclass
 from typing import Callable, List, Dict, Any, Optional, Sequence, Tuple
 
 import numpy as np
-from mycelium.pipeline.layer_1_prototype import (
+from mycelium.pipeline.layer1_router import (
     extract_tags_llama,
     normalize_tags,
     embed_tags_transformer,
@@ -26,8 +26,8 @@ from mycelium.pipeline.multi_lens_router import MultiLensRouter
 from mycelium.pipeline.phase2.pipeline import Phase2Pipeline
 from mycelium.pipeline.phase3.pipeline import Phase3To5Pipeline
 from mycelium.pipeline.phase3.utils.types import FinalDecisionResult as P3FinalDecisionResult
-from mycelium.pipeline.layer_2_prototype import get_expert_model
-import mycelium.pipeline.layer_2_prototype as layer_2_prototype
+from mycelium.pipeline.layer2_expert_loader import get_expert_model
+import mycelium.pipeline.layer2_expert_loader as layer_2_prototype
 from mycelium.pipeline.unified_expert_system import UnifiedExpertSystem
 from mycelium.pipeline.expert_filter import ExpertFilter
 from mycelium.pipeline.orchestration import combine_routing_and_expert_decisions
