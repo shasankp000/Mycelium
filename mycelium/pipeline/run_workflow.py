@@ -230,16 +230,18 @@ def run_mycelium_workflow(
     phase2_pipeline = Phase2Pipeline()
     phase3_pipeline = Phase3To5Pipeline()
 
+    from mycelium.pipeline.unified_expert_system import get_unified_expert_system, _unified_system
+    _expert_msg = 'Setting up environment…' if _unified_system is None else 'Loading expert system…'
     emitter.emit(
         phase_name="graph_expert_init",
-        message="Initialising expert system\u2026",
+        message=_expert_msg,
         detail="K-Medoids + Calibration + OOD Detection",
         state="running",
     )
     print(
         "Initializing unified expert system (K-Medoids + Calibration + OOD Detection)..."
     )
-    expert_system = UnifiedExpertSystem()
+    expert_system = get_unified_expert_system()
     registered_domains = set(expert_system.experts.keys())
     print(f"Initialized unified expert system with {len(registered_domains)} experts\n")
 

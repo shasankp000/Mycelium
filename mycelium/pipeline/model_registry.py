@@ -101,11 +101,6 @@ STARTUP_SPECS: List[Dict[str, str]] = [
         "device": "cpu",
     },
     {
-        "model_name": "cross-encoder/ms-marco-MiniLM-L-6-v2",
-        "model_type": "hf_pipeline_cpu",
-        "device": "cpu",
-    },
-    {
         "model_name": "typeform/distilbert-base-uncased-mnli",
         "model_type": "hf_pipeline_cpu",
         "device": "cpu",

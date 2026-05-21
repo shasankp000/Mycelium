@@ -177,11 +177,11 @@ class UnifiedExpert:
             self._sentence_transformer is None
             or getattr(self._sentence_transformer, "_model_name", None) != model_name
         ):
-            local_cache = os.path.join(
-                os.path.expanduser("~"), ".cache", "huggingface", "hub"
-            )
-            self._sentence_transformer = SentenceTransformer(
-                model_name, cache_folder=local_cache
+            from mycelium.pipeline.model_registry import get_model
+            self._sentence_transformer = get_model(
+                f"sentence-transformers/{model_name}",
+                model_type="sentence_transformer",
+                device="cpu",
             )
             self._sentence_transformer._model_name = model_name
         return self._sentence_transformer
