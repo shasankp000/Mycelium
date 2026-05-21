@@ -7,7 +7,7 @@ semantic results, ranked experts, and expert selection results used
 throughout the reasoning pipeline.
 
 Example:
-    >>> from phase2_validation.utils.semantic_types import (
+    >>> from mycelium.pipeline.phase2.utils.semantic_types import (
     ...     Entity, Concept, SemanticGraph, SemanticResult,
     ... )
     >>> e = Entity(text="cancer", entity_type="medical")

@@ -13,7 +13,7 @@ Components:
     * MultiExpertInferencePipeline — orchestrator
 
 Example:
-    >>> from phase2_validation.phases.phase_2_4_inference import (
+    >>> from mycelium.pipeline.phase2.phases.phase_2_4_inference import (
     ...     MultiExpertInferencePipeline,
     ... )
     >>> pipeline = MultiExpertInferencePipeline()
@@ -28,8 +28,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from phase2_validation.config.phase2_config import Phase2Config
-from phase2_validation.utils.semantic_types import (
+from mycelium.pipeline.phase2.config.phase2_config import Phase2Config
+from mycelium.pipeline.phase2.utils.semantic_types import (
     ExpertPrediction,
     PredictionStatistics,
     RankedExpert,

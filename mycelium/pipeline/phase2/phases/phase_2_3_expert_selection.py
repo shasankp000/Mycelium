@@ -12,7 +12,7 @@ Components:
     * ExpertSelectionPipeline — orchestrator
 
 Example:
-    >>> from phase2_validation.phases.phase_2_3_expert_selection import (
+    >>> from mycelium.pipeline.phase2.phases.phase_2_3_expert_selection import (
     ...     ExpertSelectionPipeline,
     ... )
     >>> pipeline = ExpertSelectionPipeline()
@@ -27,8 +27,8 @@ import math
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from phase2_validation.config.phase2_config import Phase2Config
-from phase2_validation.utils.semantic_types import (
+from mycelium.pipeline.phase2.config.phase2_config import Phase2Config
+from mycelium.pipeline.phase2.utils.semantic_types import (
     ExpertSelectionResult,
     RankedExpert,
     SemanticResult,

@@ -5,7 +5,7 @@ Provides input validation and result validation helpers used by the
 normalization pipeline and downstream phases.
 
 Example:
-    >>> from phase2_validation.utils.validators import InputValidator
+    >>> from mycelium.pipeline.phase2.utils.validators import InputValidator
     >>> v = InputValidator()
     >>> v.validate_string_type("hello")
     True

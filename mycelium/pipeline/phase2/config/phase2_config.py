@@ -9,7 +9,7 @@ All configuration values support environment variable overrides and
 include validation logic.
 
 Example:
-    >>> from phase2_validation.config.phase2_config import Phase2Config
+    >>> from mycelium.pipeline.phase2.config.phase2_config import Phase2Config
     >>> config = Phase2Config()
     >>> print(config.input_min_length)
     10

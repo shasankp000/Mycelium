@@ -13,7 +13,7 @@ Components:
     * CalibrationPipeline — orchestrator
 
 Example:
-    >>> from phase2_validation.phases.phase_2_5_calibration import (
+    >>> from mycelium.pipeline.phase2.phases.phase_2_5_calibration import (
     ...     CalibrationPipeline,
     ... )
     >>> pipeline = CalibrationPipeline()
@@ -26,8 +26,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from phase2_validation.config.phase2_config import Phase2Config
-from phase2_validation.phases.phase_2_4_inference import (
+from mycelium.pipeline.phase2.config.phase2_config import Phase2Config
+from mycelium.pipeline.phase2.phases.phase_2_4_inference import (
     InferenceResult,
 )
 

@@ -423,7 +423,7 @@ class CompleteFailureHandler:
             return self.pipeline_fn(text, skip_cache=skip_cache)
 
         # Lazy import to avoid circular imports
-        from phase2_validation.pipeline import Phase2Pipeline  # noqa
+        from mycelium.pipeline.phase2.pipeline import Phase2Pipeline  # noqa
 
         pipeline = Phase2Pipeline()
         return pipeline.run(text, skip_cache=skip_cache)

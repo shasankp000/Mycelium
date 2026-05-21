@@ -5,7 +5,7 @@ Provides helpers for HTML cleaning, Unicode normalization,
 whitespace standardization, and token counting.
 
 Example:
-    >>> from phase2_validation.utils.text_processors import (
+    >>> from mycelium.pipeline.phase2.utils.text_processors import (
     ...     TextProcessor, TokenCounter,
     ... )
     >>> tp = TextProcessor()

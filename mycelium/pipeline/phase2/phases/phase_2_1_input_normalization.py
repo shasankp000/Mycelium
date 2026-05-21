@@ -14,7 +14,7 @@ Components:
     * InputNormalizationPipeline — orchestrator that runs all steps
 
 Example:
-    >>> from phase2_validation.phases.phase_2_1_input_normalization import (
+    >>> from mycelium.pipeline.phase2.phases.phase_2_1_input_normalization import (
     ...     InputNormalizationPipeline,
     ... )
     >>> pipeline = InputNormalizationPipeline()
@@ -33,12 +33,12 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
-from phase2_validation.config.phase2_config import Phase2Config
-from phase2_validation.utils.text_processors import (
+from mycelium.pipeline.phase2.config.phase2_config import Phase2Config
+from mycelium.pipeline.phase2.utils.text_processors import (
     TextProcessor,
     TokenCounter,
 )
-from phase2_validation.utils.validators import (
+from mycelium.pipeline.phase2.utils.validators import (
     InputValidator,
     ResultValidator,
 )

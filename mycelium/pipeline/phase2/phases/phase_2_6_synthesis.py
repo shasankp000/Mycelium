@@ -13,7 +13,7 @@ Components:
     * DecisionSynthesisPipeline — orchestrator
 
 Example:
-    >>> from phase2_validation.phases.phase_2_6_synthesis import (
+    >>> from mycelium.pipeline.phase2.phases.phase_2_6_synthesis import (
     ...     DecisionSynthesisPipeline,
     ... )
     >>> pipeline = DecisionSynthesisPipeline()
@@ -26,14 +26,14 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from phase2_validation.config.phase2_config import Phase2Config
-from phase2_validation.phases.phase_2_4_inference import (
+from mycelium.pipeline.phase2.config.phase2_config import Phase2Config
+from mycelium.pipeline.phase2.phases.phase_2_4_inference import (
     InferenceResult,
 )
-from phase2_validation.phases.phase_2_5_calibration import (
+from mycelium.pipeline.phase2.phases.phase_2_5_calibration import (
     CalibrationResult,
 )
-from phase2_validation.utils.semantic_types import (
+from mycelium.pipeline.phase2.utils.semantic_types import (
     ExpertSelectionResult,
     RankedExpert,
     SemanticResult,
