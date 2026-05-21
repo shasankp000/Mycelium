@@ -1,12 +1,22 @@
 {
     "tags": [
-        "physics",
-        "maths"
+        "medicine",
+        "healthcare",
+        "technology",
+        "maths",
+        "physics"
     ],
     "clusters": {
         "0": [
-            "physics",
-            "maths"
+            "medicine",
+            "healthcare"
+        ],
+        "1": [
+            "technology"
+        ],
+        "2": [
+            "maths",
+            "physics"
         ]
     }
 }

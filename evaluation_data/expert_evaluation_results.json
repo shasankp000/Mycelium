@@ -1,17 +1,17 @@
 {
-    "evaluation_timestamp": "2026-05-06T14:20:34.004914",
-    "sentences_evaluated": 1,
+    "evaluation_timestamp": "2026-05-21T20:46:08.359015",
+    "sentences_evaluated": 5,
     "flag_summary": {
-        "use_existing_expert": 1
+        "create_new_expert": 4,
+        "refused": 1
     },
     "detailed_results": [
         {
-            "sentence": "Is string theory scientifically proven?",
+            "sentence": "Earth orbits the Sun.",
             "tags": [
-                "physics",
-                "maths"
+                "physics"
             ],
-            "timestamp": "2026-05-06T14:20:01.475554",
+            "timestamp": "2026-05-21T20:46:00.800101",
             "layer0_routing": {
                 "route": "REASONING_PIPELINE",
                 "response_type": "DEFINITIVE_ANSWER",
@@ -20,63 +20,55 @@
                 }
             },
             "routing_context": {
-                "classification": "ATTRIBUTE_ONLY",
+                "classification": "SINGLE_DOMAIN",
                 "selected_domains": [
-                    "aesthetics",
-                    "astronomy",
-                    "automobile"
+                    "astronomy"
                 ],
-                "primary_domain": "aesthetics",
+                "primary_domain": "astronomy",
                 "fusion_scores": {
-                    "aesthetics": 0.106709,
-                    "astronomy": 0.324225,
-                    "automobile": 0.27068
+                    "aesthetics": 0.150398,
+                    "astronomy": 0.320105,
+                    "automobile": 0.15
                 },
-                "coverage": 0.0,
-                "create_new_expert": true,
+                "coverage": 1.0,
+                "create_new_expert": false,
                 "metadata": {
                     "selected_experts": [
-                        "aesthetics",
-                        "astronomy",
-                        "automobile"
+                        "astronomy"
                     ],
                     "candidate_domains": [
-                        "aesthetics",
-                        "astronomy",
-                        "automobile"
+                        "astronomy"
                     ],
-                    "coverage_met": false,
+                    "coverage_met": true,
+                    "budget_cap_applied": false,
                     "lens_scores": {
                         "semantic": {
-                            "astronomy": 0.11794135570526124,
-                            "aesthetics": 0.014909380674362184,
+                            "astronomy": 0.4252621173858643,
+                            "aesthetics": 0.000994396209716797,
                             "automobile": 0.0
                         },
-                        "spectral": {
-                            "astronomy": 0.4890038668293244,
-                            "automobile": 0.48765821402208015
-                        },
+                        "spectral": {},
                         "confidence": {
+                            "automobile": 0.5,
                             "astronomy": 0.5,
-                            "aesthetics": 0.5,
-                            "automobile": 0.5
+                            "aesthetics": 0.5
                         }
                     },
                     "fused_scores": {
-                        "aesthetics": 0.106709,
-                        "astronomy": 0.324225,
-                        "automobile": 0.27068
+                        "aesthetics": 0.150398,
+                        "astronomy": 0.320105,
+                        "automobile": 0.15
                     },
-                    "variance": 0.008563,
-                    "explanation": "Base routing: Attribute-heavy input detected; no core object domain evidence. Detected ATTRIBUTE_ONLY input (pure reasoning / no structural domain match); all available experts will be evaluated by the reasoning pipeline. Coverage threshold not met; new expert may be required."
+                    "variance": 0.006415,
+                    "explanation": "Base: Selected astronomy due to core features: earth, orbits, sun. Single domain: astronomy. Coverage satisfied."
                 }
             },
             "phase2_result": {
-                "original_text": "Is string theory scientifically proven?",
+                "original_text": "Earth orbits the Sun.",
                 "final_decision": "create_new_expert",
                 "decision_confidence": 0.2,
                 "confidence_factors": {
-                    "semantic_confidence": 0.132935,
+                    "semantic_confidence": 0.184639,
                     "selection_confidence": 0.0,
                     "ensemble_confidence": 0.0,
                     "mean_calibrated_confidence": 0.0
@@ -89,7 +81,7 @@
                         "description": "Cleaned and validated input text",
                         "details": {
                             "is_valid": true,
-                            "language": "en",
+                            "language": "unknown",
                             "tags_extracted": 0
                         }
                     },
@@ -101,8 +93,8 @@
                         "details": {
                             "top_domain": "unknown",
                             "entities_found": 0,
-                            "concepts_found": 4,
-                            "confidence": 0.132935
+                            "concepts_found": 3,
+                            "confidence": 0.184639
                         }
                     },
                     {
@@ -139,7 +131,7 @@
                         }
                     }
                 ],
-                "reasoning_text": "Reasoning Chain:\n  Step 1 (Phase 2.1): Input Normalization\n    \u2192 Cleaned and validated input text\n    \u2022 is_valid: True\n    \u2022 language: en\n    \u2022 tags_extracted: 0\n  Step 2 (Phase 2.2): Semantic Understanding\n    \u2192 Analyzed text semantics and domain relevance\n    \u2022 top_domain: unknown\n    \u2022 entities_found: 0\n    \u2022 concepts_found: 4\n    \u2022 confidence: 0.132935\n  Step 3 (Phase 2.3): Expert Selection\n    \u2192 Selected 0 experts from 0 candidates\n    \u2022 strategy: greedy\n    \u2022 selected: []\n    \u2022 confidence: 0.0\n  Step 4 (Phase 2.4): Multi-Expert Inference\n    \u2192 Collected predictions from selected experts\n    \u2022 ensemble_confidence: 0.0\n    \u2022 disagreement: 0.0\n    \u2022 outliers: 0\n  Step 5 (Phase 2.5): Confidence Calibration\n    \u2192 Calibrated predictions and quantified uncertainty\n    \u2022 method: temperature_scaling\n    \u2022 temperature: 1.0\n    \u2022 total_uncertainty: 0.0",
+                "reasoning_text": "Reasoning Chain:\n  Step 1 (Phase 2.1): Input Normalization\n    \u2192 Cleaned and validated input text\n    \u2022 is_valid: True\n    \u2022 language: unknown\n    \u2022 tags_extracted: 0\n  Step 2 (Phase 2.2): Semantic Understanding\n    \u2192 Analyzed text semantics and domain relevance\n    \u2022 top_domain: unknown\n    \u2022 entities_found: 0\n    \u2022 concepts_found: 3\n    \u2022 confidence: 0.184639\n  Step 3 (Phase 2.3): Expert Selection\n    \u2192 Selected 0 experts from 0 candidates\n    \u2022 strategy: greedy\n    \u2022 selected: []\n    \u2022 confidence: 0.0\n  Step 4 (Phase 2.4): Multi-Expert Inference\n    \u2192 Collected predictions from selected experts\n    \u2022 ensemble_confidence: 0.0\n    \u2022 disagreement: 0.0\n    \u2022 outliers: 0\n  Step 5 (Phase 2.5): Confidence Calibration\n    \u2192 Calibrated predictions and quantified uncertainty\n    \u2022 method: temperature_scaling\n    \u2022 temperature: 1.0\n    \u2022 total_uncertainty: 0.0",
                 "recommended_action": "create_new_expert",
                 "action_details": {
                     "action": "create_new_expert",
@@ -154,7 +146,7 @@
                 "aggregated_prediction": null,
                 "total_uncertainty": 0.0,
                 "uncertainty_intervals": {},
-                "processing_time_ms": 0.33764299951144494,
+                "processing_time_ms": 0.0701729986758437,
                 "phases_executed": [
                     "2.1",
                     "2.2",
@@ -166,256 +158,901 @@
                 "warnings": []
             },
             "phase3_result": {
-                "original_input": "",
+                "original_input": "Earth orbits the Sun.",
                 "decision_result": {
-                    "original_text": "Is string theory scientifically proven?",
-                    "final_decision": "create_new_expert",
-                    "decision_confidence": 0.2,
-                    "confidence_factors": {
-                        "semantic_confidence": 0.132935,
-                        "selection_confidence": 0.0,
-                        "ensemble_confidence": 0.0,
-                        "mean_calibrated_confidence": 0.0
-                    },
-                    "reasoning_chain": [
-                        {
-                            "step": 1,
-                            "phase": "2.1",
-                            "name": "Input Normalization",
-                            "description": "Cleaned and validated input text",
-                            "details": {
-                                "is_valid": true,
-                                "language": "en",
-                                "tags_extracted": 0
-                            }
+                    "decision": "CREATE_NEW_EXPERT",
+                    "confidence": 0.0,
+                    "reasoning": "",
+                    "action": "create_new_expert",
+                    "expert_name": "",
+                    "domain": "",
+                    "metadata": {
+                        "original_text": "Earth orbits the Sun.",
+                        "action_details": {
+                            "action": "create_new_expert",
+                            "suggested_domain": "general",
+                            "confidence": 0.0,
+                            "domains_analyzed": []
                         },
-                        {
-                            "step": 2,
-                            "phase": "2.2",
-                            "name": "Semantic Understanding",
-                            "description": "Analyzed text semantics and domain relevance",
-                            "details": {
-                                "top_domain": "unknown",
-                                "entities_found": 0,
-                                "concepts_found": 4,
-                                "confidence": 0.132935
-                            }
-                        },
-                        {
-                            "step": 3,
-                            "phase": "2.3",
-                            "name": "Expert Selection",
-                            "description": "Selected 0 experts from 0 candidates",
-                            "details": {
-                                "strategy": "greedy",
-                                "selected": [],
-                                "confidence": 0.0
-                            }
-                        },
-                        {
-                            "step": 4,
-                            "phase": "2.4",
-                            "name": "Multi-Expert Inference",
-                            "description": "Collected predictions from selected experts",
-                            "details": {
-                                "ensemble_confidence": 0.0,
-                                "disagreement": 0.0,
-                                "outliers": 0
-                            }
-                        },
-                        {
-                            "step": 5,
-                            "phase": "2.5",
-                            "name": "Confidence Calibration",
-                            "description": "Calibrated predictions and quantified uncertainty",
-                            "details": {
-                                "method": "temperature_scaling",
-                                "temperature": 1.0,
-                                "total_uncertainty": 0.0
-                            }
-                        }
-                    ],
-                    "reasoning_text": "Reasoning Chain:\n  Step 1 (Phase 2.1): Input Normalization\n    \u2192 Cleaned and validated input text\n    \u2022 is_valid: True\n    \u2022 language: en\n    \u2022 tags_extracted: 0\n  Step 2 (Phase 2.2): Semantic Understanding\n    \u2192 Analyzed text semantics and domain relevance\n    \u2022 top_domain: unknown\n    \u2022 entities_found: 0\n    \u2022 concepts_found: 4\n    \u2022 confidence: 0.132935\n  Step 3 (Phase 2.3): Expert Selection\n    \u2192 Selected 0 experts from 0 candidates\n    \u2022 strategy: greedy\n    \u2022 selected: []\n    \u2022 confidence: 0.0\n  Step 4 (Phase 2.4): Multi-Expert Inference\n    \u2192 Collected predictions from selected experts\n    \u2022 ensemble_confidence: 0.0\n    \u2022 disagreement: 0.0\n    \u2022 outliers: 0\n  Step 5 (Phase 2.5): Confidence Calibration\n    \u2192 Calibrated predictions and quantified uncertainty\n    \u2022 method: temperature_scaling\n    \u2022 temperature: 1.0\n    \u2022 total_uncertainty: 0.0",
-                    "recommended_action": "create_new_expert",
-                    "action_details": {
-                        "action": "create_new_expert",
-                        "suggested_domain": "general",
-                        "confidence": 0.0,
-                        "domains_analyzed": []
-                    },
-                    "selected_experts": [],
-                    "primary_expert": null,
-                    "expert_scores": {},
-                    "expert_predictions": {},
-                    "aggregated_prediction": null,
-                    "total_uncertainty": 0.0,
-                    "uncertainty_intervals": {},
-                    "processing_time_ms": 0.33764299951144494,
-                    "phases_executed": [
-                        "2.1",
-                        "2.2",
-                        "2.3",
-                        "2.4",
-                        "2.5",
-                        "2.6"
-                    ],
+                        "expert_predictions": {},
+                        "original_query": "Earth orbits the Sun.",
+                        "unified_decision_type": "CREATE_NEW_EXPERT",
+                        "unified_selected_experts": []
+                    }
+                },
+                "action_result": {
+                    "action_type": "create_new_expert",
+                    "status": "failed",
+                    "executed_action": "",
+                    "created_resources": [],
+                    "resource_ids": [],
+                    "execution_time_ms": 0.001272001100005582,
+                    "error_message": "Invalid action: create_new_expert",
+                    "rollback_available": false,
+                    "metadata": {},
                     "warnings": []
                 },
-                "action_result": null,
-                "feedback_data": null,
-                "total_latency_ms": 6243.003122999653,
-                "phase_latencies": {
-                    "phase_3_validation": 6242.959586999859
+                "feedback_data": {
+                    "input_text": "Earth orbits the Sun.",
+                    "prediction": "",
+                    "ground_truth": null,
+                    "prediction_correct": null,
+                    "user_rating": null,
+                    "total_latency_ms": 0.0,
+                    "phase_latencies": {},
+                    "expert_used": "",
+                    "expert_confidence": 0.0,
+                    "timestamp": "2026-05-21T15:16:07.128042+00:00",
+                    "session_id": "session_8d7e3f4b",
+                    "feedback_id": "fb_c2743d505396"
                 },
-                "success": false,
-                "error_message": "Validation gate blocked action execution: complete_failure"
+                "total_latency_ms": 0.15930299923638813,
+                "phase_latencies": {
+                    "phase_3_validation": 0.02597999991849065,
+                    "phase_3_1": 0.10225500227534212,
+                    "phase_4_1": 0.02424600097583607
+                },
+                "success": true,
+                "error_message": null
             },
             "expert_decision": {
-                "decision_type": "USE_EXISTING_EXPERT",
-                "selected_experts": [
-                    "physics"
-                ],
-                "expert_confidence": 0.2923945603882273,
+                "decision_type": "CREATE_NEW_EXPERT",
+                "selected_experts": [],
+                "expert_confidence": 0.0,
                 "ood_penalty": 0.0,
                 "is_ood": false,
                 "metadata": {
-                    "raw_decision": {
-                        "input_text": "Is string theory scientifically proven?",
-                        "timestamp": "2026-05-06T14:20:20.901474",
-                        "expert_analyses": {
-                            "physics": {
-                                "input_text": "Is string theory scientifically proven?",
-                                "domain": "physics",
-                                "timestamp": "2026-05-06T14:20:20.906862",
-                                "systems_analysis": {
-                                    "k_medoids": {
-                                        "similarity_score": 0.23692254722118378,
-                                        "num_medoids": 10,
-                                        "primary_medoid_text": "Organisms that reproduce sexually by joining gamet..."
-                                    },
-                                    "calibration": {
-                                        "enabled": true,
-                                        "prediction": 0,
-                                        "confidence_score": 0.523548424243927,
-                                        "raw_confidence": 0.6752479672431946,
-                                        "calibration_quality": 0.5506849315068493
-                                    },
-                                    "ood_detection": {
-                                        "enabled": true,
-                                        "is_ood": false,
-                                        "ood_confidence": 0.3333333333333333,
-                                        "ood_scores": {
-                                            "svm_distance": 0.884082555770874,
-                                            "nn_distance": 0.7433530688285828,
-                                            "isolation_score": 0.010105514022846152
-                                        },
-                                        "reason": "1/3 methods flagged as OOD"
-                                    }
-                                },
-                                "unified_scores": {
-                                    "base_similarity": 0.23692254722118378,
-                                    "base_confidence": 0.523548424243927,
-                                    "ood_penalty": 0.06666666666666667,
-                                    "adjusted_similarity": 0.2321840962767601,
-                                    "adjusted_confidence": 0.48864519596099854,
-                                    "composite_score": 0.4177065148403247,
-                                    "quality_score": 0.7,
-                                    "systems_enabled": {
-                                        "k_medoids": true,
-                                        "calibration": true,
-                                        "ood_detection": true
-                                    }
-                                },
-                                "recommendation": {
-                                    "decision": "use_existing_expert",
-                                    "confidence_in_decision": 0.2923945603882273,
-                                    "reasoning": [
-                                        "High composite score (0.418) with acceptable OOD risk"
-                                    ],
-                                    "thresholds_used": {
-                                        "high_threshold": 0.35,
-                                        "medium_threshold": 0.175,
-                                        "ood_rejection_threshold": 0.6
-                                    }
-                                }
-                            }
+                    "input_text": "Earth orbits the Sun.",
+                    "timestamp": "2026-05-21T20:46:07.127534",
+                    "expert_analyses": {},
+                    "unified_decision": {
+                        "selected_domain": null,
+                        "composite_score": 0.0,
+                        "recommendation": {
+                            "decision": "create_new_expert"
                         },
-                        "unified_decision": {
-                            "selected_domain": "physics",
-                            "decision_flag": "use_existing_expert",
-                            "confidence_in_decision": 0.2923945603882273,
-                            "composite_score": 0.4177065148403247,
-                            "quality_score": 0.7,
-                            "reasoning": [
-                                "High composite score (0.418) with acceptable OOD risk"
-                            ],
-                            "ood_analysis": {
-                                "is_ood": false,
-                                "ood_confidence": 0.3333333333333333
-                            },
-                            "similarity_analysis": {
-                                "similarity_score": 0.23692254722118378,
-                                "adjusted_similarity": 0.2321840962767601
-                            },
-                            "confidence_analysis": {
-                                "calibrated_confidence": 0.523548424243927,
-                                "adjusted_confidence": 0.48864519596099854
-                            }
-                        },
-                        "system_summary": {
-                            "experts_analyzed": 1,
-                            "systems_enabled": {
-                                "k_medoids": true,
-                                "calibration": true,
-                                "ood_detection": true
-                            }
-                        }
+                        "quality_score": 0.0
                     },
-                    "routing_result": {
-                        "classification": "ATTRIBUTE_ONLY",
-                        "selected_experts": [
-                            "aesthetics",
-                            "astronomy",
-                            "automobile"
-                        ],
-                        "candidate_domains": [
-                            "aesthetics",
-                            "astronomy",
-                            "automobile"
-                        ],
-                        "primary_domain": "aesthetics",
-                        "fused_scores": {
-                            "aesthetics": 0.106709,
-                            "astronomy": 0.324225,
-                            "automobile": 0.27068
-                        },
-                        "coverage_met": false,
-                        "create_new_expert": true,
-                        "lens_scores": {
-                            "semantic": {
-                                "astronomy": 0.11794135570526124,
-                                "aesthetics": 0.014909380674362184,
-                                "automobile": 0.0
-                            },
-                            "spectral": {
-                                "astronomy": 0.4890038668293244,
-                                "automobile": 0.48765821402208015
-                            },
-                            "confidence": {
-                                "astronomy": 0.5,
-                                "aesthetics": 0.5,
-                                "automobile": 0.5
-                            }
-                        },
-                        "variance": 0.008563,
-                        "explanation": "Base routing: Attribute-heavy input detected; no core object domain evidence. Detected ATTRIBUTE_ONLY input (pure reasoning / no structural domain match); all available experts will be evaluated by the reasoning pipeline. Coverage threshold not met; new expert may be required."
+                    "system_summary": {
+                        "experts_analyzed": 0,
+                        "systems_enabled": {
+                            "k_medoids": true,
+                            "calibration": false,
+                            "ood_detection": false
+                        }
                     }
                 }
             },
-            "expert_flag": "use_existing_expert",
-            "selected_domain": "physics",
-            "decision_confidence": 0.2923945603882273,
-            "trace_id": "4d46c682-5820-4901-b2f3-4e887fec591a"
+            "expert_flag": "create_new_expert",
+            "selected_domain": "unknown",
+            "decision_confidence": 0.0,
+            "trace_id": "51a71cca-3c55-4a28-ba27-6d12c1f6f5af"
+        },
+        {
+            "sentence": "Glossy metallic red finish on the car.",
+            "tags": [
+                "technology"
+            ],
+            "timestamp": "2026-05-21T20:46:07.464364",
+            "layer0_routing": {
+                "route": "REASONING_PIPELINE",
+                "response_type": "DEFINITIVE_ANSWER",
+                "metadata": {
+                    "confidence": 0.75
+                }
+            },
+            "routing_context": {
+                "classification": "SINGLE_DOMAIN",
+                "selected_domains": [
+                    "automobile"
+                ],
+                "primary_domain": "automobile",
+                "fusion_scores": {
+                    "aesthetics": 0.357262,
+                    "automobile": 0.204269,
+                    "engine_spec": 0.195553
+                },
+                "coverage": 1.0,
+                "create_new_expert": false,
+                "metadata": {
+                    "selected_experts": [
+                        "automobile"
+                    ],
+                    "candidate_domains": [
+                        "automobile"
+                    ],
+                    "coverage_met": true,
+                    "budget_cap_applied": false,
+                    "lens_scores": {
+                        "semantic": {
+                            "aesthetics": 0.5181538173130581,
+                            "automobile": 0.1356731312615531,
+                            "engine_spec": 0.11388232707977296
+                        },
+                        "spectral": {},
+                        "confidence": {
+                            "automobile": 0.5,
+                            "engine_spec": 0.5,
+                            "aesthetics": 0.5
+                        }
+                    },
+                    "fused_scores": {
+                        "aesthetics": 0.357262,
+                        "automobile": 0.204269,
+                        "engine_spec": 0.195553
+                    },
+                    "variance": 0.005515,
+                    "explanation": "Base: Selected automobile due to core features: car. Secondary signals detected: aesthetics (w=0.6). Single domain: automobile. Coverage satisfied."
+                }
+            },
+            "phase2_result": {
+                "original_text": "Glossy metallic red finish on the car.",
+                "final_decision": "create_new_expert",
+                "decision_confidence": 0.2,
+                "confidence_factors": {
+                    "semantic_confidence": 0.108092,
+                    "selection_confidence": 0.0,
+                    "ensemble_confidence": 0.0,
+                    "mean_calibrated_confidence": 0.0
+                },
+                "reasoning_chain": [
+                    {
+                        "step": 1,
+                        "phase": "2.1",
+                        "name": "Input Normalization",
+                        "description": "Cleaned and validated input text",
+                        "details": {
+                            "is_valid": true,
+                            "language": "unknown",
+                            "tags_extracted": 0
+                        }
+                    },
+                    {
+                        "step": 2,
+                        "phase": "2.2",
+                        "name": "Semantic Understanding",
+                        "description": "Analyzed text semantics and domain relevance",
+                        "details": {
+                            "top_domain": "unknown",
+                            "entities_found": 0,
+                            "concepts_found": 5,
+                            "confidence": 0.108092
+                        }
+                    },
+                    {
+                        "step": 3,
+                        "phase": "2.3",
+                        "name": "Expert Selection",
+                        "description": "Selected 0 experts from 0 candidates",
+                        "details": {
+                            "strategy": "greedy",
+                            "selected": [],
+                            "confidence": 0.0
+                        }
+                    },
+                    {
+                        "step": 4,
+                        "phase": "2.4",
+                        "name": "Multi-Expert Inference",
+                        "description": "Collected predictions from selected experts",
+                        "details": {
+                            "ensemble_confidence": 0.0,
+                            "disagreement": 0.0,
+                            "outliers": 0
+                        }
+                    },
+                    {
+                        "step": 5,
+                        "phase": "2.5",
+                        "name": "Confidence Calibration",
+                        "description": "Calibrated predictions and quantified uncertainty",
+                        "details": {
+                            "method": "temperature_scaling",
+                            "temperature": 1.0,
+                            "total_uncertainty": 0.0
+                        }
+                    }
+                ],
+                "reasoning_text": "Reasoning Chain:\n  Step 1 (Phase 2.1): Input Normalization\n    \u2192 Cleaned and validated input text\n    \u2022 is_valid: True\n    \u2022 language: unknown\n    \u2022 tags_extracted: 0\n  Step 2 (Phase 2.2): Semantic Understanding\n    \u2192 Analyzed text semantics and domain relevance\n    \u2022 top_domain: unknown\n    \u2022 entities_found: 0\n    \u2022 concepts_found: 5\n    \u2022 confidence: 0.108092\n  Step 3 (Phase 2.3): Expert Selection\n    \u2192 Selected 0 experts from 0 candidates\n    \u2022 strategy: greedy\n    \u2022 selected: []\n    \u2022 confidence: 0.0\n  Step 4 (Phase 2.4): Multi-Expert Inference\n    \u2192 Collected predictions from selected experts\n    \u2022 ensemble_confidence: 0.0\n    \u2022 disagreement: 0.0\n    \u2022 outliers: 0\n  Step 5 (Phase 2.5): Confidence Calibration\n    \u2192 Calibrated predictions and quantified uncertainty\n    \u2022 method: temperature_scaling\n    \u2022 temperature: 1.0\n    \u2022 total_uncertainty: 0.0",
+                "recommended_action": "create_new_expert",
+                "action_details": {
+                    "action": "create_new_expert",
+                    "suggested_domain": "general",
+                    "confidence": 0.0,
+                    "domains_analyzed": []
+                },
+                "selected_experts": [],
+                "primary_expert": null,
+                "expert_scores": {},
+                "expert_predictions": {},
+                "aggregated_prediction": null,
+                "total_uncertainty": 0.0,
+                "uncertainty_intervals": {},
+                "processing_time_ms": 0.056226999731734395,
+                "phases_executed": [
+                    "2.1",
+                    "2.2",
+                    "2.3",
+                    "2.4",
+                    "2.5",
+                    "2.6"
+                ],
+                "warnings": []
+            },
+            "phase3_result": {
+                "original_input": "Glossy metallic red finish on the car.",
+                "decision_result": {
+                    "decision": "CREATE_NEW_EXPERT",
+                    "confidence": 0.0,
+                    "reasoning": "",
+                    "action": "create_new_expert",
+                    "expert_name": "",
+                    "domain": "",
+                    "metadata": {
+                        "original_text": "Glossy metallic red finish on the car.",
+                        "action_details": {
+                            "action": "create_new_expert",
+                            "suggested_domain": "general",
+                            "confidence": 0.0,
+                            "domains_analyzed": []
+                        },
+                        "expert_predictions": {},
+                        "original_query": "Glossy metallic red finish on the car.",
+                        "unified_decision_type": "CREATE_NEW_EXPERT",
+                        "unified_selected_experts": []
+                    }
+                },
+                "action_result": {
+                    "action_type": "create_new_expert",
+                    "status": "failed",
+                    "executed_action": "",
+                    "created_resources": [],
+                    "resource_ids": [],
+                    "execution_time_ms": 0.0016730009519960731,
+                    "error_message": "Invalid action: create_new_expert",
+                    "rollback_available": false,
+                    "metadata": {},
+                    "warnings": []
+                },
+                "feedback_data": {
+                    "input_text": "Glossy metallic red finish on the car.",
+                    "prediction": "",
+                    "ground_truth": null,
+                    "prediction_correct": null,
+                    "user_rating": null,
+                    "total_latency_ms": 0.0,
+                    "phase_latencies": {},
+                    "expert_used": "",
+                    "expert_confidence": 0.0,
+                    "timestamp": "2026-05-21T15:16:07.494317+00:00",
+                    "session_id": "session_9955af8e",
+                    "feedback_id": "fb_a9e821bc17a4"
+                },
+                "total_latency_ms": 0.1409780015819706,
+                "phase_latencies": {
+                    "phase_3_validation": 0.019557002815417945,
+                    "phase_3_1": 0.08855900159687735,
+                    "phase_4_1": 0.02577900158939883
+                },
+                "success": true,
+                "error_message": null
+            },
+            "expert_decision": {
+                "decision_type": "CREATE_NEW_EXPERT",
+                "selected_experts": [],
+                "expert_confidence": 0.0,
+                "ood_penalty": 0.0,
+                "is_ood": false,
+                "metadata": {
+                    "input_text": "Glossy metallic red finish on the car.",
+                    "timestamp": "2026-05-21T20:46:07.493946",
+                    "expert_analyses": {},
+                    "unified_decision": {
+                        "selected_domain": null,
+                        "composite_score": 0.0,
+                        "recommendation": {
+                            "decision": "create_new_expert"
+                        },
+                        "quality_score": 0.0
+                    },
+                    "system_summary": {
+                        "experts_analyzed": 0,
+                        "systems_enabled": {
+                            "k_medoids": true,
+                            "calibration": false,
+                            "ood_detection": false
+                        }
+                    }
+                }
+            },
+            "expert_flag": "create_new_expert",
+            "selected_domain": "unknown",
+            "decision_confidence": 0.0,
+            "trace_id": "60190061-a55a-4485-8b71-3da0fbabcbb6"
+        },
+        {
+            "sentence": "Patient with myocardial infarction showing elevated troponin.",
+            "tags": [
+                "healthcare",
+                "medicine"
+            ],
+            "timestamp": "2026-05-21T20:46:07.764429",
+            "layer0_routing": {
+                "route": "REASONING_PIPELINE",
+                "response_type": "DEFINITIVE_ANSWER",
+                "metadata": {
+                    "confidence": 0.75
+                }
+            },
+            "routing_context": {
+                "classification": "ATTRIBUTE_ONLY",
+                "selected_domains": [],
+                "primary_domain": null,
+                "fusion_scores": {
+                    "aesthetics": 0.15,
+                    "automobile": 0.15,
+                    "engine_spec": 0.177072
+                },
+                "coverage": 0.0,
+                "create_new_expert": false,
+                "metadata": {
+                    "selected_experts": [],
+                    "candidate_domains": [],
+                    "coverage_met": false,
+                    "budget_cap_applied": false,
+                    "lens_scores": {
+                        "semantic": {
+                            "engine_spec": 0.06768007278442383,
+                            "automobile": 0.0,
+                            "aesthetics": 0.0
+                        },
+                        "spectral": {},
+                        "confidence": {
+                            "automobile": 0.5,
+                            "engine_spec": 0.5,
+                            "aesthetics": 0.5
+                        }
+                    },
+                    "fused_scores": {
+                        "aesthetics": 0.15,
+                        "automobile": 0.15,
+                        "engine_spec": 0.177072
+                    },
+                    "variance": 0.000163,
+                    "explanation": "Base: Attribute-heavy input detected; no core object domain evidence. Pure reasoning query \u2014 no structural domain match. All available experts will be evaluated by the reasoning pipeline."
+                }
+            },
+            "phase2_result": {
+                "original_text": "Patient with myocardial infarction showing elevated troponin.",
+                "final_decision": "create_patch",
+                "decision_confidence": 0.37250917543376666,
+                "confidence_factors": {
+                    "semantic_confidence": 0.235108,
+                    "selection_confidence": 0.061306,
+                    "ensemble_confidence": 0.32026010000000005,
+                    "mean_calibrated_confidence": 0.32026010000000005
+                },
+                "reasoning_chain": [
+                    {
+                        "step": 1,
+                        "phase": "2.1",
+                        "name": "Input Normalization",
+                        "description": "Cleaned and validated input text",
+                        "details": {
+                            "is_valid": true,
+                            "language": "unknown",
+                            "tags_extracted": 1
+                        }
+                    },
+                    {
+                        "step": 2,
+                        "phase": "2.2",
+                        "name": "Semantic Understanding",
+                        "description": "Analyzed text semantics and domain relevance",
+                        "details": {
+                            "top_domain": "medical",
+                            "entities_found": 1,
+                            "concepts_found": 5,
+                            "confidence": 0.235108
+                        }
+                    },
+                    {
+                        "step": 3,
+                        "phase": "2.3",
+                        "name": "Expert Selection",
+                        "description": "Selected 1 experts from 1 candidates",
+                        "details": {
+                            "strategy": "greedy",
+                            "selected": [
+                                "expert_medical"
+                            ],
+                            "confidence": 0.061306
+                        }
+                    },
+                    {
+                        "step": 4,
+                        "phase": "2.4",
+                        "name": "Multi-Expert Inference",
+                        "description": "Collected predictions from selected experts",
+                        "details": {
+                            "ensemble_confidence": 0.32026010000000005,
+                            "disagreement": 0.0,
+                            "outliers": 0
+                        }
+                    },
+                    {
+                        "step": 5,
+                        "phase": "2.5",
+                        "name": "Confidence Calibration",
+                        "description": "Calibrated predictions and quantified uncertainty",
+                        "details": {
+                            "method": "temperature_scaling",
+                            "temperature": 1.0,
+                            "total_uncertainty": 0.6270653581901184
+                        }
+                    }
+                ],
+                "reasoning_text": "Reasoning Chain:\n  Step 1 (Phase 2.1): Input Normalization\n    \u2192 Cleaned and validated input text\n    \u2022 is_valid: True\n    \u2022 language: unknown\n    \u2022 tags_extracted: 1\n  Step 2 (Phase 2.2): Semantic Understanding\n    \u2192 Analyzed text semantics and domain relevance\n    \u2022 top_domain: medical\n    \u2022 entities_found: 1\n    \u2022 concepts_found: 5\n    \u2022 confidence: 0.235108\n  Step 3 (Phase 2.3): Expert Selection\n    \u2192 Selected 1 experts from 1 candidates\n    \u2022 strategy: greedy\n    \u2022 selected: ['expert_medical']\n    \u2022 confidence: 0.061306\n  Step 4 (Phase 2.4): Multi-Expert Inference\n    \u2192 Collected predictions from selected experts\n    \u2022 ensemble_confidence: 0.32026010000000005\n    \u2022 disagreement: 0.0\n    \u2022 outliers: 0\n  Step 5 (Phase 2.5): Confidence Calibration\n    \u2192 Calibrated predictions and quantified uncertainty\n    \u2022 method: temperature_scaling\n    \u2022 temperature: 1.0\n    \u2022 total_uncertainty: 0.6270653581901184",
+                "recommended_action": "create_patch",
+                "action_details": {
+                    "action": "create_patch",
+                    "target_expert": "expert_medical",
+                    "domain": "medical",
+                    "confidence": 0.32026010000000005,
+                    "domains_to_cover": [
+                        "medical"
+                    ]
+                },
+                "selected_experts": [
+                    "expert_medical"
+                ],
+                "primary_expert": "expert_medical",
+                "expert_scores": {
+                    "expert_medical": 0.061306
+                },
+                "expert_predictions": {
+                    "expert_medical": {
+                        "prediction": {
+                            "recommended_action": "create_new_expert",
+                            "domain": "medical",
+                            "relevance_score": 0.32026010000000005,
+                            "hash_signature": "c50b100ce25bb127",
+                            "prediction_id": 6556
+                        },
+                        "confidence": 0.32026010000000005,
+                        "metadata": {
+                            "expert_name": "expert_medical",
+                            "domain": "medical",
+                            "match_score": 0.061306,
+                            "latency_ms": 0.07050399653962813
+                        },
+                        "latency_ms": 0.07050399653962813
+                    }
+                },
+                "aggregated_prediction": {
+                    "recommended_action": "create_new_expert",
+                    "vote_counts": {
+                        "create_new_expert": 1
+                    },
+                    "aggregation_method": "ensemble_voting",
+                    "consensus_confidence": 0.32026010000000005
+                },
+                "total_uncertainty": 0.6270653581901184,
+                "uncertainty_intervals": {
+                    "expert_medical": [
+                        0.2203,
+                        0.4203
+                    ]
+                },
+                "processing_time_ms": 0.08922999768401496,
+                "phases_executed": [
+                    "2.1",
+                    "2.2",
+                    "2.3",
+                    "2.4",
+                    "2.5",
+                    "2.6"
+                ],
+                "warnings": [
+                    "Decision is near a confidence boundary"
+                ]
+            },
+            "phase3_result": {
+                "original_input": "Patient with myocardial infarction showing elevated troponin.",
+                "decision_result": {
+                    "decision": "CREATE_NEW_EXPERT",
+                    "confidence": 0.0,
+                    "reasoning": "",
+                    "action": "create_new_expert",
+                    "expert_name": "",
+                    "domain": "",
+                    "metadata": {
+                        "original_text": "Patient with myocardial infarction showing elevated troponin.",
+                        "action_details": {
+                            "action": "create_patch",
+                            "target_expert": "expert_medical",
+                            "domain": "medical",
+                            "confidence": 0.32026010000000005,
+                            "domains_to_cover": [
+                                "medical"
+                            ]
+                        },
+                        "expert_predictions": {
+                            "expert_medical": {
+                                "prediction": {
+                                    "recommended_action": "create_new_expert",
+                                    "domain": "medical",
+                                    "relevance_score": 0.32026010000000005,
+                                    "hash_signature": "c50b100ce25bb127",
+                                    "prediction_id": 6556
+                                },
+                                "confidence": 0.32026010000000005,
+                                "metadata": {
+                                    "expert_name": "expert_medical",
+                                    "domain": "medical",
+                                    "match_score": 0.061306,
+                                    "latency_ms": 0.07050399653962813
+                                },
+                                "latency_ms": 0.07050399653962813
+                            }
+                        },
+                        "original_query": "Patient with myocardial infarction showing elevated troponin.",
+                        "unified_decision_type": "CREATE_NEW_EXPERT",
+                        "unified_selected_experts": []
+                    }
+                },
+                "action_result": {
+                    "action_type": "create_new_expert",
+                    "status": "failed",
+                    "executed_action": "",
+                    "created_resources": [],
+                    "resource_ids": [],
+                    "execution_time_ms": 0.0010520016076043248,
+                    "error_message": "Invalid action: create_new_expert",
+                    "rollback_available": false,
+                    "metadata": {},
+                    "warnings": []
+                },
+                "feedback_data": {
+                    "input_text": "Patient with myocardial infarction showing elevated troponin.",
+                    "prediction": "",
+                    "ground_truth": null,
+                    "prediction_correct": null,
+                    "user_rating": null,
+                    "total_latency_ms": 0.0,
+                    "phase_latencies": {},
+                    "expert_used": "",
+                    "expert_confidence": 0.0,
+                    "timestamp": "2026-05-21T15:16:07.822820+00:00",
+                    "session_id": "session_0ac1f9c6",
+                    "feedback_id": "fb_3592b6eb1c1c"
+                },
+                "total_latency_ms": 0.1504459978605155,
+                "phase_latencies": {
+                    "phase_3_validation": 0.02099999983329326,
+                    "phase_3_1": 0.10014099825639278,
+                    "phase_4_1": 0.023876000341260806
+                },
+                "success": true,
+                "error_message": null
+            },
+            "expert_decision": {
+                "decision_type": "CREATE_NEW_EXPERT",
+                "selected_experts": [],
+                "expert_confidence": 0.0,
+                "ood_penalty": 0.0,
+                "is_ood": false,
+                "metadata": {
+                    "input_text": "Patient with myocardial infarction showing elevated troponin.",
+                    "timestamp": "2026-05-21T20:46:07.822431",
+                    "expert_analyses": {},
+                    "unified_decision": {
+                        "selected_domain": null,
+                        "composite_score": 0.0,
+                        "recommendation": {
+                            "decision": "create_new_expert"
+                        },
+                        "quality_score": 0.0
+                    },
+                    "system_summary": {
+                        "experts_analyzed": 0,
+                        "systems_enabled": {
+                            "k_medoids": true,
+                            "calibration": false,
+                            "ood_detection": false
+                        }
+                    }
+                }
+            },
+            "expert_flag": "create_new_expert",
+            "selected_domain": "unknown",
+            "decision_confidence": 0.0,
+            "trace_id": "8d449ea1-1cd9-4057-9f7a-8724df9d9d68"
+        },
+        {
+            "sentence": "Is it morally right to maximize profit at any cost?",
+            "tags": [
+                "politics",
+                "philosophy"
+            ],
+            "timestamp": "2026-05-21T20:46:08.089799",
+            "layer0_routing": {
+                "route": "MULTI_PERSPECTIVE",
+                "response_type": "MULTIPLE_TRUTHS",
+                "metadata": {
+                    "assumptions": []
+                }
+            },
+            "routing_context": {},
+            "phase2_result": {},
+            "phase3_result": {},
+            "expert_decision": {},
+            "expert_flag": "refused",
+            "selected_domain": "unknown",
+            "decision_confidence": 0.0
+        },
+        {
+            "sentence": "The study of astronomy involves planets and stars.",
+            "tags": [
+                "physics",
+                "maths"
+            ],
+            "timestamp": "2026-05-21T20:46:08.338880",
+            "layer0_routing": {
+                "route": "REASONING_PIPELINE",
+                "response_type": "DEFINITIVE_ANSWER",
+                "metadata": {
+                    "confidence": 0.75
+                }
+            },
+            "routing_context": {
+                "classification": "SINGLE_DOMAIN",
+                "selected_domains": [
+                    "astronomy"
+                ],
+                "primary_domain": "astronomy",
+                "fusion_scores": {
+                    "aesthetics": 0.167475,
+                    "astronomy": 0.338244,
+                    "automobile": 0.15
+                },
+                "coverage": 1.0,
+                "create_new_expert": false,
+                "metadata": {
+                    "selected_experts": [
+                        "astronomy"
+                    ],
+                    "candidate_domains": [
+                        "astronomy"
+                    ],
+                    "coverage_met": true,
+                    "budget_cap_applied": false,
+                    "lens_scores": {
+                        "semantic": {
+                            "astronomy": 0.4706089735031128,
+                            "aesthetics": 0.043687695264816286,
+                            "automobile": 0.0
+                        },
+                        "spectral": {},
+                        "confidence": {
+                            "automobile": 0.5,
+                            "astronomy": 0.5,
+                            "aesthetics": 0.5
+                        }
+                    },
+                    "fused_scores": {
+                        "aesthetics": 0.167475,
+                        "astronomy": 0.338244,
+                        "automobile": 0.15
+                    },
+                    "variance": 0.007211,
+                    "explanation": "Base: Selected astronomy due to core features: astronomy, planets, stars. Single domain: astronomy. Coverage satisfied."
+                }
+            },
+            "phase2_result": {
+                "original_text": "The study of astronomy involves planets and stars.",
+                "final_decision": "create_new_expert",
+                "decision_confidence": 0.2,
+                "confidence_factors": {
+                    "semantic_confidence": 0.108543,
+                    "selection_confidence": 0.0,
+                    "ensemble_confidence": 0.0,
+                    "mean_calibrated_confidence": 0.0
+                },
+                "reasoning_chain": [
+                    {
+                        "step": 1,
+                        "phase": "2.1",
+                        "name": "Input Normalization",
+                        "description": "Cleaned and validated input text",
+                        "details": {
+                            "is_valid": true,
+                            "language": "unknown",
+                            "tags_extracted": 0
+                        }
+                    },
+                    {
+                        "step": 2,
+                        "phase": "2.2",
+                        "name": "Semantic Understanding",
+                        "description": "Analyzed text semantics and domain relevance",
+                        "details": {
+                            "top_domain": "unknown",
+                            "entities_found": 0,
+                            "concepts_found": 5,
+                            "confidence": 0.108543
+                        }
+                    },
+                    {
+                        "step": 3,
+                        "phase": "2.3",
+                        "name": "Expert Selection",
+                        "description": "Selected 0 experts from 0 candidates",
+                        "details": {
+                            "strategy": "greedy",
+                            "selected": [],
+                            "confidence": 0.0
+                        }
+                    },
+                    {
+                        "step": 4,
+                        "phase": "2.4",
+                        "name": "Multi-Expert Inference",
+                        "description": "Collected predictions from selected experts",
+                        "details": {
+                            "ensemble_confidence": 0.0,
+                            "disagreement": 0.0,
+                            "outliers": 0
+                        }
+                    },
+                    {
+                        "step": 5,
+                        "phase": "2.5",
+                        "name": "Confidence Calibration",
+                        "description": "Calibrated predictions and quantified uncertainty",
+                        "details": {
+                            "method": "temperature_scaling",
+                            "temperature": 1.0,
+                            "total_uncertainty": 0.0
+                        }
+                    }
+                ],
+                "reasoning_text": "Reasoning Chain:\n  Step 1 (Phase 2.1): Input Normalization\n    \u2192 Cleaned and validated input text\n    \u2022 is_valid: True\n    \u2022 language: unknown\n    \u2022 tags_extracted: 0\n  Step 2 (Phase 2.2): Semantic Understanding\n    \u2192 Analyzed text semantics and domain relevance\n    \u2022 top_domain: unknown\n    \u2022 entities_found: 0\n    \u2022 concepts_found: 5\n    \u2022 confidence: 0.108543\n  Step 3 (Phase 2.3): Expert Selection\n    \u2192 Selected 0 experts from 0 candidates\n    \u2022 strategy: greedy\n    \u2022 selected: []\n    \u2022 confidence: 0.0\n  Step 4 (Phase 2.4): Multi-Expert Inference\n    \u2192 Collected predictions from selected experts\n    \u2022 ensemble_confidence: 0.0\n    \u2022 disagreement: 0.0\n    \u2022 outliers: 0\n  Step 5 (Phase 2.5): Confidence Calibration\n    \u2192 Calibrated predictions and quantified uncertainty\n    \u2022 method: temperature_scaling\n    \u2022 temperature: 1.0\n    \u2022 total_uncertainty: 0.0",
+                "recommended_action": "create_new_expert",
+                "action_details": {
+                    "action": "create_new_expert",
+                    "suggested_domain": "general",
+                    "confidence": 0.0,
+                    "domains_analyzed": []
+                },
+                "selected_experts": [],
+                "primary_expert": null,
+                "expert_scores": {},
+                "expert_predictions": {},
+                "aggregated_prediction": null,
+                "total_uncertainty": 0.0,
+                "uncertainty_intervals": {},
+                "processing_time_ms": 0.051127000915585086,
+                "phases_executed": [
+                    "2.1",
+                    "2.2",
+                    "2.3",
+                    "2.4",
+                    "2.5",
+                    "2.6"
+                ],
+                "warnings": []
+            },
+            "phase3_result": {
+                "original_input": "The study of astronomy involves planets and stars.",
+                "decision_result": {
+                    "decision": "CREATE_NEW_EXPERT",
+                    "confidence": 0.0,
+                    "reasoning": "",
+                    "action": "create_new_expert",
+                    "expert_name": "",
+                    "domain": "",
+                    "metadata": {
+                        "original_text": "The study of astronomy involves planets and stars.",
+                        "action_details": {
+                            "action": "create_new_expert",
+                            "suggested_domain": "general",
+                            "confidence": 0.0,
+                            "domains_analyzed": []
+                        },
+                        "expert_predictions": {},
+                        "original_query": "The study of astronomy involves planets and stars.",
+                        "unified_decision_type": "CREATE_NEW_EXPERT",
+                        "unified_selected_experts": []
+                    }
+                },
+                "action_result": {
+                    "action_type": "create_new_expert",
+                    "status": "failed",
+                    "executed_action": "",
+                    "created_resources": [],
+                    "resource_ids": [],
+                    "execution_time_ms": 0.0011020019883289933,
+                    "error_message": "Invalid action: create_new_expert",
+                    "rollback_available": false,
+                    "metadata": {},
+                    "warnings": []
+                },
+                "feedback_data": {
+                    "input_text": "The study of astronomy involves planets and stars.",
+                    "prediction": "",
+                    "ground_truth": null,
+                    "prediction_correct": null,
+                    "user_rating": null,
+                    "total_latency_ms": 0.0,
+                    "phase_latencies": {},
+                    "expert_used": "",
+                    "expert_confidence": 0.0,
+                    "timestamp": "2026-05-21T15:16:08.357074+00:00",
+                    "session_id": "session_b2b35a13",
+                    "feedback_id": "fb_2a8328779fe9"
+                },
+                "total_latency_ms": 0.119116000860231,
+                "phase_latencies": {
+                    "phase_3_validation": 0.017983998986892402,
+                    "phase_3_1": 0.07452199861290865,
+                    "phase_4_1": 0.021150000975467265
+                },
+                "success": true,
+                "error_message": null
+            },
+            "expert_decision": {
+                "decision_type": "CREATE_NEW_EXPERT",
+                "selected_experts": [],
+                "expert_confidence": 0.0,
+                "ood_penalty": 0.0,
+                "is_ood": false,
+                "metadata": {
+                    "input_text": "The study of astronomy involves planets and stars.",
+                    "timestamp": "2026-05-21T20:46:08.356737",
+                    "expert_analyses": {},
+                    "unified_decision": {
+                        "selected_domain": null,
+                        "composite_score": 0.0,
+                        "recommendation": {
+                            "decision": "create_new_expert"
+                        },
+                        "quality_score": 0.0
+                    },
+                    "system_summary": {
+                        "experts_analyzed": 0,
+                        "systems_enabled": {
+                            "k_medoids": true,
+                            "calibration": false,
+                            "ood_detection": false
+                        }
+                    }
+                }
+            },
+            "expert_flag": "create_new_expert",
+            "selected_domain": "unknown",
+            "decision_confidence": 0.0,
+            "trace_id": "d915012f-b2da-4728-81f0-d7cf4af278bf"
         }
     ]
 }
