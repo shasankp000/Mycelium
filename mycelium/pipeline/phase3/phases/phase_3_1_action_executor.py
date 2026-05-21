@@ -13,10 +13,10 @@ Components:
     * ActionExecutionPipeline — Orchestrates the full phase.
 
 Example:
-    >>> from phase3_validation.phases.phase_3_1_action_executor import (
+    >>> from mycelium.pipeline.phase3.phases.phase_3_1_action_executor import (
     ...     ActionExecutionPipeline,
     ... )
-    >>> from phase3_validation.utils.types import FinalDecisionResult
+    >>> from mycelium.pipeline.phase3.utils.types import FinalDecisionResult
     >>> decision = FinalDecisionResult(action="create_new", domain="chemistry")
     >>> pipeline = ActionExecutionPipeline()
     >>> result = pipeline.execute(decision)
@@ -32,8 +32,8 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 from uuid import uuid4
 
-from phase3_validation.config.phase3_config import Phase3Config
-from phase3_validation.utils.types import (
+from mycelium.pipeline.phase3.config.phase3_config import Phase3Config
+from mycelium.pipeline.phase3.utils.types import (
     ActionResult,
     CreatedResource,
     FinalDecisionResult,

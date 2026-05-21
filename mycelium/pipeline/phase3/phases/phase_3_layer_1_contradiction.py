@@ -14,7 +14,7 @@ Components:
     * ContradictionAnalyzer    — orchestrator for all sub-checks
 
 Example:
-    >>> from phase3_validation.phases.phase_3_layer_1_contradiction import (
+    >>> from mycelium.pipeline.phase3.phases.phase_3_layer_1_contradiction import (
     ...     ContradictionAnalyzer,
     ... )
     >>> analyzer = ContradictionAnalyzer()
@@ -33,8 +33,8 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from phase3_validation.config.validation_config import ValidationConfig
-from phase3_validation.phases.layer_1_types import Layer1Result
+from mycelium.pipeline.phase3.config.validation_config import ValidationConfig
+from mycelium.pipeline.phase3.phases.layer_1_types import Layer1Result
 
 logger = logging.getLogger(__name__)
 

@@ -11,11 +11,11 @@ Components:
     * CompleteFailureHandler    — handles complete failure path
 
 Example:
-    >>> from phase3_validation.phases.phase_3_validation import (
+    >>> from mycelium.pipeline.phase3.phases.phase_3_validation import (
     ...     ValidationResultClassifier,
     ...     CompleteFailureHandler,
     ... )
-    >>> from phase3_validation.phases.phase_3_layer_1_contradiction import (
+    >>> from mycelium.pipeline.phase3.phases.phase_3_layer_1_contradiction import (
     ...     ContradictionAnalyzer,
     ... )
     >>> from phase2_validation.phases.phase_2_6_synthesis import (
@@ -41,13 +41,13 @@ import logging
 import time
 from typing import Any, Callable, List, Optional
 
-from phase3_validation.config.validation_config import ValidationConfig
-from phase3_validation.phases.layer_1_types import (
+from mycelium.pipeline.phase3.config.validation_config import ValidationConfig
+from mycelium.pipeline.phase3.phases.layer_1_types import (
     CompleteFailureInfo,
     Layer1Result,
     ValidationDecision,
 )
-from phase3_validation.phases.phase_3_layer_1_contradiction import (
+from mycelium.pipeline.phase3.phases.phase_3_layer_1_contradiction import (
     ContradictionAnalyzer,
 )
 

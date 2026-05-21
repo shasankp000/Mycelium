@@ -25,8 +25,8 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from phase3_validation.config.phase3_config import Phase3Config
-from phase3_validation.utils.types import (
+from mycelium.pipeline.phase3.config.phase3_config import Phase3Config
+from mycelium.pipeline.phase3.utils.types import (
     AggregatedFeedback,
     FeedbackData,
 )
