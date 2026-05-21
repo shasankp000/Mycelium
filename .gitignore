@@ -29,6 +29,7 @@ coverage.xml
 
 # Runtime trace logs
 traces/*.jsonl
+runtime/calibration_state.json
 
 # Runtime cache
 runtime/cache/
