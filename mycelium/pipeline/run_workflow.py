@@ -34,10 +34,18 @@ from mycelium.pipeline.model_registry import warmup, loaded_models, STARTUP_SPEC
 from mycelium.pipeline.pipeline_event import EventEmitter, make_emitter
 # Phase 6 — reasoning mode / depth config
 from mycelium.pipeline.api_models import ReasoningMode, get_depth_config
-# Phase 6 — TRM integration: routing refinement + graph store + DFS lookup
+# Phase D — TRM integration: routing refinement + graph store + DFS lookup + promotion
 from mycelium.trm.integration import TRMLens
 from mycelium.trm.graph_store import GraphStore
 from mycelium.trm.dfs_lookup import DFSLookup
+from mycelium.trm.promotion import PromotionPolicy
+# Phase E — Contradiction classifier (non-fatal fallback if IR stack unavailable)
+try:
+    from mycelium.contradiction.classifier import ContradictionClassifier
+    _CONTRADICTION_AVAILABLE = True
+except Exception:
+    ContradictionClassifier = None  # type: ignore[assignment,misc]
+    _CONTRADICTION_AVAILABLE = False
 
 
 class NumpyEncoder(json.JSONEncoder):
@@ -200,13 +208,19 @@ def run_mycelium_workflow(
         "balanced" → dfs_max_depth=2, expert_top_k=2, phase3_passes=2  (default)
         "deep"     → dfs_max_depth=4, expert_top_k=3, phase3_passes=3
 
-    TRM integration (Phase D wiring):
-        - TRMLens refines the MultiLensRouter output before expert pool
-          resolution.  Falls back transparently when no checkpoint exists.
-        - GraphStore accumulates IRGraph-compatible summaries per sentence.
-        - DFSLookup searches the store at dfs_max_depth and appends the
-          lookup result into phase3_input.metadata["trm_lookup"] so that
-          Phase 3 can use stabilised graph context from prior sentences.
+    Phase D wiring:
+        - TRMLens refines routing_context domain probabilities (passthrough
+          fallback when no checkpoint exists).
+        - GraphStore accumulates per-sentence graph stubs.
+        - PromotionPolicy is run after every observe() call so the lifecycle
+          ladder (DRAFT→CANDIDATE→STABILIZED→CANONICAL) is active from the
+          first sentence.
+        - DFSLookup result is injected into phase3_input.metadata["trm_lookup"].
+
+    Phase E wiring:
+        - ContradictionClassifier runs on consecutive phase2_result pairs
+          (previous sentence vs current).  The ContradictionEdge classification
+          is non-fatal and stored in all_sentence_data["contradiction"].
     """
     import uuid as _uuid
 
@@ -260,10 +274,15 @@ def run_mycelium_workflow(
     phase2_pipeline = Phase2Pipeline()
     phase3_pipeline = Phase3To5Pipeline()
 
-    # Phase D — TRM integration layer (fallback-safe: no checkpoint needed)
+    # Phase D — TRM layer (fallback-safe)
     trm_lens = TRMLens()
     graph_store = GraphStore()
     dfs_lookup = DFSLookup(graph_store)
+    promotion_policy = PromotionPolicy()
+
+    # Phase E — ContradictionClassifier (lazy singleton, fallback-safe)
+    contradiction_classifier = ContradictionClassifier() if _CONTRADICTION_AVAILABLE else None
+    _prev_phase2_result: Optional[Any] = None  # rolling previous sentence result
 
     from mycelium.pipeline.unified_expert_system import get_unified_expert_system, _unified_system
     _expert_msg = 'Setting up environment\u2026' if _unified_system is None else 'Loading expert system\u2026'
@@ -391,8 +410,7 @@ def run_mycelium_workflow(
 
         routing_context = router.route(text)
 
-        # Phase D — TRMLens refines domain probabilities in routing_context.
-        # Falls back transparently (passthrough) when no TRM checkpoint exists.
+        # Phase D — TRMLens refines domain probabilities; passthrough if no checkpoint.
         routing_context = trm_lens.refine(routing_context)
 
         classification = getattr(routing_context, "classification", None)
@@ -478,6 +496,77 @@ def run_mycelium_workflow(
             depth_config=depth_cfg,
         )
 
+        # Phase E — ContradictionClassifier: compare current vs previous p2 output.
+        # Operates on text-level nodes built from phase2 decision fields.
+        # Non-fatal — a classifier error must never block the main workflow.
+        contradiction_result: Optional[Dict[str, Any]] = None
+        if contradiction_classifier is not None and _prev_phase2_result is not None:
+            try:
+                import types as _ct
+                import hashlib as _ch
+
+                def _p2_node(p2: Any, node_id: str) -> Any:
+                    """Minimal IRNode-compatible stub from a phase2 result."""
+                    label = str(
+                        getattr(p2, "final_decision", None)
+                        or getattr(p2, "decision_label", None)
+                        or ""
+                    )
+                    canonical = label.lower().strip()
+                    pred_family = str(
+                        getattr(p2, "domain", None)
+                        or getattr(p2, "selected_domain", None)
+                        or "UNKNOWN"
+                    ).upper()
+                    h = _ch.sha256(f"{canonical}|{pred_family}|0".encode()).hexdigest()
+                    sig = _ct.SimpleNamespace(
+                        semantic_hash=h,
+                        canonical_form=canonical,
+                        predicate_family=pred_family,
+                        abstraction_level=0,
+                        equivalence_family=[],
+                    )
+                    conf = float(getattr(p2, "decision_confidence", 0.5) or 0.5)
+                    conf_state = _ct.SimpleNamespace(overall_confidence=conf)
+                    t_state = _ct.SimpleNamespace(
+                        type="UNKNOWN", start=None, end=None,
+                        relative_relation=None, uncertainty=1.0,
+                        historical_validity=True,
+                    )
+                    return _ct.SimpleNamespace(
+                        id=node_id,
+                        semantic_signature=sig,
+                        confidence_state=conf_state,
+                        temporal_state=t_state,
+                        label=label,
+                    )
+
+                node_a = _p2_node(_prev_phase2_result, f"p2-prev-{idx - 1}")
+                node_b = _p2_node(phase2_result, f"p2-curr-{idx}")
+                c_edge = contradiction_classifier.classify(
+                    node_a, node_b, context={"sentence_index": idx}
+                )
+                contradiction_result = {
+                    "type": getattr(c_edge, "type", None),
+                    "severity": getattr(c_edge, "severity", None),
+                    "confidence": getattr(c_edge, "confidence", None),
+                    "scope": getattr(c_edge, "scope", None),
+                }
+
+                # If severity ≥ threshold, mark the stored graph as CONTESTED
+                _graph_id_prev = f"G-{_request_id[:8]}-{idx - 1:04d}"
+                prev_graph = graph_store.get_latest(_graph_id_prev)
+                if prev_graph is not None:
+                    target = promotion_policy.contest(
+                        prev_graph,
+                        severity=float(getattr(c_edge, "severity", 0.0) or 0.0),
+                    )
+                    if target is not None:
+                        graph_store.add_revision(_graph_id_prev, new_state=target)
+
+            except Exception as _ce:
+                contradiction_result = {"error": str(_ce)}
+
         emitter.emit(
             phase_name="graph_unified_decision",
             message="Computing unified expert decision\u2026",
@@ -498,22 +587,15 @@ def run_mycelium_workflow(
             expert_decision,
         )
 
-        # Phase D — store a lightweight graph summary in GraphStore and run
-        # DFS lookup bounded by dfs_max_depth.  The lookup result is injected
-        # into phase3_input.metadata so Phase 3 can surface stabilised context
-        # from semantically equivalent prior sentences.
+        # Phase D — GraphStore + DFSLookup + PromotionPolicy
         trm_lookup_result: Optional[Dict[str, Any]] = None
         try:
-            # Build a minimal dict node that GraphStore can index via its
-            # _index_graph helper.  We wrap it as a SimpleNamespace so that
-            # attribute access works without importing IRNode/IRGraph.
             import types as _types
             import hashlib as _hashlib
 
             _text_hash = _hashlib.sha256(text.encode()).hexdigest()[:16]
             _graph_id = f"G-{_request_id[:8]}-{idx:04d}"
 
-            # Minimal semantic_signature stub compatible with DFSLookup
             _sig = _types.SimpleNamespace(
                 semantic_hash=_text_hash,
                 canonical_form=text.lower().strip(),
@@ -524,8 +606,6 @@ def run_mycelium_workflow(
                 id=f"{_graph_id}-n0",
                 semantic_signature=_sig,
             )
-
-            # Minimal IRGraph-compatible stub
             _confidence_stub = _types.SimpleNamespace(overall_confidence=float(
                 getattr(expert_decision, "expert_confidence", 0.5) or 0.5
             ))
@@ -533,7 +613,7 @@ def run_mycelium_workflow(
                 graph_id=_graph_id,
                 nodes=[_node],
                 edges=[],
-                state="CANDIDATE",
+                state="DRAFT",
                 version="v1",
                 confidence_state=_confidence_stub,
                 fingerprint=None,
@@ -544,10 +624,14 @@ def run_mycelium_workflow(
             )
 
             graph_store.put(_graph_stub)
-            graph_store.observe(_graph_id)
+            obs_count = graph_store.observe(_graph_id)
 
-            # DFS search — strategy cascades: BY_HASH first, then BY_EQUIVALENCE
-            # if no exact match found (typical for the first occurrence).
+            # PromotionPolicy: run after every observe() — lifecycle ladder now active
+            _target_state = promotion_policy.evaluate(_graph_stub, obs_count)
+            if _target_state is not None and _target_state != _graph_stub.state:
+                graph_store.add_revision(_graph_id, new_state=_target_state)
+
+            # DFS search: BY_HASH first, then BY_EQUIVALENCE fallback
             _lookup = dfs_lookup.search(_node, strategy="BY_HASH", min_state_rank=0)
             if not _lookup.found:
                 _lookup = dfs_lookup.find_equivalent(_node)
@@ -560,9 +644,10 @@ def run_mycelium_workflow(
                 "primary": _lookup.primary,
                 "candidate_count": len(_lookup.candidates),
                 "dfs_max_depth_cfg": dfs_max_depth,
+                "obs_count": obs_count,
+                "promoted_to": _target_state,
             }
         except Exception as _trm_exc:
-            # Non-fatal: TRM graph wiring must never crash the main workflow
             trm_lookup_result = {"found": False, "error": str(_trm_exc)}
 
         emitter.emit(
@@ -580,6 +665,7 @@ def run_mycelium_workflow(
                 ),
                 "confidence": float(getattr(expert_decision, "expert_confidence", 0.0)),
                 "trm_lookup_found": trm_lookup_result.get("found", False) if trm_lookup_result else False,
+                "contradiction_type": contradiction_result.get("type") if contradiction_result else None,
             },
         )
 
@@ -592,11 +678,13 @@ def run_mycelium_workflow(
             phase2_metadata=phase2_extra_metadata,
         )
 
-        # Inject TRM lookup result into Phase 3 metadata for downstream use
+        # Inject TRM + contradiction context into Phase 3 metadata
+        if phase3_input.metadata is None:
+            phase3_input.metadata = {}
         if trm_lookup_result is not None:
-            if phase3_input.metadata is None:
-                phase3_input.metadata = {}
             phase3_input.metadata["trm_lookup"] = trm_lookup_result
+        if contradiction_result is not None:
+            phase3_input.metadata["contradiction"] = contradiction_result
 
         emitter.emit(
             phase_name="graph_phase3",
@@ -607,6 +695,9 @@ def run_mycelium_workflow(
         )
 
         phase3_result = phase3_pipeline.run_complete_pipeline(phase3_input)
+
+        # Advance rolling window for next iteration
+        _prev_phase2_result = phase2_result
 
         metrics.expert_decisions[expert_decision.decision_type] += 1
         for dom in getattr(expert_decision, "selected_experts", []) or []:
@@ -703,6 +794,7 @@ def run_mycelium_workflow(
                 "trace_id": sentence_trace_id,
                 "reasoning_mode": reasoning_mode,
                 "trm_lookup": trm_lookup_result,
+                "contradiction": contradiction_result,
             }
         )
         all_tags.extend(normalized_tags)
@@ -712,7 +804,8 @@ def run_mycelium_workflow(
                 "Sentence: {sent}\nTags: {tags}\nTimestamp: {ts}\n"
                 "Unified Decision: {flag} (Domain: {dom}, Confidence: {conf:.3f})\n"
                 "Reasoning Mode: {mode} (dfs_depth={dfs}, top_k={k})\n"
-                "TRM Lookup: found={trm_found} strategy={trm_strat}\n".format(
+                "TRM Lookup: found={trm_found} strategy={trm_strat} obs={obs} promoted={promoted}\n"
+                "Contradiction: type={c_type} severity={c_sev}\n".format(
                     sent=text,
                     tags=normalized_tags,
                     ts=timestamp,
@@ -724,6 +817,10 @@ def run_mycelium_workflow(
                     k=expert_top_k,
                     trm_found=trm_lookup_result.get("found") if trm_lookup_result else False,
                     trm_strat=trm_lookup_result.get("strategy_used") if trm_lookup_result else "N/A",
+                    obs=trm_lookup_result.get("obs_count") if trm_lookup_result else 0,
+                    promoted=trm_lookup_result.get("promoted_to") if trm_lookup_result else None,
+                    c_type=contradiction_result.get("type") if contradiction_result else "N/A",
+                    c_sev=contradiction_result.get("severity") if contradiction_result else "N/A",
                 )
             )
 
