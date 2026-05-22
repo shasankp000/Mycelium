@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
-// pages/index.tsx — Phase 1 refactor
-// Orchestrator only. All components, hooks and types now live in their own
-// files. This file owns top-level state and wires everything together.
+// pages/index.tsx — Phase 2 update
+// Adds: ModeSelector in input row, ChatBubble with react-markdown,
+//       localStorage mode persistence on init.
 // ---------------------------------------------------------------------------
 
 import Head from 'next/head';
@@ -14,7 +14,6 @@ import type {
   PipelineTrace,
   SandboxResult,
   Message,
-  MyceliumRunSummary,
   ChatApiResponse,
   HistoryTrace,
   LiveToolEvent,
@@ -30,12 +29,14 @@ import { useElapsedTick } from '../hooks/useElapsedTick';
 import { useSseStream }   from '../hooks/useSseStream';
 
 // Extracted components
-import { CalibrationGate }               from '../components/CalibrationGate';
+import { CalibrationGate }                from '../components/CalibrationGate';
 import { HomeScreen, PROMPT_SUGGESTIONS } from '../components/HomeScreen';
-import { TracePanel }                    from '../components/TracePanel';
-import { SandboxPanel }                  from '../components/SandboxPanel';
+import { TracePanel }                     from '../components/TracePanel';
+import { SandboxPanel }                   from '../components/SandboxPanel';
+import { ChatBubble }                     from '../components/ChatBubble';
+import { ModeSelector, loadSavedMode }   from '../components/ModeSelector';
 
-const API_BASE       = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:8000';
+const API_BASE        = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:8000';
 const MAX_INPUT_CHARS = 2000;
 
 // ---------------------------------------------------------------------------
@@ -120,7 +121,7 @@ function fmtDuration(ms: number) {
 }
 
 // ---------------------------------------------------------------------------
-// ThinkingPanel (inline — small enough to stay here for now)
+// ThinkingPanel (inline)
 // ---------------------------------------------------------------------------
 
 const THINKING_ICONS: Record<ThinkingEventKind, string> = {
@@ -148,7 +149,7 @@ function ThinkingPanel({ events }: { events: ThinkingEvent[] }) {
         const icon       = THINKING_ICONS[ev.kind] ?? '·';
         const kindLabel  = THINKING_KIND_LABEL[ev.kind] ?? ev.kind;
         const displayMsg = ev.message || ev.detail;
-        const meta       = ev.metadata ?? {};
+        const meta             = ev.metadata ?? {};
         const primaryDomain    = meta.primary_domain as string | undefined;
         const classification   = meta.classification as string | undefined;
         const candidateCount   = meta.candidate_count as number | undefined;
@@ -192,7 +193,7 @@ function ThinkingPanel({ events }: { events: ThinkingEvent[] }) {
 }
 
 // ---------------------------------------------------------------------------
-// PhaseIndicator (inline — tightly coupled to phase state)
+// PhaseIndicator (inline)
 // ---------------------------------------------------------------------------
 
 function PhaseIndicator({
@@ -216,7 +217,7 @@ function PhaseIndicator({
 }
 
 // ---------------------------------------------------------------------------
-// Misc small components (inline)
+// Misc small inline components
 // ---------------------------------------------------------------------------
 
 function HealthBanner({ onDismiss }: { onDismiss: () => void }) {
@@ -322,8 +323,12 @@ export default function Home() {
   const [input, setInput]                     = useState('');
   const [loading, setLoading]                 = useState(false);
   const [activeSandbox, setActiveSandbox]     = useState<SandboxResult | null>(null);
-  // Phase 2: mode selector (default smart)
-  const [mode, setMode]                       = useState<ReasoningMode>('smart');
+
+  // Mode selector — initialise from localStorage on mount
+  const [mode, setMode] = useState<ReasoningMode>('smart');
+  useEffect(() => {
+    setMode(loadSavedMode());
+  }, []);
 
   const [liveToolEvents, setLiveToolEvents] = useState<LiveToolEvent[]>([]);
   const [livePlanDetail, setLivePlanDetail] = useState<string>('');
@@ -331,8 +336,8 @@ export default function Home() {
   const [thinkingEvents, setThinkingEvents] = useState<ThinkingEvent[]>([]);
   const thinkingCounterRef                  = useRef<number>(0);
 
-  const [history, setHistory]                     = useState<HistoryTrace[]>([]);
-  const [activeHistoryId, setActiveHistoryId]     = useState<string | null>(null);
+  const [history, setHistory]                       = useState<HistoryTrace[]>([]);
+  const [activeHistoryId, setActiveHistoryId]       = useState<string | null>(null);
   const [historySidebarOpen, setHistorySidebarOpen] = useState(true);
   const [mobileSidebarOpen, setMobileSidebarOpen]   = useState(false);
 
@@ -346,7 +351,7 @@ export default function Home() {
 
   const { elapsedMs, start: startTick, stop: stopTick, dispose: disposeTick } = useElapsedTick();
 
-  // ── Health check ────────────────────────────────────────────────────────
+  // ── Health check ───────────────────────────────────────────────────────
   useEffect(() => {
     async function checkHealth() {
       try {
@@ -510,9 +515,9 @@ export default function Home() {
     if (sr) setActiveSandbox(sr);
   }
 
-  const hasLiveActivity   = liveToolEvents.length > 0 || !!livePlanDetail;
-  const sandboxPaneTitle  = loading && hasLiveActivity ? 'Running tools…' : loading ? 'Sandbox' : 'Sandbox evidence';
-  const atCharLimit       = input.length >= MAX_INPUT_CHARS;
+  const hasLiveActivity    = liveToolEvents.length > 0 || !!livePlanDetail;
+  const sandboxPaneTitle   = loading && hasLiveActivity ? 'Running tools…' : loading ? 'Sandbox' : 'Sandbox evidence';
+  const atCharLimit        = input.length >= MAX_INPUT_CHARS;
   const charCounterVisible = input.length > MAX_INPUT_CHARS * 0.8;
 
   // ── Render: calibration gate ─────────────────────────────────────────────
@@ -656,13 +661,28 @@ export default function Home() {
                   </div>
                 );
               }
-              return (
-                <div key={idx} className={m.role === 'user' ? styles.userBubbleWrap : styles.assistantBubbleWrap}>
-                  <div className={m.role === 'user' ? styles.userBubble : styles.assistantBubble}>
-                    {/* Phase 1: still using <pre>; Phase 2 will swap for react-markdown ChatBubble */}
-                    <pre className={styles.bubbleText}>{m.content}</pre>
+              if (m.role === 'user') {
+                return (
+                  <div key={idx} className={styles.userBubbleWrap}>
+                    <div className={styles.userBubble}>
+                      <p className={styles.bubbleText}>{m.content}</p>
+                    </div>
                   </div>
-                  {m.role === 'assistant' && m.trace && (
+                );
+              }
+              // Assistant bubble — now uses ChatBubble with react-markdown
+              return (
+                <div key={idx} className={styles.assistantBubbleWrap}>
+                  <ChatBubble
+                    content={m.content}
+                    trace={m.trace}
+                    sandbox={m.sandbox}
+                    onEvidenceOpen={() => setActiveSandbox(m.sandbox ?? null)}
+                    // onGraphOpen wired in Phase 4 when ReasoningGraph overlay exists
+                    onGraphOpen={undefined}
+                  />
+                  {/* Pipeline trace toggle — kept below bubble until Phase 4 absorbs it */}
+                  {m.trace && (
                     <>
                       <div className={styles.traceToggleRow}>
                         <button
@@ -677,20 +697,6 @@ export default function Home() {
                           </svg>
                           Pipeline trace
                         </button>
-                        {m.sandbox && (
-                          <button
-                            className={styles.traceToggleBtn}
-                            onClick={() => setActiveSandbox(m.sandbox ?? null)}
-                            aria-label="Show sandbox evidence in right panel"
-                          >
-                            <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                              <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.4" />
-                              <line x1="6" y1="3" x2="6" y2="6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-                              <circle cx="6" cy="8.5" r="0.75" fill="currentColor" />
-                            </svg>
-                            Evidence
-                          </button>
-                        )}
                       </div>
                       {m.traceOpen && (
                         <div id={`trace-panel-${idx}`}>
@@ -714,7 +720,9 @@ export default function Home() {
             <div ref={bottomRef} />
           </div>
 
+          {/* Input row with ModeSelector on the left */}
           <div className={styles.inputRow}>
+            <ModeSelector mode={mode} onChange={setMode} disabled={loading} />
             <div className={styles.inputWrap}>
               <input
                 className={styles.input}
