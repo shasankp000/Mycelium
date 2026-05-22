@@ -1,7 +1,6 @@
 // ---------------------------------------------------------------------------
-// types/graph.ts — Phase 3 extension
-// Ground-truth type definitions for the Reasoning Graph system.
-// Plan refs: §2.3.1, §2.3.2, §2.3.7, §2.3.9, §4.5, §9.1
+// types/graph.ts — Phase 5 extension
+// Adds: GraphDiff type and diffSnapshots() pure function (§9.5).
 // ---------------------------------------------------------------------------
 
 import type { ReasoningMode } from './pipeline';
@@ -38,33 +37,28 @@ export interface GraphNode {
   zone: SubgraphZone;
   metadata: Record<string, unknown>;
 
-  // Semantic weighting (§2.3.8)
-  confidence?: number;    // 0–1
-  leverage?: number;      // relative influence score
-  centrality?: number;    // graph centrality measure
+  confidence?: number;
+  leverage?: number;
+  centrality?: number;
 
-  // Visual overrides
   color?: string;
   size?: number;
   opacity?: number;
 
-  // Clustering (§2.3.7)
   clusterId?: string;
   isCluster?: boolean;
   clusterNodeCount?: number;
   clusterAvgConfidence?: number;
   clusterDominantDomain?: string;
   clusterMaxDepth?: number;
-  expanded?: boolean;     // whether cluster is expanded
+  expanded?: boolean;
 
-  // Ordering (§4.3 deterministic insertion)
   sequenceNumber: number;
   eventId?: string;
-  timestamp?: number;     // ms epoch
+  timestamp?: number;
 
-  // Position hints for layout zones (§2.3.3)
-  fx?: number | null;     // fixed x (set after physics freeze)
-  fy?: number | null;     // fixed y
+  fx?: number | null;
+  fy?: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -77,98 +71,231 @@ export interface GraphEdge {
   target: string;
   label?: string;
 
-  // Semantic weighting (§9.3 — opacity preferred over thickness)
-  weight?: number;        // 0–1 confidence/strength
-  opacity?: number;       // derived from weight; thickness remains subtle
-  thickness?: number;     // capped; never extreme
+  weight?: number;
+  opacity?: number;
+  thickness?: number;
 
-  // Ordering
   sequenceNumber: number;
 }
 
 // ---------------------------------------------------------------------------
-// Node colour map (§2.3.2)
+// Node colour map
 // ---------------------------------------------------------------------------
 
 export const NODE_COLORS: Record<NodeKind, string> = {
-  pipeline_stage:     '#6366f1',   // indigo
-  expert:             '#10b981',   // emerald
-  tool_call:          '#f59e0b',   // amber
-  reasoning_step:     '#64748b',   // slate
-  evidence_node:      '#3b82f6',   // blue
-  decision_point:     '#ef4444',   // red
-  cluster_node:       '#8b5cf6',   // violet
-  contradiction_node: '#dc2626',   // bright red
-  synthesis_node:     '#22c55e',   // green
+  pipeline_stage:     '#6366f1',
+  expert:             '#10b981',
+  tool_call:          '#f59e0b',
+  reasoning_step:     '#64748b',
+  evidence_node:      '#3b82f6',
+  decision_point:     '#ef4444',
+  cluster_node:       '#8b5cf6',
+  contradiction_node: '#dc2626',
+  synthesis_node:     '#22c55e',
 };
 
 // ---------------------------------------------------------------------------
-// Clustering thresholds (§2.3.7)
+// Clustering thresholds
 // ---------------------------------------------------------------------------
 
 export const CLUSTER_THRESHOLDS = {
-  /** Node count above which reasoning nodes begin collapsing */
   reasoningCollapse:  20,
-  /** Node count above which evidence trees summarise */
   evidenceSummarise:  15,
-  /** Low-confidence threshold — branches below this aggregate */
   lowConfidence:      0.35,
-  /** Max nodes before mobile graph simplification kicks in */
   mobileMaxNodes:     60,
 } as const;
 
 // ---------------------------------------------------------------------------
-// Graph lifecycle / layout enums (§2.3.6)
+// Graph lifecycle / layout enums
 // ---------------------------------------------------------------------------
 
 export type GraphLifecycle =
-  | 'idle'         // no query in progress
-  | 'streaming'    // receiving SSE events; physics running
-  | 'stabilising'  // done/error received; 2-3 s cooldown
-  | 'frozen'       // physics paused; exploration mode
-  | 'resumed';     // user clicked Resume simulation
+  | 'idle'
+  | 'streaming'
+  | 'stabilising'
+  | 'frozen'
+  | 'resumed';
 
 export type LayoutMode = 'force' | 'hierarchy' | 'radial';
 
 // ---------------------------------------------------------------------------
-// GraphSnapshot (§2.3.9, §4.5, §9.1)
+// GraphSnapshot
 // ---------------------------------------------------------------------------
 
-/** Semantic schema version. Increment when node/edge shape changes. */
 export const GRAPH_SCHEMA_VERSION = 1;
 
 export interface GraphSnapshot {
-  // Identity
   snapshotId: string;
   traceId?: string;
   queryText?: string;
   reasoningMode: ReasoningMode;
-
-  // Schema version for replay compatibility (§4.5)
   graphSchemaVersion: number;
-
-  // Graph state
   nodes: GraphNode[];
   edges: GraphEdge[];
-
-  // Lifecycle state at time of snapshot
   lifecycle: GraphLifecycle;
   layoutMode: LayoutMode;
-
-  // Timestamps
-  createdAt: number;       // ms epoch
-  stabilisedAt?: number;   // when physics froze
-
-  // Metadata
+  createdAt: number;
+  stabilisedAt?: number;
   nodeCount: number;
   edgeCount: number;
   totalElapsedMs?: number;
-
-  // §9.1: frontend vs backend persistence intent
-  // 'local'   — session-local acceleration layer only
-  // 'remote'  — canonical historical archive
-  // 'both'    — persisted in both layers
   persistenceScope: 'local' | 'remote' | 'both';
+}
+
+// ---------------------------------------------------------------------------
+// §9.5 GraphDiff — snapshot comparison result
+// ---------------------------------------------------------------------------
+
+/** Change type for a node or edge in a diff */
+export type DiffChangeType = 'added' | 'removed' | 'changed' | 'unchanged';
+
+export interface NodeDiffEntry {
+  changeType: DiffChangeType;
+  /** Present for 'added', 'unchanged', 'changed' — the node in snapshot B */
+  nodeB?: GraphNode;
+  /** Present for 'removed', 'unchanged', 'changed' — the node in snapshot A */
+  nodeA?: GraphNode;
+  /** Human-readable summary of what changed (for 'changed' entries) */
+  changeSummary?: string;
+}
+
+export interface EdgeDiffEntry {
+  changeType: DiffChangeType;
+  edgeB?: GraphEdge;
+  edgeA?: GraphEdge;
+}
+
+export interface GraphDiff {
+  /** Snapshot A = "before" / "base" */
+  snapshotIdA: string;
+  /** Snapshot B = "after" / "new" */
+  snapshotIdB: string;
+
+  nodeDiffs: NodeDiffEntry[];
+  edgeDiffs: EdgeDiffEntry[];
+
+  /** Summary counts */
+  nodesAdded:    number;
+  nodesRemoved:  number;
+  nodesChanged:  number;
+  nodesUnchanged: number;
+
+  edgesAdded:    number;
+  edgesRemoved:  number;
+  edgesChanged:  number;
+
+  /** Dominant zone that changed most */
+  dominantChangeZone?: SubgraphZone;
+}
+
+// ---------------------------------------------------------------------------
+// diffSnapshots() — pure function, no side effects
+// ---------------------------------------------------------------------------
+
+function nodeChangeSummary(a: GraphNode, b: GraphNode): string {
+  const parts: string[] = [];
+  if (a.state !== b.state)       parts.push(`state ${a.state}→${b.state}`);
+  if (a.kind  !== b.kind)        parts.push(`kind ${a.kind}→${b.kind}`);
+  if (a.zone  !== b.zone)        parts.push(`zone ${a.zone}→${b.zone}`);
+  if (
+    a.confidence !== undefined &&
+    b.confidence !== undefined &&
+    Math.abs(a.confidence - b.confidence) > 0.05
+  ) {
+    parts.push(`conf ${a.confidence.toFixed(2)}→${b.confidence.toFixed(2)}`);
+  }
+  return parts.join(', ');
+}
+
+export function diffSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphDiff {
+  const nodeMapA = new Map(a.nodes.map((n) => [n.id, n]));
+  const nodeMapB = new Map(b.nodes.map((n) => [n.id, n]));
+  const edgeMapA = new Map(a.edges.map((e) => [e.id, e]));
+  const edgeMapB = new Map(b.edges.map((e) => [e.id, e]));
+
+  const nodeDiffs: NodeDiffEntry[] = [];
+  const edgeDiffs: EdgeDiffEntry[] = [];
+
+  // Nodes in A
+  for (const [id, nodeA] of nodeMapA) {
+    const nodeB = nodeMapB.get(id);
+    if (!nodeB) {
+      nodeDiffs.push({ changeType: 'removed', nodeA });
+    } else {
+      const summary = nodeChangeSummary(nodeA, nodeB);
+      if (summary) {
+        nodeDiffs.push({ changeType: 'changed', nodeA, nodeB, changeSummary: summary });
+      } else {
+        nodeDiffs.push({ changeType: 'unchanged', nodeA, nodeB });
+      }
+    }
+  }
+
+  // Nodes only in B
+  for (const [id, nodeB] of nodeMapB) {
+    if (!nodeMapA.has(id)) {
+      nodeDiffs.push({ changeType: 'added', nodeB });
+    }
+  }
+
+  // Edges in A
+  for (const [id, edgeA] of edgeMapA) {
+    const edgeB = edgeMapB.get(id);
+    if (!edgeB) {
+      edgeDiffs.push({ changeType: 'removed', edgeA });
+    } else {
+      const weightChanged =
+        edgeA.weight !== undefined &&
+        edgeB.weight !== undefined &&
+        Math.abs(edgeA.weight - edgeB.weight) > 0.05;
+      edgeDiffs.push({ changeType: weightChanged ? 'changed' : 'unchanged', edgeA, edgeB });
+    }
+  }
+
+  // Edges only in B
+  for (const [id, edgeB] of edgeMapB) {
+    if (!edgeMapA.has(id)) {
+      edgeDiffs.push({ changeType: 'added', edgeB });
+    }
+  }
+
+  // Summary counts
+  const nodesAdded    = nodeDiffs.filter((d) => d.changeType === 'added').length;
+  const nodesRemoved  = nodeDiffs.filter((d) => d.changeType === 'removed').length;
+  const nodesChanged  = nodeDiffs.filter((d) => d.changeType === 'changed').length;
+  const nodesUnchanged = nodeDiffs.filter((d) => d.changeType === 'unchanged').length;
+  const edgesAdded    = edgeDiffs.filter((d) => d.changeType === 'added').length;
+  const edgesRemoved  = edgeDiffs.filter((d) => d.changeType === 'removed').length;
+  const edgesChanged  = edgeDiffs.filter((d) => d.changeType === 'changed').length;
+
+  // Dominant change zone: which zone had the most non-unchanged nodes?
+  const zoneCounts = new Map<SubgraphZone, number>();
+  nodeDiffs
+    .filter((d) => d.changeType !== 'unchanged')
+    .forEach((d) => {
+      const zone = (d.nodeB ?? d.nodeA)?.zone;
+      if (zone) zoneCounts.set(zone, (zoneCounts.get(zone) ?? 0) + 1);
+    });
+  let dominantChangeZone: SubgraphZone | undefined;
+  let maxZoneCount = 0;
+  for (const [zone, count] of zoneCounts) {
+    if (count > maxZoneCount) { maxZoneCount = count; dominantChangeZone = zone; }
+  }
+
+  return {
+    snapshotIdA: a.snapshotId,
+    snapshotIdB: b.snapshotId,
+    nodeDiffs,
+    edgeDiffs,
+    nodesAdded,
+    nodesRemoved,
+    nodesChanged,
+    nodesUnchanged,
+    edgesAdded,
+    edgesRemoved,
+    edgesChanged,
+    dominantChangeZone,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -183,7 +310,6 @@ export function saveSnapshotLocal(snapshot: GraphSnapshot): void {
   try {
     const key = `${SNAPSHOT_STORAGE_PREFIX}${snapshot.snapshotId}`;
     window.localStorage.setItem(key, JSON.stringify(snapshot));
-    // Prune oldest if over limit
     const allKeys = Object.keys(window.localStorage)
       .filter((k) => k.startsWith(SNAPSHOT_STORAGE_PREFIX))
       .sort();
@@ -192,7 +318,7 @@ export function saveSnapshotLocal(snapshot: GraphSnapshot): void {
         window.localStorage.removeItem(k);
       });
     }
-  } catch { /* quota exceeded or SSR — safe to ignore */ }
+  } catch { /* quota exceeded or SSR */ }
 }
 
 export function loadSnapshotLocal(snapshotId: string): GraphSnapshot | null {

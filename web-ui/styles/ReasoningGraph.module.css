@@ -3,7 +3,9 @@
    Phase 3: overlay chrome, subgraph controls, layout toolbar,
             node detail drawer, snapshot list.
    Phase 4: tooltip, stabilising badge, node/edge count chip,
-            canvas loading state, contradiction pulse ring.
+            canvas loading state, contradiction pulse states.
+   Phase 5: diff panel, diff rows, summary bar, snapshot compare controls,
+            tab strip + diff dot.
    --------------------------------------------------------------------------- */
 
 /* ---- Overlay ---- */
@@ -62,7 +64,6 @@
   50%       { opacity: 0.5; }
 }
 
-/* Phase 4: stabilising badge (⋅⋅⋅ dots) */
 .stabilisingBadge {
   font-size: 12px;
   font-weight: 700;
@@ -86,7 +87,6 @@
   border-radius: 9999px;
 }
 
-/* Phase 4: live node/edge count chip */
 .nodeCount {
   font-size: 10px;
   font-weight: 500;
@@ -119,6 +119,47 @@
 .closeBtn:hover {
   background: rgba(255,255,255,0.07);
   color: rgba(255,255,255,0.9);
+}
+
+/* ---- Tab strip (Phase 5) ---- */
+
+.tabStrip {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  flex-shrink: 0;
+  padding: 0 16px;
+}
+
+.tabBtn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 12px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: rgba(255,255,255,0.38);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 130ms, border-color 130ms;
+  margin-bottom: -1px;
+}
+.tabBtn:hover {
+  color: rgba(255,255,255,0.7);
+}
+.tabBtnActive {
+  color: rgba(165,180,252,0.9);
+  border-bottom-color: #a5b4fc;
+}
+
+.tabDiffDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f59e0b;
+  flex-shrink: 0;
 }
 
 /* ---- Subgraph controls ---- */
@@ -209,7 +250,6 @@
   overflow: hidden;
 }
 
-/* Phase 4: loading state while ForceGraph2D dynamic-imports */
 .canvasLoading {
   position: absolute;
   inset: 0;
@@ -238,7 +278,6 @@
   line-height: 1.5;
 }
 
-/* Phase 3 placeholder — kept for reference; hidden when ForceGraph2D mounts */
 .canvasPlaceholder {
   position: absolute;
   inset: 0;
@@ -440,6 +479,61 @@
 
 /* ---- Snapshot list ---- */
 
+.snapshotPanel {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.snapshotListHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.snapshotModeBtn {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: transparent;
+  color: rgba(255,255,255,0.45);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background 130ms, color 130ms;
+  white-space: nowrap;
+}
+.snapshotModeBtn:hover {
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.75);
+}
+.snapshotModeBtnActive {
+  background: rgba(99,102,241,0.15);
+  color: #a5b4fc;
+  border-color: rgba(99,102,241,0.3);
+}
+
+.snapshotCompareBtn {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(99,102,241,0.35);
+  background: rgba(99,102,241,0.18);
+  color: #a5b4fc;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 130ms;
+}
+.snapshotCompareBtn:hover {
+  background: rgba(99,102,241,0.28);
+}
+
+.snapshotCompareHint {
+  font-size: 11px;
+  color: rgba(255,255,255,0.3);
+}
+
 .snapshotList {
   display: flex;
   flex-direction: column;
@@ -461,6 +555,27 @@
 .snapshotItem:hover {
   background: rgba(255,255,255,0.05);
 }
+.snapshotItemSelected {
+  border-color: rgba(99,102,241,0.45);
+  background: rgba(99,102,241,0.1);
+}
+
+.snapshotCheckbox {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid rgba(255,255,255,0.2);
+  background: transparent;
+  flex-shrink: 0;
+  vertical-align: middle;
+  margin-right: 4px;
+  transition: background 120ms, border-color 120ms;
+}
+.snapshotCheckboxChecked {
+  background: #6366f1;
+  border-color: #6366f1;
+}
 
 .snapshotQuery {
   font-size: 12px;
@@ -481,10 +596,187 @@
   line-height: 1.5;
 }
 
+/* ---- Phase 5: Diff panel ---- */
+
+.diffPanel {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  max-height: 50%;
+  background: #111118;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  display: flex;
+  flex-direction: column;
+  animation: diffSlideUp 180ms ease;
+  z-index: 15;
+  overflow: hidden;
+}
+
+@keyframes diffSlideUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+.diffHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  flex-shrink: 0;
+}
+
+.diffTitles {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  overflow: hidden;
+}
+
+.diffTitleA {
+  color: rgba(255,255,255,0.4);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
+}
+
+.diffTitleB {
+  color: rgba(165,180,252,0.8);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
+}
+
+.diffCloseBtn {
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.35);
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: color 120ms;
+  flex-shrink: 0;
+}
+.diffCloseBtn:hover { color: rgba(255,255,255,0.8); }
+
+.diffSummaryBar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  font-size: 11px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.diffSumAdded   { color: #4ade80; font-weight: 600; }
+.diffSumRemoved { color: #ef4444; font-weight: 600; }
+.diffSumChanged { color: #f59e0b; font-weight: 600; }
+.diffSumUnchanged { color: rgba(255,255,255,0.25); }
+.diffSumZone    { color: rgba(165,180,252,0.7); font-style: italic; }
+.diffSumEdges   { color: rgba(255,255,255,0.3); }
+
+.diffNoChanges {
+  padding: 14px;
+  font-size: 12px;
+  color: #4ade80;
+  opacity: 0.8;
+}
+
+.diffBody {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.diffZoneGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.diffZoneLabel {
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.28);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin: 0 0 3px;
+}
+
+.diffRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border-left: 2px solid transparent;
+}
+
+.diffAdded    { background: rgba(74,222,128,0.06); border-left-color: #4ade80; }
+.diffRemoved  { background: rgba(239,68,68,0.06);  border-left-color: #ef4444; }
+.diffChanged  { background: rgba(245,158,11,0.06); border-left-color: #f59e0b; }
+.diffUnchanged { opacity: 0.45; }
+
+.diffRowDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+.diffRowBody {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.diffRowLabel {
+  font-size: 12px;
+  color: rgba(255,255,255,0.8);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diffRowMeta {
+  font-size: 10.5px;
+  color: rgba(255,255,255,0.35);
+}
+
+.diffRowChange {
+  color: rgba(245,158,11,0.75);
+  font-style: italic;
+}
+
+.diffRowTag {
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.25);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 /* ---- Responsive ---- */
 
 @media (max-width: 768px) {
-  .nodeDrawer      { width: 100%; top: auto; height: 50%; border-left: none; border-top: 1px solid rgba(255,255,255,0.07); }
-  .subgraphBtn     { font-size: 10.5px; padding: 3px 7px; }
-  .nodeTooltip     { display: none; } /* tooltips rely on hover; hidden on mobile */
+  .nodeDrawer  { width: 100%; top: auto; height: 50%; border-left: none; border-top: 1px solid rgba(255,255,255,0.07); }
+  .subgraphBtn { font-size: 10.5px; padding: 3px 7px; }
+  .nodeTooltip { display: none; }
+  .diffPanel   { max-height: 60%; }
+  .tabBtn      { font-size: 11px; padding: 7px 9px; }
 }

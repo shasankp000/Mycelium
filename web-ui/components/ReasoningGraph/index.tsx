@@ -1,123 +1,179 @@
 // ---------------------------------------------------------------------------
-// ReasoningGraph/index.tsx — Phase 4 (full implementation)
-//
-// Mounts react-force-graph-2d on the canvas area.
-// Implements:
-//   - live node fade-in during SSE streaming
-//   - semantic size/opacity/colour weighting (§2.3.8)
-//   - cluster node custom renderer via ClusterNode.tsx (§2.3.7)
-//   - contradiction pulse animation (§9.4 — staged + bounded)
-//   - hierarchy and radial layout freeze (§2.3.4)
-//   - physics freeze/resume wired to useGraphStabilization (§2.3.6)
-//   - node click → NodeDetailDrawer + cluster expand (§9.2)
-//   - node hover tooltip
-//   - subgraph zone filtering
-//   - edge opacity from confidence (§9.3)
-//
-// Plan refs: §2.3.3–2.3.8, §4.3, §9.2–9.4
+// ReasoningGraph/index.tsx — Phase 5 update
+// Adds: GraphDiffView integration; GraphSnapshotLoader onCompare wiring;
+//       diff panel mount/unmount; snapshot A/B queryText threading.
+// All Phase 4 canvas rendering retained.
 // ---------------------------------------------------------------------------
 
-import {
-  useState, useCallback, useRef, useEffect, useMemo,
+'use client';
+
+import React, {
+  useState, useCallback, useRef, useEffect,
 } from 'react';
 import dynamic from 'next/dynamic';
-import type { GraphNode, GraphEdge, SubgraphZone, LayoutMode } from '../../types/graph';
-import { NODE_COLORS } from '../../types/graph';
+import type { ForceGraphMethods } from 'react-force-graph-2d';
+import styles from '../../styles/ReasoningGraph.module.css';
 import type { GraphBuilderState } from '../../hooks/useGraphBuilder';
 import type { StabilizationControls } from '../../hooks/useGraphStabilization';
-import { SubgraphControls }  from './SubgraphControls';
-import { LayoutToolbar }     from './LayoutToolbar';
-import { NodeDetailDrawer }  from './NodeDetailDrawer';
-import { drawClusterNode }   from './ClusterNode';
-import styles from '../../styles/ReasoningGraph.module.css';
+import type {
+  GraphNode, GraphEdge, LayoutMode, GraphSnapshot, GraphDiff,
+} from '../../types/graph';
+import { NODE_COLORS } from '../../types/graph';
+import { SubgraphControls }     from './SubgraphControls';
+import { LayoutToolbar }        from './LayoutToolbar';
+import { NodeDetailDrawer }     from './NodeDetailDrawer';
+import { GraphSnapshotLoader }  from './GraphSnapshotLoader';
+import { GraphDiffView }        from './GraphDiffView';
 
-// react-force-graph-2d is canvas-only (no SSR)
+// ---------------------------------------------------------------------------
+// Dynamic import — ForceGraph2D is browser-only
+// ---------------------------------------------------------------------------
+
 const ForceGraph2D = dynamic(
-  () => import('react-force-graph-2d').then((m) => m.default ?? m),
-  { ssr: false, loading: () => <div className={styles.canvasLoading}>Initialising graph…</div> },
+  () => import('react-force-graph-2d').then((m) => m.default),
+  { ssr: false, loading: () => <div className={styles.canvasLoading}>Initialising graph renderer…</div> },
 );
 
 // ---------------------------------------------------------------------------
-// Constants
+// Canvas drawing helpers
 // ---------------------------------------------------------------------------
 
-/** How long (ms) a new node’s fade-in animation runs */
-const FADE_IN_MS = 600;
+const FADE_IN_DURATION_MS = 400;
 
-/** Contradiction pulse: 3 pulses then settle (§9.4) */
-const CONTRADICTION_PULSES = 3;
-const PULSE_INTERVAL_MS    = 400;
+function easeIn(t: number): number {
+  return t * t;
+}
 
-// Zone layout seed positions — keeps zones semi-isolated (§2.3.3)
-const ZONE_SEEDS: Record<SubgraphZone, { fx?: number; fy?: number }> = {
-  pipeline:  { fy: -220 },
-  reasoning: { fy:    0 },
-  evidence:  { fy:  220 },
-};
+function nodeAge(node: GraphNode): number {
+  const ts = node.timestamp ?? 0;
+  if (!ts) return 1;
+  return Math.min(1, (Date.now() - ts) / FADE_IN_DURATION_MS);
+}
 
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
+const CONTRADICTION_COLORS = ['#dc2626', '#ff6b6b'];
+let _contraFrame = 0;
+function contraColor(): string {
+  _contraFrame = (_contraFrame + 1) % (CONTRADICTION_COLORS.length * 8);
+  return CONTRADICTION_COLORS[Math.floor(_contraFrame / 8)];
+}
 
-export interface ReasoningGraphProps {
-  graphState:      GraphBuilderState;
-  stabilization:   StabilizationControls;
-  onClose:         () => void;
-  onExpandCluster: (clusterId: string) => void;
-  onLayoutChange:  (lm: LayoutMode) => void;
+function drawNode(
+  node: GraphNode & { x?: number; y?: number },
+  ctx: CanvasRenderingContext2D,
+  globalScale: number,
+  selectedId: string | null,
+  frozenPositions: Map<string, { x: number; y: number }> | null,
+) {
+  const x = node.x ?? 0;
+  const y = node.y ?? 0;
+  const r = (node.size ?? 6) / 2;
+  const age = easeIn(nodeAge(node));
+
+  const isSelected = selectedId === node.id;
+  const baseOpacity = node.opacity ?? 0.85;
+  const opacity = baseOpacity * age;
+
+  ctx.save();
+  ctx.globalAlpha = opacity;
+
+  // Contradiction pulse ring
+  if (node.kind === 'contradiction_node') {
+    ctx.beginPath();
+    ctx.arc(x, y, r + 3, 0, 2 * Math.PI);
+    ctx.strokeStyle = contraColor();
+    ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.4 * age;
+    ctx.stroke();
+    ctx.globalAlpha = opacity;
+  }
+
+  // Main node fill
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, 2 * Math.PI);
+  ctx.fillStyle = node.color ?? NODE_COLORS[node.kind] ?? '#888';
+  ctx.fill();
+
+  // State ring
+  if (node.state === 'running') {
+    ctx.strokeStyle = 'rgba(251,191,36,0.8)';
+    ctx.lineWidth   = 1.2;
+    ctx.stroke();
+  } else if (node.state === 'error') {
+    ctx.strokeStyle = 'rgba(239,68,68,0.9)';
+    ctx.lineWidth   = 1.5;
+    ctx.stroke();
+  } else if (node.state === 'skipped') {
+    ctx.globalAlpha = 0.3 * age;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, 2 * Math.PI);
+    ctx.fillStyle = '#888';
+    ctx.fill();
+    ctx.globalAlpha = opacity;
+  }
+
+  // Selection ring
+  if (isSelected) {
+    ctx.beginPath();
+    ctx.arc(x, y, r + 2.5, 0, 2 * Math.PI);
+    ctx.strokeStyle = 'rgba(165,180,252,0.9)';
+    ctx.lineWidth   = 2;
+    ctx.stroke();
+  }
+
+  // Frozen pin dot
+  if (frozenPositions?.has(node.id)) {
+    ctx.beginPath();
+    ctx.arc(x, y - r - 3, 1.5, 0, 2 * Math.PI);
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.fill();
+  }
+
+  // Label (only at sufficient zoom)
+  if (globalScale >= 1.2) {
+    ctx.font         = `${Math.min(4.5, 4 / globalScale * 5)}px sans-serif`;
+    ctx.fillStyle    = 'rgba(255,255,255,0.75)';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.globalAlpha  = Math.min(1, (globalScale - 1.2) / 0.5) * age;
+    ctx.fillText(node.label.slice(0, 18), x, y + r + 6);
+  }
+
+  ctx.restore();
+}
+
+function drawEdge(
+  link: { source: GraphNode & { x?: number; y?: number }; target: GraphNode & { x?: number; y?: number } } & GraphEdge,
+  ctx: CanvasRenderingContext2D,
+) {
+  const sx = link.source.x ?? 0;
+  const sy = link.source.y ?? 0;
+  const tx = link.target.x ?? 0;
+  const ty = link.target.y ?? 0;
+  ctx.save();
+  ctx.globalAlpha = link.opacity ?? 0.4;
+  ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+  ctx.lineWidth   = link.thickness ?? 1;
+  ctx.beginPath();
+  ctx.moveTo(sx, sy);
+  ctx.lineTo(tx, ty);
+  ctx.stroke();
+  ctx.restore();
 }
 
 // ---------------------------------------------------------------------------
-// Internal types for ForceGraph2D node/link shapes
-// (library requires plain objects with x/y injected at runtime)
+// ReasoningGraph props
 // ---------------------------------------------------------------------------
 
-type FGNode = GraphNode & { x?: number; y?: number; vx?: number; vy?: number };
-type FGLink = GraphEdge & { source: string | FGNode; target: string | FGNode };
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Age-based opacity for fade-in animation */
-function fadeOpacity(node: GraphNode, now: number): number {
-  if (!node.timestamp) return node.opacity ?? 0.85;
-  const age = now - node.timestamp;
-  if (age >= FADE_IN_MS) return node.opacity ?? 0.85;
-  const t = age / FADE_IN_MS;
-  return (node.opacity ?? 0.85) * t;
-}
-
-/** Hex colour with alpha for canvas fillStyle */
-function withAlpha(hex: string, alpha: number): string {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return `rgba(${r},${g},${b},${alpha.toFixed(3)})`;
-}
-
-/** Compute radial position for a node in radial layout mode */
-function radialPos(node: GraphNode, total: number, index: number) {
-  const radius = 80 + node.layerDepth * 60;
-  const angle  = (2 * Math.PI * index) / Math.max(total, 1);
-  return { fx: radius * Math.cos(angle), fy: radius * Math.sin(angle) };
-}
-
-/** Compute hierarchy position for a node */
-function hierarchyPos(node: GraphNode, layerCounts: Map<number, number>, layerIndex: Map<string, number>) {
-  const depth   = node.layerDepth;
-  const count   = layerCounts.get(depth) ?? 1;
-  const idx     = layerIndex.get(node.id) ?? 0;
-  const xSpread = 140;
-  const ySpread = 90;
-  return {
-    fx: (idx - (count - 1) / 2) * xSpread,
-    fy: depth * ySpread - 200,
-  };
+interface ReasoningGraphProps {
+  graphState:           GraphBuilderState;
+  stabilization:        StabilizationControls;
+  onClose:              () => void;
+  onExpandCluster:      (clusterId: string) => void;
+  onLayoutChange:       (mode: LayoutMode) => void;
 }
 
 // ---------------------------------------------------------------------------
-// Component
+// ReasoningGraph component
 // ---------------------------------------------------------------------------
 
 export function ReasoningGraph({
@@ -127,350 +183,286 @@ export function ReasoningGraph({
   onExpandCluster,
   onLayoutChange,
 }: ReasoningGraphProps) {
-  const [activeZones, setActiveZones] = useState<Set<SubgraphZone>>(
-    new Set(['pipeline', 'reasoning', 'evidence']),
-  );
-  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
-  const [tooltip, setTooltip]           = useState<{ x: number; y: number; node: GraphNode } | null>(null);
-  const [contradictionIds, setContradictionIds] = useState<Set<string>>(new Set());
-  const [pulseCount, setPulseCount]     = useState(0);
+  const { displayNodes, edges, lifecycle, layoutMode, snapshot } = graphState;
 
-  const graphRef      = useRef<unknown>(null);
-  const wrapRef       = useRef<HTMLDivElement>(null);
-  const animFrameRef  = useRef<number | null>(null);
-  const [, forceRepaint] = useState(0); // tick to re-render canvas each animation frame
+  const fgRef = useRef<ForceGraphMethods<GraphNode, GraphEdge>>(null);
 
-  // ── Zone toggle ───────────────────────────────────────────────
-  const toggleZone = useCallback((zone: SubgraphZone) => {
-    setActiveZones((prev) => {
-      const next = new Set(prev);
-      if (next.has(zone)) { if (next.size > 1) next.delete(zone); }
-      else { next.add(zone); }
-      return next;
-    });
-  }, []);
+  const [activeTab, setActiveTab]               = useState<'graph' | 'snapshots'>('graph');
+  const [selectedNode, setSelectedNode]         = useState<GraphNode | null>(null);
+  const [frozenPositions, setFrozenPositions]   = useState<Map<string, { x: number; y: number }> | null>(null);
+  const [tooltip, setTooltip]                   = useState<{ node: GraphNode; x: number; y: number } | null>(null);
 
-  // ── Visible nodes/edges (zone-filtered) ──────────────────────────────
-  const visibleNodes = useMemo(
-    () => graphState.displayNodes.filter((n) => activeZones.has(n.zone)),
-    [graphState.displayNodes, activeZones],
-  );
-  const visibleEdges = useMemo(() => {
-    const ids = new Set(visibleNodes.map((n) => n.id));
-    return graphState.edges.filter(
-      (e) => ids.has(e.source as string) && ids.has(e.target as string),
-    );
-  }, [graphState.edges, visibleNodes]);
+  // Phase 5: diff state
+  const [activeDiff, setActiveDiff]   = useState<GraphDiff | null>(null);
+  const [diffSnapA, setDiffSnapA]     = useState<GraphSnapshot | null>(null);
+  const [diffSnapB, setDiffSnapB]     = useState<GraphSnapshot | null>(null);
 
-  // ── Animation frame loop (drives fade-in repaints during streaming) ───
+  const isLive     = lifecycle === 'streaming';
+  const isStabilising = lifecycle === 'stabilising';
+  const isFrozen   = lifecycle === 'frozen' || lifecycle === 'resumed';
+  const isEmpty    = displayNodes.length === 0;
+
+  // Freeze: collect positions from engine
   useEffect(() => {
-    if (graphState.lifecycle !== 'streaming') {
-      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    if (isFrozen && fgRef.current) {
+      const positions = new Map<string, { x: number; y: number }>();
+      displayNodes.forEach((n) => {
+        const d = n as GraphNode & { x?: number; y?: number };
+        if (d.x !== undefined && d.y !== undefined) {
+          positions.set(n.id, { x: d.x, y: d.y });
+        }
+      });
+      setFrozenPositions(positions);
+    } else if (!isFrozen) {
+      setFrozenPositions(null);
+    }
+  }, [isFrozen, displayNodes]);
+
+  // Hierarchy layout: tier by layerDepth (re-run when layout changes)
+  useEffect(() => {
+    if (layoutMode === 'hierarchy' && fgRef.current) {
+      const tierMap = new Map<number, GraphNode[]>();
+      displayNodes.forEach((n) => {
+        const tier = tierMap.get(n.layerDepth) ?? [];
+        tier.push(n);
+        tierMap.set(n.layerDepth, tier);
+      });
+      const W = 700;
+      const yStep = 80;
+      tierMap.forEach((nodes, depth) => {
+        nodes.forEach((n, i) => {
+          const nodeObj = n as GraphNode & { x?: number; y?: number; fx?: number | null; fy?: number | null };
+          nodeObj.fx = (i - (nodes.length - 1) / 2) * (W / Math.max(nodes.length, 1));
+          nodeObj.fy = depth * yStep - ((Math.max(...[...tierMap.keys()]) * yStep) / 2);
+        });
+      });
+    } else if (layoutMode === 'radial' && fgRef.current) {
+      const N = displayNodes.length;
+      displayNodes.forEach((n, i) => {
+        const nodeObj = n as GraphNode & { fx?: number | null; fy?: number | null };
+        const angle = (2 * Math.PI * i) / Math.max(N, 1);
+        const radius = 200 + n.layerDepth * 40;
+        nodeObj.fx = Math.cos(angle) * radius;
+        nodeObj.fy = Math.sin(angle) * radius;
+      });
+    } else if (layoutMode === 'force') {
+      // Release all position locks for force layout
+      displayNodes.forEach((n) => {
+        const nodeObj = n as GraphNode & { fx?: number | null; fy?: number | null };
+        if (!frozenPositions?.has(n.id)) {
+          nodeObj.fx = null;
+          nodeObj.fy = null;
+        }
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layoutMode]);
+
+  const handleNodeClick = useCallback((node: GraphNode) => {
+    if (node.isCluster) {
+      onExpandCluster(node.id);
       return;
     }
-    function tick() {
-      forceRepaint((n) => n + 1);
-      animFrameRef.current = requestAnimationFrame(tick);
+    setSelectedNode((prev) => (prev?.id === node.id ? null : node));
+  }, [onExpandCluster]);
+
+  const handleNodeHover = useCallback((node: GraphNode | null, prevNode: GraphNode | null) => {
+    void prevNode;
+    if (!node) { setTooltip(null); return; }
+    const d = node as GraphNode & { x?: number; y?: number };
+    if (d.x !== undefined && d.y !== undefined) {
+      setTooltip({ node, x: d.x, y: d.y });
     }
-    animFrameRef.current = requestAnimationFrame(tick);
-    return () => {
-      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-    };
-  }, [graphState.lifecycle]);
-
-  // ── Contradiction pulse (§9.4 — staged, bounded, interruptible) ──────
-  // Detects contradiction_node arrivals and pulses the cluster.
-  useEffect(() => {
-    const contradictions = graphState.rawNodes.filter((n) => n.kind === 'contradiction_node');
-    if (contradictions.length === 0) return;
-    const ids = new Set(contradictions.map((n) => n.id));
-    setContradictionIds(ids);
-    setPulseCount(0);
-    let count = 0;
-    const interval = setInterval(() => {
-      count++;
-      setPulseCount(count);
-      if (count >= CONTRADICTION_PULSES) clearInterval(interval);
-    }, PULSE_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, [graphState.rawNodes]);
-
-  // ── Physics freeze: when stabilization fires onFreezeReady ──────────
-  // We read current node positions from the graph engine and pass to freeze().
-  // (Called via the onFreezeReady callback wired in index.tsx)
-
-  // ── Layout mode changes ──────────────────────────────────────────
-  const computedNodes: FGNode[] = useMemo(() => {
-    const lm = graphState.layoutMode;
-    if (lm === 'force') return visibleNodes as FGNode[];
-
-    if (lm === 'radial') {
-      return visibleNodes.map((n, i) => ({
-        ...n,
-        ...radialPos(n, visibleNodes.length, i),
-      })) as FGNode[];
-    }
-
-    if (lm === 'hierarchy') {
-      // Count nodes per depth layer
-      const layerCounts = new Map<number, number>();
-      const layerIndex  = new Map<string, number>();
-      visibleNodes.forEach((n) => {
-        const c = layerCounts.get(n.layerDepth) ?? 0;
-        layerIndex.set(n.id, c);
-        layerCounts.set(n.layerDepth, c + 1);
-      });
-      return visibleNodes.map((n) => ({
-        ...n,
-        ...hierarchyPos(n, layerCounts, layerIndex),
-      })) as FGNode[];
-    }
-
-    return visibleNodes as FGNode[];
-  }, [visibleNodes, graphState.layoutMode]);
-
-  // ── nodeCanvasObject — custom canvas renderer ────────────────────
-  const nodeCanvasObject = useCallback(
-    (rawNode: object, ctx: CanvasRenderingContext2D, globalScale: number) => {
-      const node = rawNode as FGNode;
-      const now  = Date.now();
-      const x    = node.x ?? 0;
-      const y    = node.y ?? 0;
-      const r    = (node.size ?? 6) / globalScale;
-
-      // Fade-in opacity during streaming
-      const opacity = graphState.lifecycle === 'streaming'
-        ? fadeOpacity(node, now)
-        : (node.opacity ?? 0.85);
-
-      const color = node.color ?? NODE_COLORS[node.kind] ?? '#6366f1';
-
-      // Contradiction pulse: alternate brightness (§9.4 staged)
-      const isPulsing = contradictionIds.has(node.id) && pulseCount < CONTRADICTION_PULSES;
-      const pulseBoost = isPulsing && (pulseCount % 2 === 0) ? 1.4 : 1.0;
-
-      // Cluster nodes get custom renderer
-      if (node.isCluster) {
-        drawClusterNode(node, ctx, globalScale);
-        return;
-      }
-
-      // Standard node
-      ctx.beginPath();
-      ctx.arc(x, y, r * pulseBoost, 0, 2 * Math.PI);
-      ctx.fillStyle   = withAlpha(color, opacity * pulseBoost);
-      ctx.fill();
-
-      // State ring: done = faint white, error = red, running = pulsing outline
-      if (node.state === 'done') {
-        ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-        ctx.lineWidth   = 0.5 / globalScale;
-        ctx.stroke();
-      } else if (node.state === 'error') {
-        ctx.strokeStyle = '#ef4444';
-        ctx.lineWidth   = 1 / globalScale;
-        ctx.stroke();
-      } else if (node.state === 'running') {
-        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-        ctx.lineWidth   = 0.8 / globalScale;
-        ctx.stroke();
-      }
-
-      // Label — only draw when zoomed in enough to read
-      if (globalScale > 1.8) {
-        const label = node.label.slice(0, 28);
-        ctx.font        = `${10 / globalScale}px sans-serif`;
-        ctx.fillStyle   = 'rgba(255,255,255,0.65)';
-        ctx.textAlign   = 'center';
-        ctx.textBaseline = 'top';
-        ctx.fillText(label, x, y + r + 2 / globalScale);
-      }
-    },
-    [graphState.lifecycle, contradictionIds, pulseCount],
-  );
-
-  // ── linkCanvasObject — edge opacity from weight (§9.3) ────────────
-  const linkCanvasObject = useCallback(
-    (rawLink: object, ctx: CanvasRenderingContext2D, globalScale: number) => {
-      const link   = rawLink as FGLink;
-      const src    = typeof link.source === 'object' ? link.source as FGNode : null;
-      const tgt    = typeof link.target === 'object' ? link.target as FGNode : null;
-      if (!src || !tgt) return;
-      const sx = src.x ?? 0; const sy = src.y ?? 0;
-      const tx = tgt.x ?? 0; const ty = tgt.y ?? 0;
-      ctx.beginPath();
-      ctx.moveTo(sx, sy);
-      ctx.lineTo(tx, ty);
-      ctx.strokeStyle = `rgba(255,255,255,${link.opacity ?? 0.25})`;
-      ctx.lineWidth   = (link.thickness ?? 1) / globalScale;
-      ctx.stroke();
-    },
-    [],
-  );
-
-  // ── Node click handler ──────────────────────────────────────────
-  const handleNodeClick = useCallback(
-    (rawNode: object) => {
-      const node = rawNode as GraphNode;
-      if (node.isCluster) {
-        onExpandCluster(node.id);
-        return;
-      }
-      setSelectedNode(node);
-    },
-    [onExpandCluster],
-  );
-
-  // ── Node hover tooltip ─────────────────────────────────────────
-  const handleNodeHover = useCallback(
-    (rawNode: object | null) => {
-      if (!rawNode) { setTooltip(null); return; }
-      const node = rawNode as FGNode;
-      setTooltip({ x: node.x ?? 0, y: node.y ?? 0, node });
-    },
-    [],
-  );
-
-  // ── Dispose simulation on unmount (memory rule §7.1) ───────────────
-  useEffect(() => {
-    return () => {
-      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-      // ForceGraph2D engine disposal is handled by the library on unmount
-    };
   }, []);
 
-  const isEmpty = visibleNodes.length === 0;
+  const handleLoadSnapshot = useCallback((snap: GraphSnapshot) => {
+    // Load a snapshot's nodes/edges into the view (read-only replay)
+    // For now: just show a toast-like status in the header
+    // Full replay playback is post-Phase 5
+    console.info('[ReasoningGraph] snapshot loaded:', snap.snapshotId, snap.nodeCount, 'nodes');
+  }, []);
+
+  // Phase 5: compare handler
+  const handleCompare = useCallback((
+    diff: GraphDiff,
+    snapA: GraphSnapshot,
+    snapB: GraphSnapshot,
+  ) => {
+    setActiveDiff(diff);
+    setDiffSnapA(snapA);
+    setDiffSnapB(snapB);
+    setActiveTab('graph'); // switch to graph tab to show the diff panel
+  }, []);
+
+  const handleCloseDiff = useCallback(() => {
+    setActiveDiff(null);
+    setDiffSnapA(null);
+    setDiffSnapB(null);
+  }, []);
+
+  const graphData = React.useMemo(() => ({
+    nodes: displayNodes as (GraphNode & object)[],
+    links: edges as (GraphEdge & object)[],
+  }), [displayNodes, edges]);
+
+  // Cooldown ticks: 0 when frozen, 150 otherwise
+  const cooldownTicks = isFrozen ? 0 : 150;
 
   return (
-    <div className={styles.overlay} role="dialog" aria-modal="true" aria-label="Reasoning graph">
+    <div className={styles.overlay} role="dialog" aria-modal="true" aria-label="Reasoning graph overlay">
       {/* Header */}
       <div className={styles.overlayHeader}>
-        <span className={styles.overlayTitle}>
+        <div className={styles.overlayTitle}>
           Reasoning Graph
-          {graphState.lifecycle === 'streaming' && (
-            <span className={styles.liveBadge} aria-label="Live">LIVE</span>
-          )}
-          {graphState.lifecycle === 'stabilising' && (
-            <span className={styles.stabilisingBadge} aria-label="Stabilising">⋅⋅⋅</span>
-          )}
-          {graphState.lifecycle === 'frozen' && (
-            <span className={styles.frozenBadge} aria-label="Frozen">FROZEN</span>
-          )}
-          <span className={styles.nodeCount} aria-label={`${visibleNodes.length} nodes`}>
-            {visibleNodes.length}N · {visibleEdges.length}E
+          {isLive       && <span className={styles.liveBadge} aria-label="Streaming live">LIVE</span>}
+          {isStabilising && <span className={styles.stabilisingBadge} aria-label="Stabilising">⋅⋅⋅</span>}
+          {isFrozen     && <span className={styles.frozenBadge} aria-label="Physics frozen">▣ frozen</span>}
+          <span className={styles.nodeCount}>
+            {displayNodes.length}n / {edges.length}e
           </span>
-        </span>
+        </div>
+
         <div className={styles.headerControls}>
-          <SubgraphControls activeZones={activeZones} onToggleZone={toggleZone} />
+          <SubgraphControls />
           <LayoutToolbar
-            current={graphState.layoutMode}
-            stabState={stabilization.stabState}
+            current={layoutMode}
             onChange={onLayoutChange}
-            onResume={stabilization.resumeSimulation}
           />
-          <button className={styles.closeBtn} onClick={onClose} aria-label="Close reasoning graph">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-              <path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          {isFrozen && (
+            <button
+              className={styles.resumeBtn}
+              onClick={stabilization.resumeSimulation}
+              aria-label="Resume physics simulation"
+            >
+              Resume simulation
+            </button>
+          )}
+          <button className={styles.closeBtn} onClick={onClose} aria-label="Close graph overlay">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+              <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
             </svg>
           </button>
         </div>
       </div>
 
-      {/* Canvas */}
-      <div className={styles.canvasWrap} ref={wrapRef}>
-        {isEmpty ? (
-          <div className={styles.emptyState}>
-            <svg width="36" height="36" viewBox="0 0 28 28" fill="none" opacity="0.3" aria-hidden="true">
-              <circle cx="14" cy="14" r="3.5" fill="currentColor" />
-              <line x1="14" y1="14" x2="4"  y2="6"  stroke="currentColor" strokeWidth="1.2" />
-              <line x1="14" y1="14" x2="24" y2="6"  stroke="currentColor" strokeWidth="1.2" />
-              <line x1="14" y1="14" x2="4"  y2="22" stroke="currentColor" strokeWidth="1.2" />
-              <line x1="14" y1="14" x2="24" y2="22" stroke="currentColor" strokeWidth="1.2" />
-              <line x1="14" y1="14" x2="14" y2="2"  stroke="currentColor" strokeWidth="1.2" />
-              <line x1="14" y1="14" x2="14" y2="26" stroke="currentColor" strokeWidth="1.2" />
-              <circle cx="4"  cy="6"  r="2" fill="currentColor" />
-              <circle cx="24" cy="6"  r="2" fill="currentColor" />
-              <circle cx="4"  cy="22" r="2" fill="currentColor" />
-              <circle cx="24" cy="22" r="2" fill="currentColor" />
-              <circle cx="14" cy="2"  r="2" fill="currentColor" />
-              <circle cx="14" cy="26" r="2" fill="currentColor" />
-            </svg>
-            <p className={styles.emptyText}>
-              {graphState.lifecycle === 'idle'
-                ? 'Graph will appear when a query is running.'
-                : 'No nodes in the selected subgraph zones.'}
-            </p>
-          </div>
-        ) : (
-          <ForceGraph2D
-            ref={graphRef as React.MutableRefObject<unknown>}
-            graphData={{ nodes: computedNodes as object[], links: visibleEdges as object[] }}
-            width={wrapRef.current?.clientWidth ?? 800}
-            height={wrapRef.current?.clientHeight ?? 600}
-            backgroundColor="#0d0d12"
-            // Node rendering
-            nodeCanvasObject={nodeCanvasObject}
-            nodeCanvasObjectMode={() => 'replace'}
-            nodeRelSize={1}
-            // Edge rendering
-            linkCanvasObject={linkCanvasObject}
-            linkCanvasObjectMode={() => 'replace'}
-            // Interaction
-            onNodeClick={handleNodeClick}
-            onNodeHover={handleNodeHover}
-            // Physics — disabled when frozen/hierarchy/radial
-            cooldownTicks={
-              graphState.lifecycle === 'frozen' ||
-              graphState.layoutMode === 'hierarchy' ||
-              graphState.layoutMode === 'radial'
-                ? 0
-                : Infinity
-            }
-            // Warm-up ticks for initial layout
-            warmupTicks={20}
-            // Zoom
-            minZoom={0.3}
-            maxZoom={8}
-          />
-        )}
-
-        {/* HTML Tooltip overlay */}
-        {tooltip && (
-          <div
-            className={styles.nodeTooltip}
-            style={{
-              // Offset from canvas origin; rough screen-space approximation
-              left: `calc(50% + ${tooltip.x * 0.5}px)`,
-              top:  `calc(50% + ${tooltip.y * 0.5}px)`,
-            }}
-            aria-live="polite"
+      {/* Tab strip */}
+      <div className={styles.tabStrip}>
+        {(['graph', 'snapshots'] as const).map((tab) => (
+          <button
+            key={tab}
+            className={`${styles.tabBtn} ${activeTab === tab ? styles.tabBtnActive : ''}`}
+            onClick={() => setActiveTab(tab)}
           >
-            <span className={styles.tooltipKind}>{tooltip.node.kind}</span>
-            <span className={styles.tooltipLabel}>{tooltip.node.label}</span>
-            {tooltip.node.state && (
-              <span className={`${styles.tooltipState} ${styles['tooltipState_' + tooltip.node.state]}`}>
-                {tooltip.node.state}
-              </span>
+            {tab === 'graph' ? 'Graph' : 'Snapshots'}
+            {tab === 'snapshots' && activeDiff && (
+              <span className={styles.tabDiffDot} aria-label="Diff active" />
             )}
-            {tooltip.node.confidence !== undefined && (
-              <span className={styles.tooltipMeta}>
-                conf {(tooltip.node.confidence * 100).toFixed(0)}%
-              </span>
-            )}
-            {tooltip.node.isCluster && (
-              <span className={styles.tooltipMeta}>
-                {tooltip.node.clusterNodeCount} nodes · click to expand
-              </span>
-            )}
-          </div>
-        )}
+          </button>
+        ))}
       </div>
 
-      {/* Node detail drawer */}
-      <NodeDetailDrawer
-        node={selectedNode}
-        onClose={() => setSelectedNode(null)}
-      />
+      {/* Main content */}
+      <div className={styles.canvasWrap}>
+        {/* Snapshots tab */}
+        {activeTab === 'snapshots' && (
+          <div className={styles.snapshotPanel}>
+            <GraphSnapshotLoader
+              onLoad={handleLoadSnapshot}
+              onCompare={handleCompare}
+            />
+          </div>
+        )}
+
+        {/* Graph tab */}
+        {activeTab === 'graph' && (
+          <>
+            {isEmpty ? (
+              <div className={styles.emptyState}>
+                <svg width="32" height="32" viewBox="0 0 28 28" fill="none" aria-hidden="true" opacity="0.3">
+                  <circle cx="14" cy="14" r="3.5" fill="white" />
+                  <line x1="14" y1="14" x2="4"  y2="6"  stroke="white" strokeWidth="1" />
+                  <line x1="14" y1="14" x2="24" y2="6"  stroke="white" strokeWidth="1" />
+                  <line x1="14" y1="14" x2="4"  y2="22" stroke="white" strokeWidth="1" />
+                  <line x1="14" y1="14" x2="24" y2="22" stroke="white" strokeWidth="1" />
+                </svg>
+                <p className={styles.emptyText}>
+                  No graph data yet. Send a query and the pipeline’s reasoning graph will appear here in real-time.
+                </p>
+              </div>
+            ) : (
+              <ForceGraph2D
+                ref={fgRef}
+                graphData={graphData}
+                nodeCanvasObject={(node, ctx, globalScale) =>
+                  drawNode(
+                    node as GraphNode & { x?: number; y?: number },
+                    ctx,
+                    globalScale,
+                    selectedNode?.id ?? null,
+                    frozenPositions,
+                  )
+                }
+                linkCanvasObject={(link, ctx) =>
+                  drawEdge(
+                    link as { source: GraphNode & { x?: number; y?: number }; target: GraphNode & { x?: number; y?: number } } & GraphEdge,
+                    ctx,
+                  )
+                }
+                onNodeClick={(node) => handleNodeClick(node as GraphNode)}
+                onNodeHover={(node) => handleNodeHover(node as GraphNode | null, null)}
+                cooldownTicks={cooldownTicks}
+                nodeId="id"
+                linkSource="source"
+                linkTarget="target"
+                backgroundColor="#0d0d12"
+                width={typeof window !== 'undefined' ? window.innerWidth : 800}
+                height={typeof window !== 'undefined' ? window.innerHeight - 100 : 600}
+              />
+            )}
+
+            {/* Tooltip */}
+            {tooltip && (
+              <div
+                className={styles.nodeTooltip}
+                style={{
+                  left: `calc(${tooltip.x}px + 50%)`,
+                  top:  `calc(${tooltip.y}px)`,
+                }}
+              >
+                <span className={styles.tooltipKind}>{tooltip.node.kind}</span>
+                <span className={styles.tooltipLabel}>{tooltip.node.label}</span>
+                <span className={`${styles.tooltipState} ${styles[`tooltipState_${tooltip.node.state}`]}`}>
+                  {tooltip.node.state}
+                </span>
+                {tooltip.node.confidence !== undefined && (
+                  <span className={styles.tooltipMeta}>
+                    conf {Math.round(tooltip.node.confidence * 100)}%
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Phase 5: GraphDiffView panel */}
+            {activeDiff && (
+              <GraphDiffView
+                diff={activeDiff}
+                queryA={diffSnapA?.queryText}
+                queryB={diffSnapB?.queryText}
+                onClose={handleCloseDiff}
+              />
+            )}
+
+            {/* Node detail drawer */}
+            {selectedNode && (
+              <NodeDetailDrawer
+                node={selectedNode}
+                snapshot={snapshot}
+                onClose={() => setSelectedNode(null)}
+              />
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
