@@ -23,9 +23,21 @@ from sklearn.metrics import brier_score_loss
 from sklearn.preprocessing import LabelEncoder
 from sklearn.neighbors import NearestNeighbors
 from sklearn.ensemble import IsolationForest
+from typing import Any, Dict, List, Optional
 import warnings
 
 warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
+
+
+# ---------------------------------------------------------------------------
+# Depth-config defaults — mirrors DEPTH_CONFIGS in run_workflow.py
+# ---------------------------------------------------------------------------
+
+_DEFAULT_DEPTH_CONFIG: Dict[str, Any] = {
+    "dfs_max_depth": 2,
+    "expert_top_k": 2,
+    "phase3_passes": 2,
+}
 
 
 class _ExpertLRUCache:
@@ -760,7 +772,7 @@ def initialize_unified_experts(enable_calibration=True, enable_ood_detection=Tru
                         dataset_path = candidate
                         break
                 if dataset_path is None:
-                    print(f"⚠️  No dataset found for {domain_name}, skipping")
+                    print(f"\u26a0\ufe0f  No dataset found for {domain_name}, skipping")
                     continue
                 from mycelium.pipeline.unified_bert_expert import UnifiedBERTExpert
                 expert = UnifiedBERTExpert(
@@ -779,33 +791,75 @@ def initialize_unified_experts(enable_calibration=True, enable_ood_detection=Tru
 
 
 def make_unified_expert_decision(
-    input_text, experts, similarity_threshold_high=0.3, similarity_threshold_medium=0.2
-):
-    decision_result = {
+    input_text: str,
+    experts,
+    similarity_threshold_high: float = 0.3,
+    similarity_threshold_medium: float = 0.2,
+    depth_config: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Evaluate all (or top-k) experts and pick the best match.
+
+    depth_config keys used:
+      expert_top_k  — max number of experts to fully score (default: all).
+                      Pre-ranks experts by a cheap centroid similarity pass,
+                      then runs the full unified_decision_analysis only on
+                      the top-k.  fast=1, balanced=2, deep=3.
+    """
+    cfg = depth_config or _DEFAULT_DEPTH_CONFIG
+    expert_top_k: int = int(cfg.get("expert_top_k", 0))  # 0 = no limit
+
+    decision_result: Dict[str, Any] = {
         "input_text": input_text,
         "timestamp": pd.Timestamp.now().isoformat(),
         "expert_analyses": {},
         "unified_decision": {},
         "system_summary": {
-            "experts_analyzed": len(experts),
+            "experts_analyzed": 0,
+            "expert_top_k_applied": expert_top_k > 0,
             "systems_enabled": {
                 "k_medoids": True,
                 "calibration": any(
-                    expert.enable_calibration for expert in experts.values()
+                    getattr(e, "enable_calibration", False) for e in experts.values()
                 ),
                 "ood_detection": any(
-                    expert.enable_ood_detection for expert in experts.values()
+                    getattr(e, "enable_ood_detection", False) for e in experts.values()
                 ),
             },
         },
     }
-    expert_results = []
-    for domain, expert in experts.items():
+
+    # ------------------------------------------------------------------
+    # Step 1: cheap pre-rank by centroid similarity when top-k is set
+    # ------------------------------------------------------------------
+    all_domain_expert_pairs = list(experts.items())
+
+    if expert_top_k > 0 and len(all_domain_expert_pairs) > expert_top_k:
+        pre_scores: List[tuple] = []
+        for domain, expert in all_domain_expert_pairs:
+            try:
+                sim = expert.calculate_similarity_to_centroid(input_text)
+            except Exception:
+                sim = 0.0
+            pre_scores.append((sim, domain, expert))
+        pre_scores.sort(key=lambda x: x[0], reverse=True)
+        all_domain_expert_pairs = [
+            (domain, expert) for _, domain, expert in pre_scores[:expert_top_k]
+        ]
+
+    # ------------------------------------------------------------------
+    # Step 2: full analysis on selected experts
+    # ------------------------------------------------------------------
+    expert_results: List[tuple] = []
+    for domain, expert in all_domain_expert_pairs:
         analysis = expert.unified_decision_analysis(input_text)
         decision_result["expert_analyses"][domain] = analysis
         expert_results.append((domain, expert, analysis))
+
+    decision_result["system_summary"]["experts_analyzed"] = len(expert_results)
+
     best_expert = None
-    best_composite_score = 0
+    best_composite_score: float = 0.0
     best_analysis = None
     for domain, expert, analysis in expert_results:
         composite_score = analysis["unified_scores"]["composite_score"]
@@ -815,6 +869,7 @@ def make_unified_expert_decision(
             best_composite_score = weighted_score
             best_expert = expert
             best_analysis = analysis
+
     if best_analysis:
         decision_result["unified_decision"] = {
             "selected_domain": best_expert.domain if best_expert else None,
@@ -882,7 +937,7 @@ class UnifiedExpertSystem:
     def _registered_domains(self):
         return set(self._raw_experts.keys())
 
-    def analyze_query(self, input_text):
+    def analyze_query(self, input_text: str) -> Dict[str, Any]:
         if not self.experts:
             return {
                 "decision": "no_experts_available",
@@ -893,13 +948,24 @@ class UnifiedExpertSystem:
 
     def unified_decision_analysis(
         self,
-        input_text,
+        input_text: str,
         routing_result=None,
         filtered_experts=None,
-        return_legacy_dict=False,
-    ):
+        return_legacy_dict: bool = False,
+        depth_config: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        """
+        Run unified expert decision analysis.
+
+        depth_config controls how many experts are evaluated (expert_top_k).
+        Passed straight through to make_unified_expert_decision().
+        """
         experts = filtered_experts or self.experts
-        decision_result = make_unified_expert_decision(input_text, experts)
+        decision_result = make_unified_expert_decision(
+            input_text,
+            experts,
+            depth_config=depth_config or _DEFAULT_DEPTH_CONFIG,
+        )
         if return_legacy_dict:
             return decision_result
         unified = decision_result.get("unified_decision", {})
@@ -925,7 +991,7 @@ class UnifiedExpertSystem:
             metadata=decision_result,
         )
 
-    def get_system_status(self):
+    def get_system_status(self) -> Dict[str, Any]:
         resident_count = (
             len(self.experts._loaded)
             if hasattr(self.experts, "_loaded")
