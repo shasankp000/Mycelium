@@ -32,6 +32,8 @@ from mycelium.pipeline.patch_batch_logger import patch_logger
 from mycelium.pipeline.dynamic_signature_manager import DynamicSignatureManager
 from mycelium.pipeline.model_registry import warmup, loaded_models, STARTUP_SPECS
 from mycelium.pipeline.pipeline_event import EventEmitter, make_emitter
+# Phase 6 — reasoning mode / depth config
+from mycelium.pipeline.api_models import ReasoningMode, get_depth_config
 
 
 class NumpyEncoder(json.JSONEncoder):
@@ -184,8 +186,22 @@ def run_mycelium_workflow(
     sentences: Sequence[str],
     trace_id: Optional[str] = None,
     on_event: Optional[Callable[[Dict[str, Any]], None]] = None,
+    reasoning_mode: ReasoningMode = "balanced",
 ) -> Tuple[List[Dict[str, Any]], WorkflowMetrics]:
+    """
+    Phase 6: *reasoning_mode* controls the DAG/DFS traversal depth and expert
+    top-k throughout the pipeline.  The mapping is defined in api_models.py::
+
+        "fast"     → dfs_max_depth=1, expert_top_k=1, phase3_passes=1
+        "balanced" → dfs_max_depth=2, expert_top_k=2, phase3_passes=2  (default)
+        "deep"     → dfs_max_depth=4, expert_top_k=3, phase3_passes=3
+    """
     import uuid as _uuid
+
+    depth_cfg = get_depth_config(reasoning_mode)
+    dfs_max_depth: int   = depth_cfg["dfs_max_depth"]
+    expert_top_k: int    = depth_cfg["expert_top_k"]
+    phase3_passes: int   = depth_cfg["phase3_passes"]
 
     _wall_start = _time.monotonic()
     _request_id = trace_id or str(_uuid.uuid4())
@@ -206,6 +222,7 @@ def run_mycelium_workflow(
         message="Warming up model registry\u2026",
         detail="Pre-flight: loading non-LLM model weights into registry",
         state="running",
+        metadata={"reasoning_mode": reasoning_mode, "dfs_max_depth": dfs_max_depth},
     )
 
     print("\U0001f9e0 Pre-flight: loading non-LLM model weights into registry...")
@@ -224,6 +241,7 @@ def run_mycelium_workflow(
         metadata={
             "model_count": len(_resident),
             "models": [k.split(":")[1] for k in _resident],
+            "reasoning_mode": reasoning_mode,
         },
     )
 
@@ -231,7 +249,7 @@ def run_mycelium_workflow(
     phase3_pipeline = Phase3To5Pipeline()
 
     from mycelium.pipeline.unified_expert_system import get_unified_expert_system, _unified_system
-    _expert_msg = 'Setting up environment…' if _unified_system is None else 'Loading expert system…'
+    _expert_msg = 'Setting up environment\u2026' if _unified_system is None else 'Loading expert system\u2026'
     emitter.emit(
         phase_name="graph_expert_init",
         message=_expert_msg,
@@ -406,6 +424,11 @@ def run_mycelium_workflow(
                 )
 
         relevant_domains = list(set(relevant_domains))
+
+        # Phase 6 — cap the expert pool to expert_top_k when mode is fast/balanced
+        if expert_top_k < len(relevant_domains):
+            relevant_domains = relevant_domains[:expert_top_k]
+
         filtered_experts = {
             domain: expert_system.experts[domain]
             for domain in relevant_domains
@@ -415,16 +438,22 @@ def run_mycelium_workflow(
         emitter.emit(
             phase_name="graph_phase2",
             message="Running reasoning pipeline\u2026",
-            detail=f"{len(filtered_experts)} expert(s) active",
+            detail=f"{len(filtered_experts)} expert(s) active (top_k={expert_top_k})",
             state="running",
-            metadata={"active_domains": list(filtered_experts.keys())},
+            metadata={
+                "active_domains": list(filtered_experts.keys()),
+                "expert_top_k": expert_top_k,
+                "dfs_max_depth": dfs_max_depth,
+            },
         )
         emitter.emit_heartbeat(idx % 5)
 
+        # Phase 2 receives depth_config so sub-phases can respect DFS depth
         phase2_result = phase2_pipeline.run(
             text,
             routing_context=routing_context,
             filtered_experts=filtered_experts,
+            depth_config=depth_cfg,
         )
 
         emitter.emit(
@@ -440,6 +469,7 @@ def run_mycelium_workflow(
             routing_result=routing_context,
             filtered_experts=filtered_experts,
             return_legacy_dict=False,
+            depth_config=depth_cfg,
         )
         expert_decision = combine_routing_and_expert_decisions(
             routing_context,
@@ -475,8 +505,9 @@ def run_mycelium_workflow(
         emitter.emit(
             phase_name="graph_phase3",
             message="Running validation pipeline\u2026",
-            detail="Phase 3-5: action execution + feedback collection",
+            detail=f"Phase 3-5: action execution + feedback collection (passes={phase3_passes})",
             state="running",
+            metadata={"phase3_passes": phase3_passes},
         )
 
         phase3_result = phase3_pipeline.run_complete_pipeline(phase3_input)
@@ -556,6 +587,7 @@ def run_mycelium_workflow(
                 "flag": flag,
                 "selected_domain": selected_domain,
                 "confidence": round(confidence, 4),
+                "reasoning_mode": reasoning_mode,
             },
         )
 
@@ -573,6 +605,7 @@ def run_mycelium_workflow(
                 "selected_domain": selected_domain,
                 "decision_confidence": confidence,
                 "trace_id": sentence_trace_id,
+                "reasoning_mode": reasoning_mode,
             }
         )
         all_tags.extend(normalized_tags)
@@ -580,13 +613,17 @@ def run_mycelium_workflow(
         if ENABLE_LOGGING and idx % LOG_SAMPLE_RATE == 0:
             print(
                 "Sentence: {sent}\nTags: {tags}\nTimestamp: {ts}\n"
-                "Unified Decision: {flag} (Domain: {dom}, Confidence: {conf:.3f})\n".format(
+                "Unified Decision: {flag} (Domain: {dom}, Confidence: {conf:.3f})\n"
+                "Reasoning Mode: {mode} (dfs_depth={dfs}, top_k={k})\n".format(
                     sent=text,
                     tags=normalized_tags,
                     ts=timestamp,
                     flag=flag,
                     dom=selected_domain,
                     conf=confidence,
+                    mode=reasoning_mode,
+                    dfs=dfs_max_depth,
+                    k=expert_top_k,
                 )
             )
 
