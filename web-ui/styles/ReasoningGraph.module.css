@@ -1,0 +1,383 @@
+/* ---------------------------------------------------------------------------
+   ReasoningGraph — full-panel overlay styles
+   Phase 3: overlay chrome, subgraph controls, layout toolbar,
+            node detail drawer, snapshot list.
+   Phase 4 will add canvas-specific rules.
+   --------------------------------------------------------------------------- */
+
+/* ---- Overlay ---- */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  background: #0d0d12;
+  animation: overlayFadeIn 180ms ease;
+}
+
+@keyframes overlayFadeIn {
+  from { opacity: 0; transform: scale(0.98); }
+  to   { opacity: 1; transform: scale(1);    }
+}
+
+/* ---- Header ---- */
+
+.overlayHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  flex-shrink: 0;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.overlayTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.85);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.liveBadge {
+  font-size: 10px;
+  font-weight: 700;
+  color: #4ade80;
+  background: rgba(74,222,128,0.12);
+  border: 1px solid rgba(74,222,128,0.25);
+  padding: 2px 6px;
+  border-radius: 9999px;
+  letter-spacing: 0.05em;
+  animation: pulseLive 1.8s ease-in-out infinite;
+}
+
+@keyframes pulseLive {
+  0%, 100% { opacity: 1;   }
+  50%       { opacity: 0.5; }
+}
+
+.frozenBadge {
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(165,180,252,0.8);
+  background: rgba(99,102,241,0.12);
+  border: 1px solid rgba(99,102,241,0.25);
+  padding: 2px 6px;
+  border-radius: 9999px;
+}
+
+.headerControls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.closeBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: transparent;
+  color: rgba(255,255,255,0.5);
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+  flex-shrink: 0;
+}
+.closeBtn:hover {
+  background: rgba(255,255,255,0.07);
+  color: rgba(255,255,255,0.9);
+}
+
+/* ---- Subgraph controls ---- */
+
+.subgraphControls {
+  display: flex;
+  gap: 2px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 8px;
+  padding: 2px;
+}
+
+.subgraphBtn {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: rgba(255,255,255,0.4);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 130ms, color 130ms;
+  white-space: nowrap;
+}
+.subgraphBtn:hover {
+  color: rgba(255,255,255,0.75);
+  background: rgba(255,255,255,0.06);
+}
+.subgraphBtnActive {
+  background: rgba(99,102,241,0.2);
+  color: #a5b4fc;
+}
+
+/* ---- Layout toolbar ---- */
+
+.layoutToolbar {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+
+.layoutBtn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: transparent;
+  color: rgba(255,255,255,0.45);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 130ms, color 130ms;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.layoutBtn:hover {
+  background: rgba(255,255,255,0.07);
+  color: rgba(255,255,255,0.85);
+}
+.layoutBtnActive {
+  background: rgba(99,102,241,0.2);
+  color: #a5b4fc;
+  border-color: rgba(99,102,241,0.3);
+}
+
+.resumeBtn {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(99,102,241,0.3);
+  background: rgba(99,102,241,0.12);
+  color: #a5b4fc;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 130ms;
+  white-space: nowrap;
+}
+.resumeBtn:hover {
+  background: rgba(99,102,241,0.2);
+}
+
+/* ---- Canvas area ---- */
+
+.canvasWrap {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.emptyState {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: rgba(255,255,255,0.35);
+}
+
+.emptyText {
+  font-size: 13px;
+  text-align: center;
+  max-width: 280px;
+  line-height: 1.5;
+}
+
+/* Phase 3 placeholder (removed in Phase 4 when canvas renders) */
+.canvasPlaceholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed rgba(99,102,241,0.2);
+  margin: 16px;
+  border-radius: 12px;
+}
+
+.placeholderText {
+  text-align: center;
+  font-size: 13px;
+  color: rgba(255,255,255,0.4);
+  line-height: 1.7;
+}
+.placeholderSub {
+  font-size: 11px;
+  color: rgba(255,255,255,0.25);
+}
+
+/* ---- Node detail drawer ---- */
+
+.nodeDrawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 280px;
+  background: #111118;
+  border-left: 1px solid rgba(255,255,255,0.07);
+  display: flex;
+  flex-direction: column;
+  animation: drawerSlideIn 160ms ease;
+  z-index: 10;
+}
+
+@keyframes drawerSlideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+.nodeDrawerHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  flex-shrink: 0;
+}
+
+.nodeDrawerKindDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.nodeDrawerTitle {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.85);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nodeDrawerClose {
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.4);
+  font-size: 18px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 2px;
+  transition: color 120ms;
+}
+.nodeDrawerClose:hover { color: rgba(255,255,255,0.85); }
+
+.nodeDrawerBody {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.nodeDrawerSection {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.35);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0;
+}
+
+.nodeDrawerTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.nodeDrawerTable th,
+.nodeDrawerTable td {
+  padding: 4px 0;
+  vertical-align: top;
+}
+.nodeDrawerTable th {
+  width: 42%;
+  color: rgba(255,255,255,0.35);
+  font-weight: 500;
+  text-align: left;
+  padding-right: 8px;
+}
+.nodeDrawerTable td {
+  color: rgba(255,255,255,0.75);
+  word-break: break-all;
+}
+.nodeDrawerTable code {
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  background: rgba(255,255,255,0.06);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+/* ---- Snapshot list ---- */
+
+.snapshotList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.snapshotItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.07);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: background 130ms;
+}
+.snapshotItem:hover {
+  background: rgba(255,255,255,0.05);
+}
+
+.snapshotQuery {
+  font-size: 12px;
+  color: rgba(255,255,255,0.75);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.snapshotMeta {
+  font-size: 11px;
+  color: rgba(255,255,255,0.35);
+}
+
+.snapshotEmpty {
+  font-size: 12px;
+  color: rgba(255,255,255,0.35);
+  line-height: 1.5;
+}
+
+/* ---- Responsive ---- */
+
+@media (max-width: 768px) {
+  .nodeDrawer { width: 100%; top: auto; height: 50%; border-left: none; border-top: 1px solid rgba(255,255,255,0.07); }
+  .subgraphBtn { font-size: 10.5px; padding: 3px 7px; }
+}
