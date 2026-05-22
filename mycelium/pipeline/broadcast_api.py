@@ -27,6 +27,10 @@ from mycelium.pipeline.api_models import (
     append_trace,
     _to_jsonable,
     TRACES_DIR,
+    # Phase 6
+    ChatRequest,
+    ChatResponse,
+    ReasoningMode,
 )
 from mycelium.pipeline.conversation_agent import get_conversation_agent
 from mycelium.pipeline.patch_batch_logger import patch_logger
@@ -37,7 +41,7 @@ import mycelium.pipeline.config_loader as cfg
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Mycelium Broadcast API", version="0.6.0")
+app = FastAPI(title="Mycelium Broadcast API", version="0.7.0")
 
 origins = [
     "http://localhost:3000",
@@ -85,11 +89,8 @@ async def preload_models() -> None:
     logger.info("broadcast_api: model warmup complete — _warmup_done set")
 
 
+# NOTE: QueryRequest is kept for the legacy /api/v1/query endpoint.
 class QueryRequest(BaseModel):
-    text: str
-
-
-class ChatRequest(BaseModel):
     text: str
 
 
@@ -110,12 +111,6 @@ class SandboxResultOut(BaseModel):
     finished_at: str
 
 
-class ChatResponse(BaseModel):
-    trace: MyceliumRunSummary
-    answer: str
-    sandbox: SandboxResultOut
-
-
 def _sse_event(
     phase: str, detail: str = "", elapsed_ms: int = 0, payload: Any = None
 ) -> str:
@@ -131,13 +126,21 @@ def _pipeline_event_to_sse(ev_dict: Dict[str, Any]) -> str:
     return f"id: {seq}\ndata: {data}\n\n"
 
 
+# ---------------------------------------------------------------------------
+# _build_run_summary  — Phase 6: accepts reasoning_mode, threads it through
+# ---------------------------------------------------------------------------
+
 def _build_run_summary(
     req_text: str,
     trace_id: str,
     on_event: Optional[Any] = None,
+    reasoning_mode: ReasoningMode = "balanced",
 ) -> MyceliumRunSummary:
     all_data, metrics = run_mycelium_workflow(
-        [req_text], trace_id=trace_id, on_event=on_event
+        [req_text],
+        trace_id=trace_id,
+        on_event=on_event,
+        reasoning_mode=reasoning_mode,
     )
     record = all_data[0]
 
@@ -184,6 +187,7 @@ def _build_run_summary(
         trace_id=trace_id,
         timestamp=now,
         sentence=record.get("sentence", req_text),
+        reasoning_mode=reasoning_mode,
         layer0=layer0,
         routing=routing,
         expert_decision=expert_decision,
@@ -243,12 +247,17 @@ def _sandbox_result_to_out(sr: Any) -> SandboxResultOut:
     )
 
 
+# ---------------------------------------------------------------------------
+# _full_pipeline_generator  — Phase 6: receives reasoning_mode, passes it down
+# ---------------------------------------------------------------------------
+
 def _full_pipeline_generator(
     req_text: str,
     trace_id: str,
     sse_queue: Optional[Any] = None,
     loop: Optional[Any] = None,
     replay_journal: Optional[ReplayJournal] = None,
+    reasoning_mode: ReasoningMode = "balanced",
 ) -> Generator[str, None, None]:
     import concurrent.futures as _cf
 
@@ -313,12 +322,20 @@ def _full_pipeline_generator(
 
     _pipeline_event_buf: List[str] = []
 
-    logger.info("[SSE %s] phase=routing — submitting workflow to thread", trace_id)
+    logger.info(
+        "[SSE %s] phase=routing mode=%s — submitting workflow to thread",
+        trace_id,
+        reasoning_mode,
+    )
 
     try:
         with _cf.ThreadPoolExecutor(max_workers=1) as _exec:
             _future = _exec.submit(
-                _build_run_summary, req_text, trace_id, on_pipeline_event
+                _build_run_summary,
+                req_text,
+                trace_id,
+                on_pipeline_event,
+                reasoning_mode,
             )
             while not _future.done():
                 time.sleep(15)
@@ -522,7 +539,7 @@ async def query(req: QueryRequest) -> MyceliumRunSummary:
     trace_id = str(uuid4())
     with ThreadPoolExecutor(max_workers=1) as pool:
         summary = await loop.run_in_executor(
-            pool, _build_run_summary, req.text, trace_id, None
+            pool, _build_run_summary, req.text, trace_id, None, "balanced"
         )
     sandbox_result = await loop.run_in_executor(None, _run_sandbox, summary, req.text)
     sandbox_dict = _to_jsonable(sandbox_result.model_dump())
@@ -579,17 +596,62 @@ _replay_journals: Dict[str, ReplayJournal] = {}
 _replay_journals_lock = threading.Lock()
 
 
-@app.get("/api/v1/chat/stream")
-async def chat_stream(text: str, request: Request) -> StreamingResponse:
-    if not text or not text.strip():
+# ---------------------------------------------------------------------------
+# Phase 6: /api/v1/chat/stream migrated from GET → POST so the request body
+# can carry reasoning_mode alongside the query text.
+# The old GET signature is kept as a deprecated shim (mode defaults to
+# "balanced") for any clients that haven’t been updated yet.
+# ---------------------------------------------------------------------------
 
+@app.post("/api/v1/chat/stream")
+async def chat_stream_post(req: ChatRequest, request: Request) -> StreamingResponse:
+    """POST version — primary SSE endpoint (Phase 6)."""
+    text = (req.text or "").strip()
+    reasoning_mode: ReasoningMode = req.reasoning_mode or "balanced"
+
+    if not text:
         async def _empty():
             yield _sse_event("error", "Empty query", 0)
-
         return StreamingResponse(_empty(), media_type="text/event-stream")
 
+    return await _make_sse_response(
+        text=text,
+        reasoning_mode=reasoning_mode,
+        request=request,
+    )
+
+
+@app.get("/api/v1/chat/stream")
+async def chat_stream_get(text: str, request: Request) -> StreamingResponse:
+    """GET shim — kept for backwards-compat; always uses mode='balanced'."""
+    if not text or not text.strip():
+        async def _empty():
+            yield _sse_event("error", "Empty query", 0)
+        return StreamingResponse(_empty(), media_type="text/event-stream")
+
+    return await _make_sse_response(
+        text=text.strip(),
+        reasoning_mode="balanced",
+        request=request,
+    )
+
+
+async def _make_sse_response(
+    text: str,
+    reasoning_mode: ReasoningMode,
+    request: Request,
+) -> StreamingResponse:
+    """Shared implementation for both SSE stream endpoints."""
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+
     trace_id = str(uuid4())
-    logger.info("[SSE] new stream trace_id=%s query=%r", trace_id, text[:80])
+    logger.info(
+        "[SSE] new stream trace_id=%s mode=%s query=%r",
+        trace_id,
+        reasoning_mode,
+        text[:80],
+    )
 
     journal = ReplayJournal(maxlen=200)
     with _replay_journals_lock:
@@ -603,9 +665,6 @@ async def chat_stream(text: str, request: Request) -> StreamingResponse:
         except (ValueError, TypeError):
             last_seen_seq = 0
 
-    import asyncio
-    from concurrent.futures import ThreadPoolExecutor
-
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue = asyncio.Queue()
     _sentinel = object()
@@ -614,11 +673,12 @@ async def chat_stream(text: str, request: Request) -> StreamingResponse:
     def _producer(cancel: threading.Event) -> None:
         try:
             for chunk in _full_pipeline_generator(
-                text.strip(),
+                text,
                 trace_id,
                 sse_queue=queue,
                 loop=loop,
                 replay_journal=journal,
+                reasoning_mode=reasoning_mode,
             ):
                 if cancel.is_set():
                     logger.info(
@@ -675,18 +735,23 @@ async def chat_stream(text: str, request: Request) -> StreamingResponse:
     )
 
 
+# ---------------------------------------------------------------------------
+# Phase 6: /api/v1/chat now threads reasoning_mode through the full pipeline
+# ---------------------------------------------------------------------------
+
 @app.post("/api/v1/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest) -> ChatResponse:
     import asyncio
     from concurrent.futures import ThreadPoolExecutor
 
+    reasoning_mode: ReasoningMode = req.reasoning_mode or "balanced"
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, _warmup_done.wait)
     trace_id = str(uuid4())
 
     with ThreadPoolExecutor(max_workers=1) as pool:
         summary = await loop.run_in_executor(
-            pool, _build_run_summary, req.text, trace_id, None
+            pool, _build_run_summary, req.text, trace_id, None, reasoning_mode
         )
 
     decision_type = (
