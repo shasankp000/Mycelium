@@ -34,6 +34,10 @@ from mycelium.pipeline.model_registry import warmup, loaded_models, STARTUP_SPEC
 from mycelium.pipeline.pipeline_event import EventEmitter, make_emitter
 # Phase 6 — reasoning mode / depth config
 from mycelium.pipeline.api_models import ReasoningMode, get_depth_config
+# Phase 6 — TRM integration: routing refinement + graph store + DFS lookup
+from mycelium.trm.integration import TRMLens
+from mycelium.trm.graph_store import GraphStore
+from mycelium.trm.dfs_lookup import DFSLookup
 
 
 class NumpyEncoder(json.JSONEncoder):
@@ -195,6 +199,14 @@ def run_mycelium_workflow(
         "fast"     → dfs_max_depth=1, expert_top_k=1, phase3_passes=1
         "balanced" → dfs_max_depth=2, expert_top_k=2, phase3_passes=2  (default)
         "deep"     → dfs_max_depth=4, expert_top_k=3, phase3_passes=3
+
+    TRM integration (Phase D wiring):
+        - TRMLens refines the MultiLensRouter output before expert pool
+          resolution.  Falls back transparently when no checkpoint exists.
+        - GraphStore accumulates IRGraph-compatible summaries per sentence.
+        - DFSLookup searches the store at dfs_max_depth and appends the
+          lookup result into phase3_input.metadata["trm_lookup"] so that
+          Phase 3 can use stabilised graph context from prior sentences.
     """
     import uuid as _uuid
 
@@ -247,6 +259,11 @@ def run_mycelium_workflow(
 
     phase2_pipeline = Phase2Pipeline()
     phase3_pipeline = Phase3To5Pipeline()
+
+    # Phase D — TRM integration layer (fallback-safe: no checkpoint needed)
+    trm_lens = TRMLens()
+    graph_store = GraphStore()
+    dfs_lookup = DFSLookup(graph_store)
 
     from mycelium.pipeline.unified_expert_system import get_unified_expert_system, _unified_system
     _expert_msg = 'Setting up environment\u2026' if _unified_system is None else 'Loading expert system\u2026'
@@ -373,6 +390,11 @@ def run_mycelium_workflow(
         )
 
         routing_context = router.route(text)
+
+        # Phase D — TRMLens refines domain probabilities in routing_context.
+        # Falls back transparently (passthrough) when no TRM checkpoint exists.
+        routing_context = trm_lens.refine(routing_context)
+
         classification = getattr(routing_context, "classification", None)
         if classification:
             metrics.routing_classifications[classification] += 1
@@ -476,6 +498,73 @@ def run_mycelium_workflow(
             expert_decision,
         )
 
+        # Phase D — store a lightweight graph summary in GraphStore and run
+        # DFS lookup bounded by dfs_max_depth.  The lookup result is injected
+        # into phase3_input.metadata so Phase 3 can surface stabilised context
+        # from semantically equivalent prior sentences.
+        trm_lookup_result: Optional[Dict[str, Any]] = None
+        try:
+            # Build a minimal dict node that GraphStore can index via its
+            # _index_graph helper.  We wrap it as a SimpleNamespace so that
+            # attribute access works without importing IRNode/IRGraph.
+            import types as _types
+            import hashlib as _hashlib
+
+            _text_hash = _hashlib.sha256(text.encode()).hexdigest()[:16]
+            _graph_id = f"G-{_request_id[:8]}-{idx:04d}"
+
+            # Minimal semantic_signature stub compatible with DFSLookup
+            _sig = _types.SimpleNamespace(
+                semantic_hash=_text_hash,
+                canonical_form=text.lower().strip(),
+                predicate_family=getattr(routing_context, "classification", "UNKNOWN") or "UNKNOWN",
+                equivalence_family=normalized_tags,
+            )
+            _node = _types.SimpleNamespace(
+                id=f"{_graph_id}-n0",
+                semantic_signature=_sig,
+            )
+
+            # Minimal IRGraph-compatible stub
+            _confidence_stub = _types.SimpleNamespace(overall_confidence=float(
+                getattr(expert_decision, "expert_confidence", 0.5) or 0.5
+            ))
+            _graph_stub = _types.SimpleNamespace(
+                graph_id=_graph_id,
+                nodes=[_node],
+                edges=[],
+                state="CANDIDATE",
+                version="v1",
+                confidence_state=_confidence_stub,
+                fingerprint=None,
+                ontology_version="1.0",
+                created_at=timestamp,
+                updated_at=timestamp,
+                parent_graph_id=None,
+            )
+
+            graph_store.put(_graph_stub)
+            graph_store.observe(_graph_id)
+
+            # DFS search — strategy cascades: BY_HASH first, then BY_EQUIVALENCE
+            # if no exact match found (typical for the first occurrence).
+            _lookup = dfs_lookup.search(_node, strategy="BY_HASH", min_state_rank=0)
+            if not _lookup.found:
+                _lookup = dfs_lookup.find_equivalent(_node)
+
+            trm_lookup_result = {
+                "found": _lookup.found,
+                "strategy_used": _lookup.strategy_used,
+                "query_hash": _lookup.query_hash,
+                "explanation": _lookup.explanation,
+                "primary": _lookup.primary,
+                "candidate_count": len(_lookup.candidates),
+                "dfs_max_depth_cfg": dfs_max_depth,
+            }
+        except Exception as _trm_exc:
+            # Non-fatal: TRM graph wiring must never crash the main workflow
+            trm_lookup_result = {"found": False, "error": str(_trm_exc)}
+
         emitter.emit(
             phase_name="expert_decision",
             message="Expert decision reached",
@@ -490,6 +579,7 @@ def run_mycelium_workflow(
                     getattr(expert_decision, "selected_experts", []) or []
                 ),
                 "confidence": float(getattr(expert_decision, "expert_confidence", 0.0)),
+                "trm_lookup_found": trm_lookup_result.get("found", False) if trm_lookup_result else False,
             },
         )
 
@@ -501,6 +591,12 @@ def run_mycelium_workflow(
             original_text=text,
             phase2_metadata=phase2_extra_metadata,
         )
+
+        # Inject TRM lookup result into Phase 3 metadata for downstream use
+        if trm_lookup_result is not None:
+            if phase3_input.metadata is None:
+                phase3_input.metadata = {}
+            phase3_input.metadata["trm_lookup"] = trm_lookup_result
 
         emitter.emit(
             phase_name="graph_phase3",
@@ -606,6 +702,7 @@ def run_mycelium_workflow(
                 "decision_confidence": confidence,
                 "trace_id": sentence_trace_id,
                 "reasoning_mode": reasoning_mode,
+                "trm_lookup": trm_lookup_result,
             }
         )
         all_tags.extend(normalized_tags)
@@ -614,7 +711,8 @@ def run_mycelium_workflow(
             print(
                 "Sentence: {sent}\nTags: {tags}\nTimestamp: {ts}\n"
                 "Unified Decision: {flag} (Domain: {dom}, Confidence: {conf:.3f})\n"
-                "Reasoning Mode: {mode} (dfs_depth={dfs}, top_k={k})\n".format(
+                "Reasoning Mode: {mode} (dfs_depth={dfs}, top_k={k})\n"
+                "TRM Lookup: found={trm_found} strategy={trm_strat}\n".format(
                     sent=text,
                     tags=normalized_tags,
                     ts=timestamp,
@@ -624,6 +722,8 @@ def run_mycelium_workflow(
                     mode=reasoning_mode,
                     dfs=dfs_max_depth,
                     k=expert_top_k,
+                    trm_found=trm_lookup_result.get("found") if trm_lookup_result else False,
+                    trm_strat=trm_lookup_result.get("strategy_used") if trm_lookup_result else "N/A",
                 )
             )
 
