@@ -1,7 +1,9 @@
 // ---------------------------------------------------------------------------
-// pages/index.tsx — Phase 2 update
-// Adds: ModeSelector in input row, ChatBubble with react-markdown,
-//       localStorage mode persistence on init.
+// pages/index.tsx — Phase 4 update
+// Adds: useGraphBuilder + useGraphStabilization wiring;
+//       ReasoningGraph overlay mount;
+//       live onGraphOpen in ChatBubble;
+//       graph reset on new query.
 // ---------------------------------------------------------------------------
 
 import Head from 'next/head';
@@ -25,8 +27,10 @@ import type {
 import { THINKING_PHASES } from '../types/pipeline';
 
 // Extracted hooks
-import { useElapsedTick } from '../hooks/useElapsedTick';
-import { useSseStream }   from '../hooks/useSseStream';
+import { useElapsedTick }       from '../hooks/useElapsedTick';
+import { useSseStream }          from '../hooks/useSseStream';
+import { useGraphBuilder }       from '../hooks/useGraphBuilder';
+import { useGraphStabilization } from '../hooks/useGraphStabilization';
 
 // Extracted components
 import { CalibrationGate }                from '../components/CalibrationGate';
@@ -35,6 +39,8 @@ import { TracePanel }                     from '../components/TracePanel';
 import { SandboxPanel }                   from '../components/SandboxPanel';
 import { ChatBubble }                     from '../components/ChatBubble';
 import { ModeSelector, loadSavedMode }   from '../components/ModeSelector';
+import { ReasoningGraph }                 from '../components/ReasoningGraph';
+import type { LayoutMode }               from '../types/graph';
 
 const API_BASE        = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:8000';
 const MAX_INPUT_CHARS = 2000;
@@ -324,15 +330,12 @@ export default function Home() {
   const [loading, setLoading]                 = useState(false);
   const [activeSandbox, setActiveSandbox]     = useState<SandboxResult | null>(null);
 
-  // Mode selector — initialise from localStorage on mount
+  // Mode selector
   const [mode, setMode] = useState<ReasoningMode>('smart');
-  useEffect(() => {
-    setMode(loadSavedMode());
-  }, []);
+  useEffect(() => { setMode(loadSavedMode()); }, []);
 
   const [liveToolEvents, setLiveToolEvents] = useState<LiveToolEvent[]>([]);
   const [livePlanDetail, setLivePlanDetail] = useState<string>('');
-
   const [thinkingEvents, setThinkingEvents] = useState<ThinkingEvent[]>([]);
   const thinkingCounterRef                  = useRef<number>(0);
 
@@ -347,11 +350,32 @@ export default function Home() {
   const [backendDown, setBackendDown]                     = useState(false);
   const [healthBannerDismissed, setHealthBannerDismissed] = useState(false);
 
-  const bottomRef = useRef<HTMLDivElement>(null);
+  // ── Phase 4: Graph state ──────────────────────────────────────────
+  const [graphOpen, setGraphOpen] = useState(false);
+  const graphRef = useRef<unknown>(null);
 
+  const graphBuilder = useGraphBuilder(mode, typeof window !== 'undefined' && window.innerWidth < 768);
+
+  const handleFreezeReady = useCallback(() => {
+    // Read live node positions from ForceGraph2D engine and freeze them
+    // The graph engine stores positions on the node objects mutably;
+    // we collect them and pass to graphBuilder.freeze()
+    const positions = new Map<string, { x: number; y: number }>();
+    graphBuilder.displayNodes.forEach((n) => {
+      const fgNode = n as typeof n & { x?: number; y?: number };
+      if (fgNode.x !== undefined && fgNode.y !== undefined) {
+        positions.set(n.id, { x: fgNode.x, y: fgNode.y });
+      }
+    });
+    graphBuilder.freeze(positions);
+  }, [graphBuilder]);
+
+  const stabilization = useGraphStabilization(graphBuilder.lifecycle, handleFreezeReady);
+
+  const bottomRef = useRef<HTMLDivElement>(null);
   const { elapsedMs, start: startTick, stop: stopTick, dispose: disposeTick } = useElapsedTick();
 
-  // ── Health check ───────────────────────────────────────────────────────
+  // ── Health check ───────────────────────────────────────────────────
   useEffect(() => {
     async function checkHealth() {
       try {
@@ -383,7 +407,7 @@ export default function Home() {
     setMessages((prev) => prev.map((m, i) => (i === idx ? { ...m, traceOpen: !m.traceOpen } : m)));
   }
 
-  // ── Thinking event handler ───────────────────────────────────────────────
+  // ── Thinking event handler ────────────────────────────────────────────
   function handleThinkingEvent(event: SseEvent) {
     const kind  = (event.phase_name ?? event.phase) as ThinkingEventKind;
     const state = event.state ?? (event.phase === 'done' ? 'done' : 'running');
@@ -418,7 +442,7 @@ export default function Home() {
     });
   }
 
-  // ── Sandbox event handler ────────────────────────────────────────────────
+  // ── Sandbox event handler ─────────────────────────────────────────────
   function handleSandboxEvent(phase: string, detail: string, elapsedMsVal: number) {
     if (phase === 'sandbox_plan') {
       const parts = detail.split(' | ');
@@ -448,7 +472,7 @@ export default function Home() {
     }
   }
 
-  // ── Finish helpers ───────────────────────────────────────────────────────
+  // ── Finish helpers ──────────────────────────────────────────────────────
   function finishWithResponse(data: ChatApiResponse) {
     const answer  = data.answer ?? 'Mycelium returned no answer text. Check the pipeline trace below.';
     const trace   = extractTrace(data);
@@ -462,6 +486,13 @@ export default function Home() {
     stopTick();
     sseStream.close();
     loadHistory();
+    // Phase 4: finalise the graph snapshot
+    graphBuilder.finalise({
+      traceId:      trace.trace_id,
+      queryText:    messages[messages.length - 1]?.content,
+      totalElapsedMs: elapsedMs,
+    });
+    stabilization.markDone();
   }
 
   function finishWithError(detail: string, retryQuery?: string) {
@@ -472,9 +503,18 @@ export default function Home() {
     setLoading(false);
     stopTick();
     sseStream.close();
+    // Phase 4: also finalise + mark done on error so graph freezes cleanly
+    graphBuilder.finalise({ totalElapsedMs: elapsedMs });
+    stabilization.markDone();
   }
 
-  // ── SSE stream hook ──────────────────────────────────────────────────────
+  // ── Graph event handler (Phase 4) ────────────────────────────────────
+  const handleGraphEvent = useCallback((event: SseEvent) => {
+    graphBuilder.ingestSseEvent(event);
+    stabilization.notifyNodeArrival();
+  }, [graphBuilder, stabilization]);
+
+  // ── SSE stream hook ──────────────────────────────────────────────────
   const sseStream = useSseStream({
     mode,
     onThinkingEvent: handleThinkingEvent,
@@ -483,11 +523,12 @@ export default function Home() {
       setCurrentPhase(phase);
       setCurrentDetail(detail);
     },
-    onDone:  finishWithResponse,
-    onError: finishWithError,
+    onDone:       finishWithResponse,
+    onError:      finishWithError,
+    onGraphEvent: handleGraphEvent,   // Phase 4 wiring
   });
 
-  // ── Send handler ─────────────────────────────────────────────────────────
+  // ── Send handler ───────────────────────────────────────────────────────
   async function handleSend(overrideText?: string) {
     const text = (typeof overrideText === 'string' ? overrideText : input).trim();
     if (!text || loading) return;
@@ -502,6 +543,9 @@ export default function Home() {
     setCurrentPhase('routing');
     setCurrentDetail('Connecting to Mycelium…');
     startTick();
+    // Phase 4: reset graph state for new query
+    graphBuilder.reset();
+    stabilization.reset();
     sseStream.open(text);
   }
 
@@ -520,7 +564,7 @@ export default function Home() {
   const atCharLimit        = input.length >= MAX_INPUT_CHARS;
   const charCounterVisible = input.length > MAX_INPUT_CHARS * 0.8;
 
-  // ── Render: calibration gate ─────────────────────────────────────────────
+  // ── Render: calibration gate ────────────────────────────────────────
   if (!calibrationDone) {
     return (
       <>
@@ -533,7 +577,7 @@ export default function Home() {
     );
   }
 
-  // ── Render: home screen ──────────────────────────────────────────────────
+  // ── Render: home screen ──────────────────────────────────────────
   if (!hasStarted) {
     return (
       <>
@@ -552,7 +596,7 @@ export default function Home() {
     );
   }
 
-  // ── Render: chat UI ──────────────────────────────────────────────────────
+  // ── Render: chat UI ─────────────────────────────────────────────
   return (
     <div className={`${styles.shell} ${styles.shellVisible}`}>
       <Head>
@@ -569,6 +613,17 @@ export default function Home() {
           className={styles.mobileSidebarBackdrop}
           onClick={() => setMobileSidebarOpen(false)}
           aria-hidden="true"
+        />
+      )}
+
+      {/* Phase 4: ReasoningGraph overlay — full-screen, above everything */}
+      {graphOpen && (
+        <ReasoningGraph
+          graphState={graphBuilder}
+          stabilization={stabilization}
+          onClose={() => setGraphOpen(false)}
+          onExpandCluster={graphBuilder.expandClusterById}
+          onLayoutChange={graphBuilder.setLayoutMode}
         />
       )}
 
@@ -670,7 +725,7 @@ export default function Home() {
                   </div>
                 );
               }
-              // Assistant bubble — now uses ChatBubble with react-markdown
+              // Assistant bubble — onGraphOpen now live (§4.4)
               return (
                 <div key={idx} className={styles.assistantBubbleWrap}>
                   <ChatBubble
@@ -678,10 +733,8 @@ export default function Home() {
                     trace={m.trace}
                     sandbox={m.sandbox}
                     onEvidenceOpen={() => setActiveSandbox(m.sandbox ?? null)}
-                    // onGraphOpen wired in Phase 4 when ReasoningGraph overlay exists
-                    onGraphOpen={undefined}
+                    onGraphOpen={() => setGraphOpen(true)}
                   />
-                  {/* Pipeline trace toggle — kept below bubble until Phase 4 absorbs it */}
                   {m.trace && (
                     <>
                       <div className={styles.traceToggleRow}>
@@ -720,7 +773,7 @@ export default function Home() {
             <div ref={bottomRef} />
           </div>
 
-          {/* Input row with ModeSelector on the left */}
+          {/* Input row */}
           <div className={styles.inputRow}>
             <ModeSelector mode={mode} onChange={setMode} disabled={loading} />
             <div className={styles.inputWrap}>

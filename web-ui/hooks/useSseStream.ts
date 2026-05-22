@@ -2,13 +2,8 @@
 // useSseStream — owns the EventSource lifecycle, retry logic, and event
 // routing. Returns a single `open` function that the page calls on submit.
 //
-// Accepts:
-//   onThinkingEvent  — called for THINKING_PHASES events
-//   onSandboxEvent   — called for sandbox_plan / sandbox_tool/* events
-//   onPhaseUpdate    — called for every frame to update phase/detail/elapsed
-//   onDone           — called with ChatApiResponse on 'done'
-//   onError          — called with error detail string
-//   mode             — ReasoningMode, appended as ?mode=
+// Phase 4: adds onGraphEvent callback for all non-done/error phases,
+//          enabling useGraphBuilder.ingestSseEvent to consume every SSE event.
 // ---------------------------------------------------------------------------
 
 import { useRef, useCallback } from 'react';
@@ -33,6 +28,8 @@ interface UseSseStreamOptions {
   onPhaseUpdate:   (phase: string, detail: string, elapsedMs: number) => void;
   onDone:          (data: ChatApiResponse) => void;
   onError:         (detail: string, retryText?: string) => void;
+  /** Phase 4: called for every non-terminal SSE event so the graph can ingest it */
+  onGraphEvent?:   (event: SseEvent) => void;
 }
 
 export function useSseStream({
@@ -42,6 +39,7 @@ export function useSseStream({
   onPhaseUpdate,
   onDone,
   onError,
+  onGraphEvent,
 }: UseSseStreamOptions) {
   const esRef           = useRef<EventSource | null>(null);
   const sseTimeoutRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -69,7 +67,6 @@ export function useSseStream({
     }
   }, [onDone, onError, onPhaseUpdate]);
 
-  // Forward-declared so openSseStream can call itself recursively for retries
   const openSseStream = useCallback((text: string) => {
     const sseUrl = `${API_BASE}/api/v1/chat/stream?text=${encodeURIComponent(text)}&mode=${mode}`;
     const es = new EventSource(sseUrl);
@@ -116,6 +113,9 @@ export function useSseStream({
           clearSseTimeout();
           sseRetryCount.current = 0;
           onError(event.detail || 'Unknown SSE error', text);
+        } else {
+          // Phase 4: route every non-terminal event to the graph builder
+          onGraphEvent?.(event);
         }
       } catch { /* malformed SSE frame — ignore */ }
     };
@@ -143,7 +143,7 @@ export function useSseStream({
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, onThinkingEvent, onSandboxEvent, onPhaseUpdate, onDone, onError, clearSseTimeout, fallbackPost]);
+  }, [mode, onThinkingEvent, onSandboxEvent, onPhaseUpdate, onDone, onError, onGraphEvent, clearSseTimeout, fallbackPost]);
 
   const open = useCallback((text: string) => {
     lastEventAtRef.current = 0;
