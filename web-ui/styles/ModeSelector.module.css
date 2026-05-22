@@ -1,0 +1,102 @@
+/* ---------------------------------------------------------------------------
+   ModeSelector — pill toggle that lives in the input row
+   --------------------------------------------------------------------------- */
+
+.modeSelector {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 9999px;
+  padding: 3px;
+  flex-shrink: 0;
+}
+
+.modeBtn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 9999px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.modeBtn:hover {
+  color: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.modeBtnActive {
+  background: rgba(99, 102, 241, 0.25);
+  color: #a5b4fc;
+  pointer-events: none;
+}
+
+.modeIcon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.modeLabel {
+  /* hidden on very narrow layouts — see responsive rules below */
+}
+
+/* ---- Fast ---- */
+.modeBtnFast.modeBtnActive {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fcd34d;
+}
+
+/* ---- Smart (default) ---- */
+.modeBtnSmart.modeBtnActive {
+  background: rgba(99, 102, 241, 0.22);
+  color: #a5b4fc;
+}
+
+/* ---- Researcher ---- */
+.modeBtnResearcher.modeBtnActive {
+  background: rgba(16, 185, 129, 0.18);
+  color: #6ee7b7;
+}
+
+/* Tooltip hint shown on hover (optional progressive disclosure) */
+.modeTooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1e1e2e;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  pointer-events: none;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  z-index: 50;
+}
+
+.modeBtn:hover .modeTooltip {
+  opacity: 1;
+}
+
+/* Responsive: hide text labels on narrow viewports, keep icons only */
+@media (max-width: 480px) {
+  .modeLabel {
+    display: none;
+  }
+  .modeBtn {
+    padding: 5px 8px;
+  }
+}
