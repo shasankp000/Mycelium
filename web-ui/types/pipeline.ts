@@ -1,5 +1,6 @@
 // ---------------------------------------------------------------------------
 // Pipeline types — extracted from pages/index.tsx (Phase 1 refactor)
+// Phase 4: SseEvent extended with deterministic ordering fields (§4.3)
 // ---------------------------------------------------------------------------
 
 export interface PipelineTrace {
@@ -83,6 +84,7 @@ export interface LiveToolEvent {
 
 // ---------------------------------------------------------------------------
 // SseEvent — extended to carry structured PipelineEvent fields
+// Phase 4 additions: sequence_number, event_id, timestamp (§4.3)
 // ---------------------------------------------------------------------------
 
 export interface SseEvent {
@@ -98,6 +100,10 @@ export interface SseEvent {
   visibility?: 'public' | 'internal';
   message?: string;
   metadata?: Record<string, unknown>;
+  // Deterministic graph ordering fields (§4.3) — emitted by backend in Phase 4+
+  sequence_number?: number;
+  event_id?: string;
+  timestamp?: number;   // ms epoch
 }
 
 // ---------------------------------------------------------------------------
