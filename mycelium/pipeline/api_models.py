@@ -7,9 +7,9 @@ Milestone 1: Formalize MyceliumRunSummary and ChatResponse so that
   - The SSE /api/v1/chat/stream endpoint can type-safely emit a 'done' payload.
   - /api/v1/traces/recent can deserialise archived JSONL records.
 
-All models use model_config = ConfigDict(extra='allow') so that callers
-passing additional fields (e.g. phase_latencies_ms sub-keys) do not raise
-ValidationError — we only assert on fields we actually read.
+Phase 6: Add ReasoningMode enum and wire it through ChatRequest →
+  MyceliumRunSummary so that the graph UI can label each trace with the
+  depth that produced it.
 """
 
 from __future__ import annotations
@@ -17,8 +17,26 @@ from __future__ import annotations
 import json
 import pathlib
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, Field, ConfigDict
+
+
+# ---------------------------------------------------------------------------
+# Reasoning mode  (Phase 6)
+# ---------------------------------------------------------------------------
+
+ReasoningMode = Literal["fast", "balanced", "deep"]
+
+DEPTH_CONFIGS: Dict[str, Dict[str, int]] = {
+    "fast":     {"dfs_max_depth": 1, "expert_top_k": 1, "phase3_passes": 1},
+    "balanced": {"dfs_max_depth": 2, "expert_top_k": 2, "phase3_passes": 2},
+    "deep":     {"dfs_max_depth": 4, "expert_top_k": 3, "phase3_passes": 3},
+}
+
+
+def get_depth_config(mode: ReasoningMode) -> Dict[str, int]:
+    """Return the depth-config dict for *mode*, defaulting to 'balanced'."""
+    return DEPTH_CONFIGS.get(mode, DEPTH_CONFIGS["balanced"])
 
 
 # ---------------------------------------------------------------------------
@@ -144,12 +162,18 @@ class MyceliumRunSummary(BaseModel):
     """
     Authoritative record of one Mycelium reasoning run.
     Written to traces/<trace_id>.jsonl and returned inside ChatResponse.
+
+    Phase 6: reasoning_mode echoed back so the graph UI can label
+    each snapshot with the depth that produced it.
     """
     model_config = ConfigDict(extra="allow")
 
     trace_id: Optional[str] = None
     timestamp: Optional[Union[str, datetime]] = None
     sentence: Optional[str] = None                     # original user query
+
+    # Phase 6 — reasoning mode used for this run
+    reasoning_mode: ReasoningMode = "balanced"
 
     # Pipeline stages
     layer0: Optional[Layer0Summary] = None
@@ -200,6 +224,8 @@ class SandboxResult(BaseModel):
 class ChatRequest(BaseModel):
     text: str
     session_id: Optional[str] = None
+    # Phase 6 — reasoning depth selected by the user in the UI
+    reasoning_mode: ReasoningMode = "balanced"
 
 
 class ChatResponse(BaseModel):
