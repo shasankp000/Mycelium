@@ -12,11 +12,24 @@ Key guarantees (Consolidation Notes §D.1):
                                reference is returned instead of duplicating it.
     3. Info-gain gating      — a node is expanded only when its confidence
                                uncertainty exceeds `info_gain_threshold`.
+                               Uncertainty is now computed via DSTFusion
+                               (m_unknown mass) when the fusion stack is
+                               available, falling back to
+                               1 − overall_confidence otherwise.
     4. Depth bounding        — recursion halts at `max_depth`.
-    5. GraphStore / Promotion integration — each produced graph is stored and
-                               observed; PromotionPolicy runs after every
-                               observe() call so that frequently-derived
-                               sub-graphs climb the lifecycle ladder.
+    5. GraphStore / Promotion — each produced graph is stored and observed;
+                               PromotionPolicy runs after every observe().
+
+Phase B wiring:
+    Sub-claim generation now uses CanonicalizeAndHash.process() which runs
+    the full SRL → canonical_form → semantic_hash pipeline (§46 ordering).
+    The old inline _make_semantic_hash stub is retained only as a fallback
+    when the canonicalization stack is unavailable.
+
+Phase F wiring:
+    DSTFusion.from_confidence_state() is used to compute DST-aware
+    uncertainty in _should_expand().  m_unknown mass > info_gain_threshold
+    triggers expansion; high-confidence nodes (low m_unknown) are leaves.
 
 Usage
 -----
@@ -71,19 +84,38 @@ except ImportError:  # pragma: no cover
     PromotionPolicy = None  # type: ignore[assignment,misc]
     _TRM_AVAILABLE = False
 
+# Phase B — canonicalization pipeline (SRL → canonical_form → hash)
+try:
+    from mycelium.canonicalization.semantic_hash_pipeline import CanonicalizeAndHash
+    _CANON_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    CanonicalizeAndHash = None  # type: ignore[assignment,misc]
+    _CANON_AVAILABLE = False
+
+# Phase F — DST confidence fusion
+try:
+    from mycelium.fusion.dst_fusion import DSTFusion
+    _DST_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    DSTFusion = None  # type: ignore[assignment,misc]
+    _DST_AVAILABLE = False
+
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Fallback hash helper (used only when canonicalization stack unavailable)
 # ---------------------------------------------------------------------------
 
-def _make_semantic_hash(canonical_form: str, predicate_family: str, abstraction_level: int) -> str:
-    """SHA-256 of canonical_form + predicate_family + abstraction_level.
-
-    Must be deterministic: same inputs → same hash (spec §A.5).
-    """
+def _make_semantic_hash_fallback(
+    canonical_form: str, predicate_family: str, abstraction_level: int
+) -> str:
+    """SHA-256 deterministic hash — fallback when CanonicalizeAndHash is absent."""
     raw = f"{canonical_form}|{predicate_family}|{abstraction_level}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
+
+# ---------------------------------------------------------------------------
+# Graph assembly helpers
+# ---------------------------------------------------------------------------
 
 def _leaf_graph(node: any, graph_id: str) -> any:
     """Return a minimal single-node IRGraph for a leaf (non-expanded) node."""
@@ -140,7 +172,6 @@ def _merge_subgraphs(root: any, children: List[any], graph_id: str) -> any:
                 seen_node_ids.add(node.id)
         all_edges.extend(child_graph.edges)
 
-        # Add DERIVES_FROM edge from child root node to parent root
         if child_graph.nodes:
             child_root = child_graph.nodes[0]
             edge = IREdge(
@@ -159,7 +190,6 @@ def _merge_subgraphs(root: any, children: List[any], graph_id: str) -> any:
             )
             all_edges.append(edge)
 
-    # Fingerprint over the merged structure
     merged_hash = hashlib.sha256(
         "||".join(sorted(n.semantic_signature.semantic_hash for n in all_nodes)).encode()
     ).hexdigest()
@@ -175,9 +205,9 @@ def _merge_subgraphs(root: any, children: List[any], graph_id: str) -> any:
         canonicalization_version="v1.0",
     )
 
-    overall_conf = sum(n.confidence_state.overall_confidence for n in all_nodes) / len(
-        all_nodes
-    )
+    overall_conf = sum(
+        n.confidence_state.overall_confidence for n in all_nodes
+    ) / len(all_nodes)
 
     return IRGraph(
         graph_id=graph_id,
@@ -194,13 +224,28 @@ def _merge_subgraphs(root: any, children: List[any], graph_id: str) -> any:
     )
 
 
-def _generate_sub_claims(node: any) -> List[any]:
-    """
-    Heuristic sub-claim generator (Phase D v1).
+# ---------------------------------------------------------------------------
+# Sub-claim generation — Phase B wiring
+# ---------------------------------------------------------------------------
 
-    Strategy: lower the abstraction_level by 1 per sub-claim and
-    generate two candidate sub-nodes (cause-side and effect-side).
-    Phase F upgrade: replace with LLM-driven claim decomposition.
+def _generate_sub_claims(
+    node: any,
+    canonicalizer: Optional[any] = None,
+) -> List[any]:
+    """
+    Generate sub-claim IRNodes from a parent node.
+
+    Phase B path (preferred):
+        Uses CanonicalizeAndHash.process() on each string in the node's
+        equivalence_family.  This runs the full SRL → canonical_form →
+        semantic_hash pipeline (Consolidation Notes §46 ordering).
+
+    Fallback path:
+        When CanonicalizeAndHash is unavailable, builds sub-nodes by
+        lowering abstraction_level by 1 and hashing with the fallback
+        SHA-256 helper.  Confidence decays by 0.05 per sub-claim.
+
+    At most 2 sub-claims are generated per node to keep DFS tractable.
     """
     if not _IR_AVAILABLE:
         return []
@@ -208,15 +253,73 @@ def _generate_sub_claims(node: any) -> List[any]:
     sig = node.semantic_signature
     base_conf = node.confidence_state.overall_confidence
     sub_level = max(0, sig.abstraction_level - 1)
+    equiv_forms = sig.equivalence_family[:2]
 
-    sub_claims: List[any] = []
-    for i, equiv_form in enumerate(sig.equivalence_family[:2]):  # at most 2 sub-claims
+    if not equiv_forms:
+        return []
+
+    # --- Phase B path ---
+    if _CANON_AVAILABLE and canonicalizer is not None:
+        sub_claims: List[any] = []
+        for equiv_form in equiv_forms:
+            if not equiv_form:
+                continue
+            try:
+                produced = canonicalizer.process(
+                    equiv_form,
+                    abstraction_level=sub_level,
+                    source=node.id,
+                )
+                for sub_node in produced:
+                    # Decay confidence slightly to reflect decomposition
+                    decayed = max(
+                        0.0,
+                        base_conf
+                        - 0.05 * (len(sub_claims) + 1),
+                    )
+                    sub_conf = ConfidenceState(overall_confidence=decayed)
+                    # Re-wrap with decayed confidence (IRNode is immutable)
+                    sub_node = IRNode(
+                        id=sub_node.id,
+                        type=sub_node.type,
+                        label=sub_node.label,
+                        semantic_signature=sub_node.semantic_signature,
+                        confidence_state=sub_conf,
+                        temporal_state=sub_node.temporal_state,
+                        provenance=ProvenanceChain(
+                            sources=list(
+                                getattr(sub_node.provenance, "sources", [])
+                            ),
+                            reasoning_paths=[node.id],
+                            decomposition_origin="DAGDecomposer:phase_b",
+                            evidence_nodes=[],
+                            ontology_resolution_path=[],
+                            worker_threads=[],
+                            timestamp=sub_node.provenance.timestamp
+                            if hasattr(sub_node, "provenance")
+                            else "",
+                        ),
+                        metadata={"parent_node_id": node.id},
+                        ontology_version="1.0",
+                        state="DRAFT",
+                    )
+                    sub_claims.append(sub_node)
+                    if len(sub_claims) >= 2:
+                        break
+            except Exception as exc:
+                logger.debug("_generate_sub_claims Phase B: %s", exc)
+        if sub_claims:
+            return sub_claims
+
+    # --- Fallback path ---
+    fallback_claims: List[any] = []
+    for i, equiv_form in enumerate(equiv_forms):
         if not equiv_form:
             continue
-
         sub_canonical = f"{sig.predicate_family}|{equiv_form}|depth{sub_level}"
-        sub_hash = _make_semantic_hash(sub_canonical, sig.predicate_family, sub_level)
-
+        sub_hash = _make_semantic_hash_fallback(
+            sub_canonical, sig.predicate_family, sub_level
+        )
         sub_sig = SemanticSignature(
             semantic_hash=sub_hash,
             embedding_signature=[],
@@ -226,7 +329,6 @@ def _generate_sub_claims(node: any) -> List[any]:
             canonical_form=sub_canonical,
             equivalence_family=[equiv_form],
         )
-
         sub_node = IRNode(
             id=f"N-{sub_hash[:12]}-{i}",
             type="CLAIM",
@@ -239,7 +341,7 @@ def _generate_sub_claims(node: any) -> List[any]:
             provenance=ProvenanceChain(
                 sources=[],
                 reasoning_paths=[node.id],
-                decomposition_origin="DAGDecomposer",
+                decomposition_origin="DAGDecomposer:fallback",
                 evidence_nodes=[],
                 ontology_resolution_path=[],
                 worker_threads=[],
@@ -249,9 +351,9 @@ def _generate_sub_claims(node: any) -> List[any]:
             ontology_version="1.0",
             state="DRAFT",
         )
-        sub_claims.append(sub_node)
+        fallback_claims.append(sub_node)
 
-    return sub_claims
+    return fallback_claims
 
 
 # ---------------------------------------------------------------------------
@@ -264,9 +366,20 @@ class DAGDecomposer:
     Implements the Phase D §D.1 decomposition guarantee:
       - Cycle detection via `visited` semantic-hash set
       - DAG reuse via `_node_cache` (hash → existing IRNode)
-      - Info-gain gating via `should_expand()`
+      - Info-gain gating via `_should_expand()` using DSTFusion m_unknown
+        when available, falling back to 1 − overall_confidence
       - Bounded depth via `max_depth`
       - Automatic GraphStore storage + PromotionPolicy evaluation
+
+    Phase B upgrade:
+      Sub-claim generation delegates to CanonicalizeAndHash.process() so
+      the full SRL → canonical_form → semantic_hash pipeline is used for
+      every sub-claim, guaranteeing §46-compliant hash determinism.
+
+    Phase F upgrade:
+      DSTFusion.from_confidence_state() is used to derive genuine
+      uncertainty (m_unknown) for the info-gain gate, replacing the
+      scalar 1 − confidence heuristic.
 
     Parameters
     ----------
@@ -274,12 +387,9 @@ class DAGDecomposer:
         Where produced sub-graphs are persisted.  When None the decomposer
         operates in-memory-only mode (useful for unit tests).
     max_depth : int
-        Maximum DFS recursion depth (default 3, maps to *balanced* mode;
-        pass `depth_config["dfs_max_depth"]` from run_workflow for
-        mode-aware control).
+        Maximum DFS recursion depth (default 3).
     info_gain_threshold : float
-        Minimum confidence uncertainty (1 − confidence) required to expand
-        a node.  Nodes with confidence ≥ (1 − threshold) are leaves.
+        Minimum uncertainty required to expand a node (default 0.15).
     """
 
     def __init__(
@@ -290,12 +400,15 @@ class DAGDecomposer:
     ) -> None:
         self._store = graph_store
         self._policy = PromotionPolicy() if _TRM_AVAILABLE else None
+        self._dst = DSTFusion() if _DST_AVAILABLE else None
+        # Shared CanonicalizeAndHash instance — reuses SRL doc cache (§5.1)
+        self._canonicalizer = CanonicalizeAndHash() if _CANON_AVAILABLE else None
         self.max_depth = max_depth
         self.info_gain_threshold = info_gain_threshold
 
         # Per-decompose-call state — reset in decompose()
-        self._visited: Set[str] = set()          # semantic hashes seen this call
-        self._node_cache: Dict[str, any] = {}    # hash → IRNode (DAG reuse)
+        self._visited: Set[str] = set()
+        self._node_cache: Dict[str, any] = {}
 
     # ------------------------------------------------------------------
     # Public API
@@ -328,9 +441,7 @@ class DAGDecomposer:
         self._visited = set()
         self._node_cache = {}
         self._request_id = request_id or uuid.uuid4().hex[:8]
-
-        graph = self._dfs(claim_node, current_depth=0)
-        return graph
+        return self._dfs(claim_node, current_depth=0)
 
     # ------------------------------------------------------------------
     # DFS core
@@ -348,21 +459,23 @@ class DAGDecomposer:
 
         # --- Cycle detection ---
         if sem_hash in self._visited:
-            logger.debug("DAGDecomposer: cycle detected for hash %s", sem_hash[:16])
-            # Return existing-node reference (DAG reuse guarantee)
+            logger.debug("DAGDecomposer: cycle for hash %s", sem_hash[:16])
             cached = self._node_cache.get(sem_hash, node)
-            return self._store_and_promote(_leaf_graph(cached, graph_id + "-reuse"), graph_id + "-reuse")
+            reuse_id = graph_id + "-reuse"
+            return self._store_and_promote(
+                _leaf_graph(cached, reuse_id), reuse_id
+            )
 
         self._visited.add(sem_hash)
         self._node_cache[sem_hash] = node
 
-        # --- Info-gain gate ---
+        # --- Info-gain gate (DST-aware) ---
         if not self._should_expand(node):
-            logger.debug("DAGDecomposer: below info-gain threshold at %s", node.id)
+            logger.debug("DAGDecomposer: below info-gain at %s", node.id)
             return self._store_and_promote(_leaf_graph(node, graph_id), graph_id)
 
-        # --- Recursive expansion ---
-        sub_claims = _generate_sub_claims(node)
+        # --- Recursive expansion (Phase B sub-claim generation) ---
+        sub_claims = _generate_sub_claims(node, canonicalizer=self._canonicalizer)
         if not sub_claims:
             return self._store_and_promote(_leaf_graph(node, graph_id), graph_id)
 
@@ -375,12 +488,26 @@ class DAGDecomposer:
     # ------------------------------------------------------------------
 
     def _should_expand(self, node: any) -> bool:
-        """Return True when uncertainty > info_gain_threshold.
+        """Return True when the node's uncertainty exceeds info_gain_threshold.
 
-        Uncertainty = 1 − overall_confidence.  High-confidence nodes
-        (uncertainty below threshold) are treated as leaves because
-        decomposing them would yield no meaningful information gain.
+        Phase F path (preferred):
+            Uses DSTFusion.from_confidence_state() to compute m_unknown
+            (genuine uncertainty mass).  This correctly distinguishes a
+            confident-but-contested node (high m_false, low m_unknown)
+            from a genuinely unknown one (high m_unknown).
+
+        Fallback path:
+            1 − overall_confidence when DSTFusion or ConfidenceState
+            attributes are unavailable.
         """
+        if self._dst is not None:
+            try:
+                frame = self._dst.from_confidence_state(
+                    node.confidence_state, label=node.id
+                )
+                return frame.m_unknown > self.info_gain_threshold
+            except Exception:
+                pass  # fall through to scalar fallback
         uncertainty = 1.0 - node.confidence_state.overall_confidence
         return uncertainty > self.info_gain_threshold
 
@@ -405,7 +532,6 @@ class DAGDecomposer:
                     )
                     self._store.add_revision(graph_id, new_state=target_state)
         except Exception as exc:
-            # Non-fatal — decomposition must not crash the main workflow
             logger.warning("DAGDecomposer._store_and_promote: %s", exc)
 
         return graph
