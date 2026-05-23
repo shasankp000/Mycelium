@@ -34,12 +34,13 @@ from mycelium.pipeline.model_registry import warmup, loaded_models, STARTUP_SPEC
 from mycelium.pipeline.pipeline_event import EventEmitter, make_emitter
 # Phase 6 — reasoning mode / depth config
 from mycelium.pipeline.api_models import ReasoningMode, get_depth_config
-# Phase D — TRM: routing refinement + graph store + promotion
+# Phase D — TRM: routing refinement + TRMEngine (owns GraphStore +
+#            MultiWorkerDFSLookup + PromotionPolicy in one place)
 from mycelium.trm.integration import TRMLens
 from mycelium.trm.graph_store import GraphStore
-from mycelium.trm.promotion import PromotionPolicy
-# Phase F — MultiWorkerDFSLookup (drop-in replacement for DFSLookup;
-#            delegates to single-worker DFS for stores <= SINGLE_WORKER_THRESHOLD)
+from mycelium.trm.trm_engine import TRMEngine
+# Phase F — MultiWorkerDFSLookup (injected into TRMEngine so WorkerPool
+#            is shared; auto-selects single vs multi-worker by store size)
 from mycelium.trm.multi_worker_dfs import MultiWorkerDFSLookup
 # Phase D — DAGDecomposer
 from mycelium.reasoning.dag_decomposer import DAGDecomposer
@@ -218,29 +219,29 @@ def run_mycelium_workflow(
 
     Phase B wiring:
         CanonicalizeAndHash.process(text) is called per sentence to build
-        real IRNodes with fully populated SemanticSignatures.  These replace
-        the previous SimpleNamespace stubs in the TRM block.
+        real IRNodes with fully populated SemanticSignatures.
 
     Phase D wiring:
-        TRMLens refines routing_context.  GraphStore accumulates per-sentence
-        IRGraphs produced by DAGDecomposer.  PromotionPolicy runs on every
-        observe().  MultiWorkerDFSLookup result is injected into Phase 3
-        metadata.
+        TRMLens refines routing_context.  TRMEngine (owns GraphStore +
+        MultiWorkerDFSLookup + PromotionPolicy) replaces the previous
+        scattered inline plumbing:
+            - trm_engine.persist(graph)          <- put+observe+promote
+            - trm_engine.lookup(ir_nodes)        <- BY_HASH + equiv fallback
+            - trm_engine.record_contradiction()  <- penalty+contest+revise
+        DAGDecomposer is constructed with trm_engine.store so it writes
+        into the same GraphStore instance.
 
     Phase E wiring:
         ContradictionClassifier compares consecutive Phase 2 outputs.
-        CONTESTED revision fires on prev graph when severity >= threshold.
+        CONTESTED revision fires via trm_engine.record_contradiction().
 
-    Phase F wiring (two parts):
+    Phase F wiring:
         1. DSTFusion converts ConfidenceState -> DSTFrame.  The Pignistic
-           scalar (to_net_confidence) drives graph confidence; m_unknown is
-           surfaced in trm_lookup.
-        2. MultiWorkerDFSLookup replaces the single-threaded DFSLookup.
-           For stores <= SINGLE_WORKER_THRESHOLD (50) it delegates to the
-           Phase D single-worker DFS transparently.  For larger stores it
-           dispatches predicate evaluation across N worker threads
-           (N = min(4, cpu_count)), named "DFSWorker-{i}" for
-           ProvenanceChain.worker_threads attribution (Consolidation §29).
+           scalar (to_net_confidence) drives graph confidence; m_unknown
+           is surfaced in trm_lookup.
+        2. MultiWorkerDFSLookup is injected into TRMEngine so the
+           WorkerPool is shared across lookup() and the DAGDecomposer
+           DFS calls.  Auto-selects single vs multi-worker by store size.
     """
     import uuid as _uuid
     import hashlib as _hashlib
@@ -295,13 +296,18 @@ def run_mycelium_workflow(
     phase2_pipeline = Phase2Pipeline()
     phase3_pipeline = Phase3To5Pipeline()
 
-    # --- Phase D / F layer (fallback-safe) ---
-    trm_lens = TRMLens()
-    graph_store = GraphStore()
-    # Phase F: MultiWorkerDFSLookup — auto-selects single vs. multi-worker
-    # based on store size at call time.  No API change vs. DFSLookup.
-    dfs_lookup = MultiWorkerDFSLookup(graph_store)
-    promotion_policy = PromotionPolicy()
+    # ---------------------------------------------------------------
+    # Phase D / F layer — single TRMEngine owns store + DFS + policy
+    # ---------------------------------------------------------------
+    # Build the shared GraphStore and MultiWorkerDFSLookup first so
+    # TRMEngine, DAGDecomposer, and the per-sentence lookup all share
+    # the same WorkerPool and store instance.
+    _graph_store = GraphStore()
+    _dfs_lookup  = MultiWorkerDFSLookup(_graph_store)
+    trm_engine   = TRMEngine(store=_graph_store, dfs=_dfs_lookup)
+    # Convenience aliases used inside the sentence loop
+    graph_store  = trm_engine.store   # same object as _graph_store
+    trm_lens     = TRMLens()
     dag_decomposer = DAGDecomposer(
         graph_store=graph_store,
         max_depth=dfs_max_depth,
@@ -522,7 +528,11 @@ def run_mycelium_workflow(
             depth_config=depth_cfg,
         )
 
+        # ------------------------------------------------------------------
         # Phase E — ContradictionClassifier on consecutive p2 outputs
+        # Now uses trm_engine.record_contradiction() instead of inline
+        # promotion_policy.contest + add_revision calls.
+        # ------------------------------------------------------------------
         contradiction_result: Optional[Dict[str, Any]] = None
         if contradiction_classifier is not None and _prev_phase2_result is not None:
             try:
@@ -569,15 +579,11 @@ def run_mycelium_workflow(
                     "confidence": getattr(c_edge, "confidence", None),
                     "scope": getattr(c_edge, "scope", None),
                 }
+                # Phase D — use TRMEngine.record_contradiction() instead of
+                # inline contest + add_revision calls.  Non-fatal: returns
+                # None if the previous graph isn’t in the store yet.
                 _graph_id_prev = f"G-{_request_id[:8]}-{idx - 1:04d}"
-                prev_graph = graph_store.get_latest(_graph_id_prev)
-                if prev_graph is not None:
-                    target = promotion_policy.contest(
-                        prev_graph,
-                        severity=float(getattr(c_edge, "severity", 0.0) or 0.0),
-                    )
-                    if target is not None:
-                        graph_store.add_revision(_graph_id_prev, new_state=target)
+                trm_engine.record_contradiction(_graph_id_prev, c_edge)
             except Exception as _ce:
                 contradiction_result = {"error": str(_ce)}
 
@@ -600,8 +606,11 @@ def run_mycelium_workflow(
             routing_context, expert_decision,
         )
 
+        # ------------------------------------------------------------------
         # Phase B + D + F — build real IRNodes via CanonicalizeAndHash,
-        # run DAGDecomposer, compute DST-aware confidence, store in GraphStore.
+        # run DAGDecomposer, compute DST-aware confidence, persist via
+        # TRMEngine (replaces the inline put+observe+promote block).
+        # ------------------------------------------------------------------
         trm_lookup_result: Optional[Dict[str, Any]] = None
         dag_graph = None
         try:
@@ -646,7 +655,7 @@ def run_mycelium_workflow(
                         abstraction_level=0,
                         source=_graph_id,
                     )
-                except Exception as _ce:
+                except Exception:
                     _ir_nodes = []
 
             # Fallback: SimpleNamespace stub if canonicalization unavailable
@@ -673,12 +682,17 @@ def run_mycelium_workflow(
             except Exception as _dag_exc:
                 dag_graph = None
 
-            # If DAGDecomposer produced a real IRGraph, it's already in
-            # graph_store.  Otherwise fall back to a lightweight stub put.
-            if dag_graph is None:
+            # Phase D — persist via TRMEngine (replaces the previous
+            # inline put → observe → evaluate → add_revision block).
+            # If DAGDecomposer produced a real IRGraph use it; otherwise
+            # build a lightweight stub with the DST-derived confidence.
+            if dag_graph is not None:
+                _persisted, obs_count, _target_state = trm_engine.persist(dag_graph)
+            else:
                 import types as _types
                 _conf_stub = _types.SimpleNamespace(
                     overall_confidence=_dst_conf,
+                    contradiction_penalty=0.0,
                 )
                 _graph_stub = _types.SimpleNamespace(
                     graph_id=_graph_id, nodes=_ir_nodes, edges=[],
@@ -688,23 +702,10 @@ def run_mycelium_workflow(
                     created_at=timestamp, updated_at=timestamp,
                     parent_graph_id=None,
                 )
-                graph_store.put(_graph_stub)
+                _persisted, obs_count, _target_state = trm_engine.persist(_graph_stub)
 
-            obs_count = graph_store.observe(_graph_id)
-            _target_state = promotion_policy.evaluate(
-                dag_graph or _graph_stub, obs_count
-            )
-            if _target_state is not None:
-                graph_store.add_revision(_graph_id, new_state=_target_state)
-
-            # Phase F — MultiWorkerDFSLookup: BY_HASH first, equivalence fallback.
-            # For stores <= 50 graphs this is identical to DFSLookup (no threads).
-            # For larger stores the pool dispatches across DFSWorker-{i} threads.
-            _lookup = dfs_lookup.search(
-                root_node, strategy="BY_HASH", min_state_rank=0
-            )
-            if not _lookup.found:
-                _lookup = dfs_lookup.find_equivalent(root_node)
+            # Phase D — lookup via TRMEngine (BY_HASH + equiv fallback)
+            _lookup = trm_engine.lookup(_ir_nodes)
 
             trm_lookup_result = {
                 "found": _lookup.found,
@@ -722,6 +723,7 @@ def run_mycelium_workflow(
                 "dag_edges": len(dag_graph.edges) if dag_graph is not None else 0,
                 "phase_b_nodes": len(_ir_nodes),
                 "multi_worker_dfs": True,
+                "trm_engine": True,
             }
         except Exception as _trm_exc:
             trm_lookup_result = {"found": False, "error": str(_trm_exc)}
@@ -865,16 +867,19 @@ def run_mycelium_workflow(
                 "reasoning_mode": reasoning_mode,
                 "trm_lookup": trm_lookup_result,
                 "contradiction": contradiction_result,
+                "trm_stats": trm_engine.stats(),
             }
         )
         all_tags.extend(normalized_tags)
 
         if ENABLE_LOGGING and idx % LOG_SAMPLE_RATE == 0:
+            _stats = trm_engine.stats()
             print(
                 "Sentence: {sent}\nTags: {tags}\nTimestamp: {ts}\n"
                 "Unified Decision: {flag} (Domain: {dom}, Confidence: {conf:.3f})\n"
                 "Reasoning Mode: {mode} (dfs_depth={dfs}, top_k={k})\n"
                 "TRM: found={trm_found} obs={obs} promoted={promoted}\n"
+                "TRMEngine stats: graphs={g} obs_total={o} states={s}\n"
                 "DST: conf={dst_conf} m_unknown={m_unk}\n"
                 "DAG: nodes={dag_n} edges={dag_e} phase_b_nodes={pb_n}\n"
                 "Contradiction: type={c_type} severity={c_sev}\n"
@@ -885,6 +890,8 @@ def run_mycelium_workflow(
                     trm_found=trm_lookup_result.get("found") if trm_lookup_result else False,
                     obs=trm_lookup_result.get("obs_count") if trm_lookup_result else 0,
                     promoted=trm_lookup_result.get("promoted_to") if trm_lookup_result else None,
+                    g=_stats["total_graphs"], o=_stats["total_observations"],
+                    s=_stats["state_distribution"],
                     dst_conf=trm_lookup_result.get("dst_conf") if trm_lookup_result else "N/A",
                     m_unk=trm_lookup_result.get("dst_m_unknown") if trm_lookup_result else "N/A",
                     dag_n=trm_lookup_result.get("dag_nodes") if trm_lookup_result else 0,
@@ -903,6 +910,7 @@ def run_mycelium_workflow(
         "sentences_evaluated": len(all_sentence_data),
         "flag_summary": {},
         "detailed_results": all_sentence_data,
+        "trm_final_stats": trm_engine.stats(),
     }
     for entry in all_sentence_data:
         flag = entry["expert_flag"]

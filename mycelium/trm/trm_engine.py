@@ -5,8 +5,8 @@ Orchestrates §46 step 7 (TRM lookup) and the full write path:
     persist → observe → promote → store revised version.
 
 This is the single entry-point that SemanticRouter (Phase C) and future
-Phase E workers call.  It keeps GraphStore, DFSLookup, and PromotionPolicy
-coordination in one place.
+Phase E workers call.  It keeps GraphStore, MultiWorkerDFSLookup, and
+PromotionPolicy coordination in one place.
 
 Key responsibilities
 --------------------
@@ -31,11 +31,17 @@ Key responsibilities
 Design notes
 ------------
     Phase D is single-worker (§D.2 note).  No locking is added here;
-    Phase F will wrap TRMEngine in a thread-safe facade.
+    Phase F wraps TRMEngine in a thread-safe facade via MultiWorkerDFSLookup.
 
     TRMEngine holds ONE GraphStore instance.  Callers that need a shared
     store should pass the same TRMEngine instance around (singleton pattern)
     rather than constructing multiple engines.
+
+    Phase F upgrade: TRMEngine.__init__ now accepts an optional `dfs`
+    parameter so callers can inject a pre-constructed MultiWorkerDFSLookup
+    (sharing its WorkerPool cache across the pipeline).  If `dfs` is None
+    a MultiWorkerDFSLookup is constructed internally, which will itself
+    fall back to single-worker DFS for stores ≤ SINGLE_WORKER_THRESHOLD.
 """
 
 from __future__ import annotations
@@ -44,8 +50,14 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from .graph_store import GraphStore
-from .dfs_lookup import DFSLookup, TRMLookupResult
+from .dfs_lookup import TRMLookupResult
 from .promotion import PromotionPolicy
+
+# Phase F: prefer MultiWorkerDFSLookup; fall back to DFSLookup if unavailable
+try:
+    from .multi_worker_dfs import MultiWorkerDFSLookup as _DefaultDFS
+except ImportError:  # pragma: no cover
+    from .dfs_lookup import DFSLookup as _DefaultDFS  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
@@ -59,13 +71,18 @@ except ImportError:
 
 
 class TRMEngine:
-    """Orchestrates GraphStore + DFSLookup + PromotionPolicy.
+    """Orchestrates GraphStore + MultiWorkerDFSLookup + PromotionPolicy.
 
     Parameters
     ----------
     store : GraphStore, optional
         An existing GraphStore.  If None, a fresh one is created.
         Pass a shared instance to give multiple routers the same store.
+    dfs : MultiWorkerDFSLookup | DFSLookup, optional
+        A pre-constructed DFS lookup instance.  If None, a fresh
+        MultiWorkerDFSLookup is built over `store`.  Injecting the
+        caller's existing instance shares its WorkerPool across the
+        whole pipeline (avoids spawning redundant thread pools).
 
     Example
     -------
@@ -75,9 +92,15 @@ class TRMEngine:
     >>> trm.record_contradiction(gid, edge)      # contest + revise
     """
 
-    def __init__(self, store: Optional[GraphStore] = None) -> None:
+    def __init__(
+        self,
+        store: Optional[GraphStore] = None,
+        dfs: Optional[Any] = None,
+    ) -> None:
         self.store = store if store is not None else GraphStore()
-        self._dfs = DFSLookup(self.store)
+        # Accept an injected DFS instance (e.g. the MultiWorkerDFSLookup
+        # already constructed in run_workflow) so the WorkerPool is shared.
+        self._dfs = dfs if dfs is not None else _DefaultDFS(self.store)
         self._policy = PromotionPolicy()
 
     # ------------------------------------------------------------------
@@ -103,7 +126,7 @@ class TRMEngine:
             Initial search strategy (default BY_HASH).
         fallback_to_equivalence : bool
             If the primary strategy returns no matches, retry with
-            BY_EQUIVALENCE using the primary node’s equivalence_family.
+            BY_EQUIVALENCE using the primary node's equivalence_family.
 
         Returns
         -------
@@ -125,7 +148,7 @@ class TRMEngine:
             equiv_result = self._dfs.find_equivalent(primary_node)
             if equiv_result.found:
                 logger.debug(
-                    "TRMEngine.lookup: BY_HASH miss → BY_EQUIVALENCE hit (%d candidates)",
+                    "TRMEngine.lookup: BY_HASH miss \u2192 BY_EQUIVALENCE hit (%d candidates)",
                     len(equiv_result.candidates),
                 )
                 return equiv_result
@@ -153,15 +176,16 @@ class TRMEngine:
         Parameters
         ----------
         ir_graph : IRGraph
-            The DRAFT graph from Phase C IRBridge.build().
+            The DRAFT graph from Phase C IRBridge.build() or DAGDecomposer.
         force_observe : bool
             If True, always call observe() even if the graph already
             exists (re-match = new observation).  Default True.
 
         Returns
         -------
-        IRGraph
-            The latest (possibly promoted) version of the graph.
+        tuple[IRGraph, int, str | None]
+            (latest_graph, obs_count, promoted_to_state)
+            promoted_to_state is None if no promotion occurred.
         """
         gid = ir_graph.graph_id
 
@@ -187,11 +211,11 @@ class TRMEngine:
                 gid, new_state=target_state
             )
             logger.debug(
-                "TRMEngine.persist: promoted %s → %s (obs=%d)",
+                "TRMEngine.persist: promoted %s \u2192 %s (obs=%d)",
                 gid, target_state, obs,
             )
 
-        return latest
+        return latest, obs, target_state
 
     # ------------------------------------------------------------------
     # Contradiction path
@@ -224,23 +248,26 @@ class TRMEngine:
 
         Returns
         -------
-        IRGraph
-            The revised (CONTESTED or unchanged) graph.
+        IRGraph | None
+            The revised (CONTESTED or unchanged) graph, or None if
+            graph_id is not found (non-fatal: caller logs and continues).
         """
         current = self.store.get_latest(graph_id)
         if current is None:
-            raise KeyError(
-                f"TRMEngine.record_contradiction: graph_id '{graph_id}' not found"
+            logger.warning(
+                "TRMEngine.record_contradiction: graph_id '%s' not found; skipping",
+                graph_id,
             )
+            return None
 
         severity = float(getattr(contradiction_edge, "severity", 0.0))
 
         # Compute new penalty: additive-but-bounded (§27 invariant)
-        old_penalty = current.confidence_state.contradiction_penalty
+        old_penalty = getattr(current.confidence_state, "contradiction_penalty", 0.0)
         new_penalty = min(1.0, old_penalty + severity * (1.0 - old_penalty))
         new_confidence = max(
             0.0,
-            current.confidence_state.overall_confidence - severity,
+            getattr(current.confidence_state, "overall_confidence", 1.0) - severity,
         )
 
         # Determine new state
@@ -253,7 +280,7 @@ class TRMEngine:
         )
 
         logger.debug(
-            "TRMEngine.record_contradiction: %s → state=%s penalty=%.3f",
+            "TRMEngine.record_contradiction: %s \u2192 state=%s penalty=%.3f",
             graph_id,
             revised.state,
             new_penalty,
