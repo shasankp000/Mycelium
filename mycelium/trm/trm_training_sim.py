@@ -35,7 +35,7 @@ Flow
       routed sentence into ``training_data/routing_traces.jsonl``.
 2. After all domains are processed, call ``TRMTrainer.train()`` on the
    accumulated traces.
-3. Save checkpoint to ``checkpoints/trm_latest.pt``.
+3. Save checkpoint to ``mycelium/trm/trm_checkpoints/trm_latest.pt``.
    ``run_mycelium_workflow`` picks it up on next process start via
    ``_get_trm_reasoner()``.
 
@@ -89,7 +89,15 @@ ACTIVE_DOMAINS: List[str] = [
     d for d in _RAW_DOMAIN_LIST if not d.startswith("__reserved")
 ]
 
-_CHECKPOINT_DIR = Path("checkpoints")
+# ---------------------------------------------------------------------------
+# Checkpoint directory: mycelium/trm/trm_checkpoints/
+# Resolved relative to this file so it always lands in the right place
+# regardless of the working directory the sim is launched from.
+# Auto-created at module load so TRMTrainer.save() never hits a missing-dir
+# error mid-run.
+# ---------------------------------------------------------------------------
+_CHECKPOINT_DIR = Path(__file__).parent / "trm_checkpoints"
+_CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
 _CHECKPOINT_PATH = _CHECKPOINT_DIR / "trm_latest.pt"
 
 
@@ -247,7 +255,7 @@ def _train_trm(
     """
     Load the accumulated routing traces and run TRMTrainer.
 
-    Saves checkpoint to ``checkpoints/trm_latest.pt``.
+    Saves checkpoint to ``mycelium/trm/trm_checkpoints/trm_latest.pt``.
     Returns True if training completed successfully.
     """
     if not Path(train_path).exists():
@@ -264,10 +272,10 @@ def _train_trm(
     print(f"{'='*60}")
 
     try:
+        import torch as _torch
         from mycelium.trm.config import TRMConfig
         from mycelium.trm.reasoner import TRMReasoner
-        from mycelium.trainers.trm_trainer import TRMTrainer
-        import torch as _torch
+        from mycelium.trm.trainer import TRMTrainer  # correct import path
 
         cfg = TRMConfig()
         reasoner = TRMReasoner(cfg)
@@ -280,20 +288,62 @@ def _train_trm(
         else:
             print("\u26a0\ufe0f  No existing checkpoint — training from random init")
 
+        # Build Dataset objects from the JSONL files
+        from mycelium.trm.trainer import _EmptyDataset
+        import json as _json
+
+        class _JSONLDataset:
+            """Minimal torch Dataset that reads a routing_traces JSONL file."""
+            def __init__(self, path: str) -> None:
+                import torch as _t
+                self._records = []
+                with open(path, encoding="utf-8") as fh:
+                    for line in fh:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        rec = _json.loads(line)
+                        self._records.append({
+                            "token_ids":            _t.tensor(rec["token_ids"],            dtype=_t.long),
+                            "spectral_vec":         _t.tensor(rec["spectral_vec"],         dtype=_t.float32),
+                            "predicate_family_id":  _t.tensor(rec["predicate_family_id"],  dtype=_t.long),
+                            "initial_domain_probs": _t.tensor(rec["initial_domain_probs"], dtype=_t.float32),
+                            "target_domain":        _t.tensor(rec["target_domain"],        dtype=_t.long),
+                        })
+
+            def __len__(self) -> int:
+                return len(self._records)
+
+            def __getitem__(self, idx: int) -> dict:
+                return self._records[idx]
+
+        train_dataset = _JSONLDataset(train_path)
+        eval_dataset  = (
+            _JSONLDataset(eval_path)
+            if Path(eval_path).exists() and Path(eval_path).stat().st_size > 0
+            else None
+        )
+
+        # Derive max_train_steps from dataset size + epochs
+        steps_per_epoch = max(1, len(train_dataset) // 32)  # batch_size=32
+        cfg.max_train_steps = steps_per_epoch * epochs
+        cfg.warmup_steps    = min(cfg.warmup_steps, cfg.max_train_steps // 10)
+
         trainer = TRMTrainer(
             model=reasoner,
-            train_path=train_path,
-            eval_path=eval_path if Path(eval_path).exists() else None,
-            epochs=epochs,
             cfg=cfg,
+            train_dataset=train_dataset,
+            eval_dataset=eval_dataset,
+            batch_size=32,
         )
         trainer.train()
 
-        _CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
-        _torch.save(reasoner.state_dict(), str(_CHECKPOINT_PATH))
+        # _CHECKPOINT_DIR is already created at module load; .save() also
+        # calls mkdir(parents=True, exist_ok=True) as a safety net.
+        trainer.save(str(_CHECKPOINT_PATH))
         print(f"\n\u2705 TRMReasoner checkpoint saved to {_CHECKPOINT_PATH}")
 
-        # Invalidate the in-process reasoner singleton so next workflow
+        # Invalidate the in-process reasoner singleton so the next workflow
         # call reloads from the fresh checkpoint.
         import mycelium.pipeline.run_workflow as _rw
         _rw._trm_reasoner = None
@@ -332,6 +382,7 @@ def run_sim(
     print(f"Epochs       : {epochs}")
     print(f"Sim prefix   : {sim_prefix}")
     print(f"OpenAI compat: {openai_compat}")
+    print(f"Checkpoint   : {_CHECKPOINT_PATH}")
     print("="*60 + "\n")
 
     total_queries = 0
