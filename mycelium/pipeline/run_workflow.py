@@ -348,7 +348,9 @@ def _run_trm_reasoner(
             if 0 <= primary_domain_idx < len(_DL)
             else "unknown"
         )
-        halt_conf: float = float(_t.sigmoid(out.halt_logit)[0].item())
+        # TRMOutput.halt_confidence is already sigmoid-ed inside forward().
+        # Do NOT call sigmoid again — just read the scalar directly.
+        halt_conf: float = float(out.halt_confidence[0].item())
         n_steps: int = int(getattr(out, "n_steps_taken", 1))
 
         def _trm_score(d: str) -> float:
