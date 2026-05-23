@@ -79,6 +79,23 @@ def _budget_select(
     return selected, budget_cap_applied
 
 
+def _spectral_analyzer_is_ready(analyzer: Any) -> bool:
+    """
+    Safe wrapper around spectral_analyzer.is_ready().
+
+    The analyzer instance stored in MultiLensRouter may be an externally
+    injected object (e.g. from DynamicSignatureManager.sync_signatures)
+    that is a different subclass and does not implement is_ready().  Fall
+    back to True (assume ready) so spectral scoring is not silently skipped
+    and no AttributeError is raised.
+    """
+    is_ready_fn = getattr(analyzer, "is_ready", None)
+    if callable(is_ready_fn):
+        return bool(is_ready_fn())
+    # Fallback: assume ready if the object exists at all
+    return analyzer is not None
+
+
 class MultiLensRouter:
     def __init__(
         self,
@@ -141,7 +158,7 @@ class MultiLensRouter:
             spectral_scores: Dict[str, float] = {}
             if self.use_spectral and self._spectral_analyzer is not None:
                 try:
-                    if self._spectral_analyzer.is_ready():
+                    if _spectral_analyzer_is_ready(self._spectral_analyzer):
                         spectral_scores = self._spectral_analyzer.analyze_text(text) or {}
                 except Exception as exc:
                     logger.warning("Spectral analysis failed: %s", exc)
