@@ -28,6 +28,11 @@ OR where TRM was overruled (primary_domain_idx != target_domain) are
 written.  This prevents the training set being dominated by easy cases
 the model already handles correctly and avoids feedback-loop degradation.
 
+When TRM has no active checkpoint (primary_domain_idx == -1 for every
+query), gating is bypassed entirely so the cold-start training set is
+still populated.  This is the expected behaviour during initial runs
+before any TRM weights exist.
+
 Set GATE_THRESHOLD = 1.0 to disable gating and write every sample.
 """
 
@@ -245,6 +250,11 @@ class TRMRoutingTraceWriter:
         Build and (conditionally) write a TRMTrainer sample.
 
         Returns True if the sample was written, False if gated out.
+
+        Gating is bypassed entirely when TRM has no active checkpoint
+        (trm_primary_idx == -1), i.e. during cold-start runs before any
+        weights exist.  This ensures the training set is populated on
+        first runs so that TRMTrainer can actually bootstrap.
         """
         # 1. Resolve target domain index
         target_idx = _domain_to_idx(selected_domain)
@@ -256,14 +266,20 @@ class TRMRoutingTraceWriter:
         halt_conf: float = 1.0
         trm_primary_idx: int = -1
         if trm_lookup_result:
-            halt_conf = float(trm_lookup_result.get("halt_confidence", 1.0))
-            trm_primary_idx = int(trm_lookup_result.get("primary_domain_idx", -1))
+            _raw_halt = trm_lookup_result.get("halt_confidence")
+            halt_conf = float(_raw_halt) if _raw_halt is not None else 1.0
+            _raw_idx = trm_lookup_result.get("trm_primary_domain_idx")
+            trm_primary_idx = int(_raw_idx) if _raw_idx is not None else -1
 
-        overruled = (trm_primary_idx >= 0 and trm_primary_idx != target_idx)
-        uncertain = halt_conf < self._gate_threshold
-
-        if not (uncertain or overruled):
-            return False  # TRM was confident and correct — skip
+        # When TRM has no checkpoint, primary_domain_idx is always -1.
+        # Bypass gating completely so cold-start runs still produce samples.
+        trm_active = trm_primary_idx >= 0
+        if trm_active:
+            overruled = trm_primary_idx != target_idx
+            uncertain = halt_conf < self._gate_threshold
+            if not (uncertain or overruled):
+                return False  # TRM was confident and correct — skip
+        # else: TRM not active → always write
 
         # 3. Build token_ids
         token_ids = _encode_query(text)
