@@ -61,10 +61,13 @@ try:
         _DEFAULT_PREDICATE_FAMILY as _TRM_DEF_PRED,
         N_DOMAINS as _TRM_N_DOMAINS,
     )
+    from mycelium.trm.trm_ood_fallback import TRMOODFallback, TRMOODHead
     _TRM_AVAILABLE = True
 except Exception as _trm_import_err:
     TRMReasoner = None  # type: ignore[assignment,misc]
     TRMConfig = None    # type: ignore[assignment,misc]
+    TRMOODFallback = None  # type: ignore[assignment,misc]
+    TRMOODHead = None  # type: ignore[assignment,misc]
     trm_trace_writer = None  # type: ignore[assignment]
     _TRM_AVAILABLE = False
 # Phase E — ContradictionClassifier (non-fatal fallback)
@@ -300,6 +303,8 @@ def _run_trm_reasoner(
     halt_confidence     : float        sigmoid(halt_logit)
     n_steps_taken       : int
     reranked_domains    : list[str]    relevant_domains re-ordered by TRM score
+    trm_output          : raw TRMOutput object (kept for OOD fallback)
+    spectral_tensor     : torch.Tensor [1, N_DOMAINS] (kept for OOD fallback)
     """
     try:
         import torch as _t
@@ -343,7 +348,6 @@ def _run_trm_reasoner(
         n_steps: int = int(getattr(out, "n_steps_taken", 1))
 
         # Re-rank relevant_domains by TRM domain_probs score.
-        # If a domain is not in DOMAIN_LIST its TRM score is treated as 0.
         def _trm_score(d: str) -> float:
             idx = _trm_domain_to_idx(d)
             return domain_probs[idx] if 0 <= idx < _TRM_N_DOMAINS else 0.0
@@ -357,6 +361,9 @@ def _run_trm_reasoner(
             "halt_confidence":    halt_conf,
             "n_steps_taken":      n_steps,
             "reranked_domains":   reranked,
+            # kept in-memory for OOD fallback; not serialised to JSON
+            "_trm_output":        out,
+            "_spectral_tensor":   spectral_vec,
         }
     except Exception as _re:
         print(f"\u26a0\ufe0f  TRMReasoner forward pass failed: {_re}")
@@ -384,46 +391,31 @@ def run_mycelium_workflow(
     Phase D wiring:
         TRMLens refines routing_context.  TRMEngine (owns GraphStore +
         MultiWorkerDFSLookup + PromotionPolicy) replaces the previous
-        scattered inline plumbing:
-            - trm_engine.persist(graph)          <- put+observe+promote
-            - trm_engine.lookup(ir_nodes)        <- BY_HASH + equiv fallback
-            - trm_engine.record_contradiction()  <- penalty+contest+revise
-        DAGDecomposer is constructed with trm_engine.store so it writes
-        into the same GraphStore instance.
+        scattered inline plumbing.
 
     Phase D (Option 2) — TRMReasoner wiring:
-        After MultiLensRouter.route() + TRMLens.refine(), TRMReasoner
-        runs a neural forward pass over (token_ids, spectral_vec,
-        predicate_family_id, initial_domain_probs) and produces:
-            - domain_probs       : re-ranks relevant_domains
-            - halt_confidence    : confidence in the routing decision
-            - primary_domain_idx : TRM's top-1 domain prediction
-        When fallback_to_router=True (default), a TRM failure or low
-        halt_confidence degrades gracefully to MultiLensRouter order.
-        TRMRoutingTraceWriter captures every routed sentence for training.
+        After MultiLensRouter.route() + TRMLens.refine(), TRMReasoner runs
+        a neural forward pass and produces domain_probs, halt_confidence,
+        primary_domain_idx.  When halt_confidence is low AND the domain
+        prediction diverges from the spectral prior, TRMOODFallback fires:
+
+            ood_fallback.route(query, trm_output, spectral_vec)
+                ├─ LEVEL_0  — straight to MultiLensRouter
+                ├─ LEVEL_1  — CanonicalizeAndHash + DAGDecomposer first
+                └─ LEVEL_2  — full 6-phase reasoning chain
+
+        The selected_domain from OODFallbackResult overrides the TRMReasoner
+        pick when triggered.  On non-trigger the pipeline is unchanged.
+        Never raises — every failure degrades to the router.
 
     Phase E wiring:
         ContradictionClassifier compares consecutive Phase 2 outputs.
-        CONTESTED revision fires via trm_engine.record_contradiction().
 
     Phase F wiring:
-        1. DSTFusion converts ConfidenceState -> DSTFrame.  The Pignistic
-           scalar (to_net_confidence) drives graph confidence; m_unknown
-           is surfaced in trm_lookup.
-        2. MultiWorkerDFSLookup is injected into TRMEngine so the
-           WorkerPool is shared across lookup() and the DAGDecomposer
-           DFS calls.  Auto-selects single vs multi-worker by store size.
+        DSTFusion + MultiWorkerDFSLookup (shared WorkerPool).
 
     GraphStore persistence:
-        _GRAPH_STORE_DIR is resolved at module import from
-        config.toml [graph_store] persistence_dir (default: "data").
-        The directory is created with exist_ok=True at import time.
-        GraphStore(persistence_path=_GRAPH_STORE_DIR) is passed here so
-        every graph revision is appended to <dir>/graphstore.jsonl on each
-        put() / add_revision().  On the next boot, GraphStore replays the
-        latest version per graph_id and immediately runs GraphDecayManager
-        so EvidenceGrounder never sees stale graphs.  DEPRECATED graphs are
-        excluded from list_all() by default; full audit trail is preserved.
+        _GRAPH_STORE_DIR resolved at import from config.toml.
     """
     import uuid as _uuid
     import hashlib as _hashlib
@@ -480,7 +472,6 @@ def run_mycelium_workflow(
 
     # ---------------------------------------------------------------
     # Phase D / F layer — single TRMEngine owns store + DFS + policy
-    # GraphStore persistence_path + run_decay_on_load come from config.
     # ---------------------------------------------------------------
     _graph_store = GraphStore(
         persistence_path=_GRAPH_STORE_DIR,
@@ -496,13 +487,18 @@ def run_mycelium_workflow(
     )
 
     # ---------------------------------------------------------------
-    # Phase D (Option 2) — TRMReasoner (lazy singleton, non-fatal)
+    # Phase D (Option 2) — TRMReasoner + OODFallback (lazy, non-fatal)
     # ---------------------------------------------------------------
     trm_reasoner = _get_trm_reasoner()
     if trm_reasoner is not None:
         print("\u2705 TRMReasoner active (Option 2 wiring)")
     else:
         print("\u26a0\ufe0f  TRMReasoner unavailable — routing via MultiLensRouter only")
+
+    # OODFallback: wired only when TRMReasoner + TRMOODFallback are available.
+    # Injects the shared canonicalizer and the process-wide MultiLensRouter
+    # (created below) via late-binding — router is set after router init.
+    _ood_fallback: Optional[Any] = None  # filled after router is built
 
     # --- Phase B — shared canonicalizer (reuses SRL doc cache §5.1) ---
     _canonicalizer = CanonicalizeAndHash() if _CANON_AVAILABLE else None
@@ -556,6 +552,29 @@ def run_mycelium_workflow(
     )
 
     router = MultiLensRouter(spectral_analyzer=spectral_analyzer)
+
+    # ---------------------------------------------------------------
+    # Finalise OODFallback now that router is available
+    # ---------------------------------------------------------------
+    if trm_reasoner is not None and TRMOODFallback is not None:
+        try:
+            _trm_cfg = TRMConfig()
+            _ood_head = TRMOODHead(
+                hidden_size=_trm_cfg.hidden_size,
+                bottleneck=_trm_cfg.ood_head_hidden or None,
+            )
+            _ood_fallback = TRMOODFallback(
+                cfg=_trm_cfg,
+                ood_head=_ood_head,
+                multi_lens_router=router,
+                canonicalizer=_canonicalizer,
+                dag_decomposer=dag_decomposer,
+                contradiction_classifier=contradiction_classifier,
+            )
+            print("\u2705 TRMOODFallback active (heuristic + OODHead)")
+        except Exception as _oodf_err:
+            print(f"\u26a0\ufe0f  TRMOODFallback init failed: {_oodf_err} — OOD fallback disabled")
+            _ood_fallback = None
 
     print("Initializing expert filter with automatic semantic clustering...")
     expert_filter = ExpertFilter(
@@ -695,6 +714,8 @@ def run_mycelium_workflow(
         # Phase D (Option 2) — TRMReasoner: re-rank relevant_domains
         # -------------------------------------------------------------------
         trm_reasoner_result: Optional[Dict[str, Any]] = None
+        ood_fallback_result: Optional[Dict[str, Any]] = None
+
         if trm_reasoner is not None:
             trm_reasoner_result = _run_trm_reasoner(
                 trm_reasoner, text, routing_context, relevant_domains
@@ -707,6 +728,56 @@ def run_mycelium_workflow(
                         f"halt_conf={trm_reasoner_result['halt_confidence']:.3f} "
                         f"steps={trm_reasoner_result['n_steps_taken']}"
                     )
+
+                # -----------------------------------------------------------
+                # Phase D — TRMOODFallback: fire when TRM is uncertain/OOD
+                # -----------------------------------------------------------
+                if _ood_fallback is not None:
+                    try:
+                        _raw_out  = trm_reasoner_result["_trm_output"]
+                        _spec_ten = trm_reasoner_result["_spectral_tensor"]
+                        _ood_result = _ood_fallback.route(
+                            query=text,
+                            trm_output=_raw_out,
+                            spectral_vec=_spec_ten,
+                            domain=trm_reasoner_result["primary_domain"],
+                        )
+                        if _ood_result.triggered:
+                            # Override domain list with OOD fallback’s choice
+                            from mycelium.trm.trm_routing_trace_writer import DOMAIN_LIST as _DL
+                            _fb_dom_idx = _ood_result.selected_domain
+                            _fb_dom_name = (
+                                _DL[_fb_dom_idx]
+                                if 0 <= _fb_dom_idx < len(_DL)
+                                else trm_reasoner_result["primary_domain"]
+                            )
+                            # Promote the fallback domain to front of list,
+                            # keeping any other valid domains for top-k.
+                            _other = [
+                                d for d in relevant_domains if d != _fb_dom_name
+                            ]
+                            relevant_domains = [_fb_dom_name] + _other
+                            if ENABLE_LOGGING and idx % LOG_SAMPLE_RATE == 0:
+                                print(
+                                    f"\U0001f6a8 TRMOODFallback TRIGGERED: "
+                                    f"level={_ood_result.fallback_level.name} "
+                                    f"ood_conf={_ood_result.ood_head_confidence:.3f} "
+                                    f"domain={_fb_dom_name} "
+                                    f"reason: {_ood_result.reason}"
+                                )
+                        ood_fallback_result = {
+                            "triggered":           _ood_result.triggered,
+                            "fallback_level":      _ood_result.fallback_level.value,
+                            "ood_head_confidence": _ood_result.ood_head_confidence,
+                            "selected_domain":     _ood_result.selected_domain,
+                            "reason":              _ood_result.reason,
+                            "dag_context":         _ood_result.dag_context,
+                            "reasoning_trace":     _ood_result.reasoning_trace,
+                        }
+                    except Exception as _ood_err:
+                        ood_fallback_result = {"error": str(_ood_err)}
+                        if ENABLE_LOGGING:
+                            print(f"\u26a0\ufe0f  TRMOODFallback error: {_ood_err}")
 
         if expert_top_k < len(relevant_domains):
             relevant_domains = relevant_domains[:expert_top_k]
@@ -728,6 +799,7 @@ def run_mycelium_workflow(
                 "dfs_max_depth": dfs_max_depth,
                 "trm_primary_domain": trm_reasoner_result["primary_domain"] if trm_reasoner_result else None,
                 "trm_halt_confidence": trm_reasoner_result["halt_confidence"] if trm_reasoner_result else None,
+                "ood_triggered": ood_fallback_result.get("triggered") if ood_fallback_result else False,
             },
         )
         emitter.emit_heartbeat(idx % 5)
@@ -926,6 +998,7 @@ def run_mycelium_workflow(
                 "trm_primary_domain_idx": trm_reasoner_result["primary_domain_idx"] if trm_reasoner_result else None,
                 "halt_confidence": trm_reasoner_result["halt_confidence"] if trm_reasoner_result else None,
                 "n_steps_taken": trm_reasoner_result["n_steps_taken"] if trm_reasoner_result else None,
+                "ood_fallback": ood_fallback_result,
             }
         except Exception as _trm_exc:
             trm_lookup_result = {"found": False, "error": str(_trm_exc)}
@@ -965,6 +1038,9 @@ def run_mycelium_workflow(
                 "dst_m_unknown": trm_lookup_result.get("dst_m_unknown") if trm_lookup_result else None,
                 "trm_primary_domain": trm_lookup_result.get("trm_primary_domain") if trm_lookup_result else None,
                 "halt_confidence": trm_lookup_result.get("halt_confidence") if trm_lookup_result else None,
+                "ood_triggered": (
+                    ood_fallback_result.get("triggered") if ood_fallback_result else False
+                ),
             },
         )
 
@@ -1088,7 +1164,12 @@ def run_mycelium_workflow(
                 "trm_lookup": trm_lookup_result,
                 "contradiction": contradiction_result,
                 "trm_stats": trm_engine.stats(),
-                "trm_reasoner": trm_reasoner_result,
+                "trm_reasoner": (
+                    {k: v for k, v in trm_reasoner_result.items()
+                     if not k.startswith("_")}
+                    if trm_reasoner_result else None
+                ),
+                "ood_fallback": ood_fallback_result,
             }
         )
         all_tags.extend(normalized_tags)
@@ -1103,6 +1184,8 @@ def run_mycelium_workflow(
                 "TRM: found={trm_found} obs={obs} promoted={promoted}\n"
                 "TRMReasoner: active={trm_r_active} primary={trm_primary} "
                 "halt_conf={halt_conf} steps={steps}\n"
+                "OODFallback: triggered={ood_trig} level={ood_lvl} "
+                "ood_conf={ood_conf}\n"
                 "TraceWriter: train={tw_train} eval={tw_eval}\n"
                 "TRMEngine stats: graphs={g} obs_total={o} states={s}\n"
                 "DST: conf={dst_conf} m_unknown={m_unk}\n"
@@ -1124,6 +1207,13 @@ def run_mycelium_workflow(
                         else "N/A"
                     ),
                     steps=trm_lookup_result.get("n_steps_taken") if trm_lookup_result else "N/A",
+                    ood_trig=ood_fallback_result.get("triggered") if ood_fallback_result else False,
+                    ood_lvl=ood_fallback_result.get("fallback_level") if ood_fallback_result else "N/A",
+                    ood_conf=(
+                        f"{ood_fallback_result.get('ood_head_confidence'):.3f}"
+                        if ood_fallback_result and ood_fallback_result.get("ood_head_confidence") is not None
+                        else "N/A"
+                    ),
                     tw_train=_trace_counts.get("train", 0),
                     tw_eval=_trace_counts.get("eval", 0),
                     g=_stats["total_graphs"], o=_stats["total_observations"],
