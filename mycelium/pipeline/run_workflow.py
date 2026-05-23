@@ -253,6 +253,10 @@ def _get_trm_reasoner() -> Optional[Any]:
     Lazily initialise and return the process-wide TRMReasoner.
 
     * Loads weights from TRMConfig.model_path when the file exists.
+    * Handles both checkpoint formats:
+        - Legacy: raw state_dict  (saved with torch.save(model.state_dict(), path))
+        - New:    TRMTrainer dict (saved with trainer.save(path)) —
+                  keys: model_state, ema_state, step, cfg
     * Falls back to random-initialised weights when no checkpoint is
       present (fallback_to_router=True guarantees safe operation).
     * Returns None if TRM is unavailable (import failed).
@@ -267,9 +271,21 @@ def _get_trm_reasoner() -> Optional[Any]:
         reasoner = TRMReasoner(cfg)
         import os as _os
         if cfg.model_path and _os.path.isfile(cfg.model_path):
-            state = _torch.load(cfg.model_path, map_location="cpu")
+            ckpt = _torch.load(cfg.model_path, map_location="cpu")
+            # Support both the legacy raw state_dict and the new TRMTrainer
+            # checkpoint format {"model_state": ..., "ema_state": ..., ...}.
+            if isinstance(ckpt, dict) and "model_state" in ckpt:
+                state = ckpt["model_state"]
+                _step = ckpt.get("step", "?")
+                print(
+                    f"\u2705 TRMReasoner: loaded TRMTrainer checkpoint from "
+                    f"{cfg.model_path} (step={_step})"
+                )
+            else:
+                # Legacy format — raw state dict
+                state = ckpt
+                print(f"\u2705 TRMReasoner: loaded legacy weights from {cfg.model_path}")
             reasoner.load_state_dict(state)
-            print(f"\u2705 TRMReasoner: loaded weights from {cfg.model_path}")
         else:
             print(
                 "\u26a0\ufe0f  TRMReasoner: no checkpoint found at "
@@ -743,7 +759,7 @@ def run_mycelium_workflow(
                             domain=trm_reasoner_result["primary_domain"],
                         )
                         if _ood_result.triggered:
-                            # Override domain list with OOD fallback’s choice
+                            # Override domain list with OOD fallback's choice
                             from mycelium.trm.trm_routing_trace_writer import DOMAIN_LIST as _DL
                             _fb_dom_idx = _ood_result.selected_domain
                             _fb_dom_name = (
