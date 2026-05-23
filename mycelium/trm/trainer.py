@@ -30,7 +30,7 @@ Each training sample is a dict:
         # encodes multi-domain probability across all registered experts.
     }
 
-These are sourced from Mycelium’s routing trace logs:
+These are sourced from Mycelium's routing trace logs:
     training_data/routing_traces.jsonl
     evaluation_data/routing_ground_truth.jsonl
 
@@ -95,7 +95,7 @@ def soft_label_kl_loss(logits: Tensor, soft_targets: Tensor) -> Tensor:
 
     KL(P || Q) = sum( P * log(P / Q) )  where:
         P = soft_targets  (the ground-truth distribution)
-        Q = softmax(logits)  (the model’s predicted distribution)
+        Q = softmax(logits)  (the model's predicted distribution)
 
     Using F.kl_div(log_Q, P, reduction="batchmean") which is numerically
     stable (log-space input, probability-space target).
@@ -104,7 +104,6 @@ def soft_label_kl_loss(logits: Tensor, soft_targets: Tensor) -> Tensor:
     soft_targets: [B, n_classes]  target probability distribution (∑ == 1)
     """
     log_probs = F.log_softmax(logits, dim=-1)          # [B, n_classes]
-    # Clamp soft_targets to avoid log(0) inside kl_div
     soft_targets = soft_targets.clamp(min=1e-8)
     soft_targets = soft_targets / soft_targets.sum(dim=-1, keepdim=True)  # renorm
     return F.kl_div(log_probs, soft_targets, reduction="batchmean")
@@ -158,6 +157,12 @@ class TRMTrainer:
     train_dataset : Dataset  each item is a dict (see module docstring)
     eval_dataset  : Dataset or None
     batch_size    : int  default 32
+
+    Notes
+    -----
+    drop_last is intentionally False so that a last partial batch is never
+    silently discarded.  This prevents zero-batch training when the gated
+    TraceWriter produces fewer than batch_size samples on later sim runs.
     """
 
     def __init__(
@@ -172,7 +177,7 @@ class TRMTrainer:
         self.cfg     = cfg
         self.ema     = EMA(model, decay=cfg.ema_decay)
         self.train_dl = DataLoader(
-            train_dataset, batch_size=batch_size, shuffle=True, drop_last=True
+            train_dataset, batch_size=batch_size, shuffle=True, drop_last=False
         )
         self.eval_dl = (
             DataLoader(eval_dataset, batch_size=batch_size, shuffle=False)
@@ -225,18 +230,13 @@ class TRMTrainer:
         )
 
         # 1. Primary routing loss — auto-select hard vs soft path
-        # target_domain shape [B]           → int64 hard label → stable CE
-        # target_domain shape [B, n_domains] → float soft label → KL divergence
         if target_domain.dim() == 2:
-            # Soft-label path: spectral_vec used as multi-domain ground truth
             l_domain = soft_label_kl_loss(
                 out.domain_logits,
                 target_domain.float(),
             )
-            # Derive a pseudo hard-label for the halt BCE from soft argmax
             hard_target = target_domain.argmax(dim=-1)  # [B]
         else:
-            # Hard-label path (default): single integer ground-truth domain
             if cfg.stable_max_loss:
                 l_domain = stable_max_cross_entropy(out.domain_logits, target_domain)
             else:
@@ -253,8 +253,6 @@ class TRMTrainer:
         # 3. Contrastive term (optional — skipped if weight==0)
         l_contrastive = torch.tensor(0.0, device=device)
         if cfg.contrastive_loss_weight > 0 and "semantic_hash" in batch:
-            # Simple NT-Xent over (hash_embedding, domain_label) pairs
-            # Embeddings are taken as the mean of final_y across domain dim
             emb = out.final_y.mean(dim=1)          # [B, D]
             emb = F.normalize(emb, dim=-1)
             sim = emb @ emb.T / 0.07               # [B, B] cosine sim / temp
@@ -262,15 +260,15 @@ class TRMTrainer:
             l_contrastive = F.cross_entropy(sim, labels)
 
         total = (
-            cfg.domain_loss_weight      * l_domain
-            + cfg.halt_loss_weight      * l_halt
+            cfg.domain_loss_weight        * l_domain
+            + cfg.halt_loss_weight        * l_halt
             + cfg.contrastive_loss_weight * l_contrastive
         )
         return {
-            "loss":         total,
-            "l_domain":     l_domain.detach(),
-            "l_halt":       l_halt.detach(),
-            "l_contrastive": l_contrastive.detach(),
+            "loss":           total,
+            "l_domain":       l_domain.detach(),
+            "l_halt":         l_halt.detach(),
+            "l_contrastive":  l_contrastive.detach(),
         }
 
     # ------------------------------------------------------------------ #
@@ -287,7 +285,6 @@ class TRMTrainer:
                 if self.step >= cfg.max_train_steps:
                     break
 
-                # LR schedule
                 lr = _cosine_lr(self.step, cfg.warmup_steps, cfg.max_train_steps, cfg.learning_rate)
                 for pg in self.optimizer.param_groups:
                     pg["lr"] = lr
@@ -299,7 +296,7 @@ class TRMTrainer:
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), cfg.gradient_clip)
                 self.optimizer.step()
-                self.ema.update(self.model)  # §4.7: EMA after every step
+                self.ema.update(self.model)
 
                 self.step += 1
 
@@ -330,7 +327,6 @@ class TRMTrainer:
         correct = total = 0
         for batch in self.eval_dl:
             target = batch["target_domain"].to(cfg.device)
-            # Support both hard and soft label eval batches
             hard_target = target.argmax(dim=-1) if target.dim() == 2 else target
             out = ema_model(
                 token_ids=batch["token_ids"].to(cfg.device),
