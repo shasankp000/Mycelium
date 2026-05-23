@@ -910,6 +910,7 @@ def run_mycelium_workflow(
             _pred_family = str(
                 getattr(routing_context, "classification", "UNKNOWN") or "UNKNOWN"
             )
+            # Guard: expert_confidence may be None when no expert matched.
             _raw_conf = float(
                 getattr(expert_decision, "expert_confidence", 0.5) or 0.5
             )
@@ -1040,7 +1041,7 @@ def run_mycelium_workflow(
             message="Expert decision reached",
             detail=(
                 f"{getattr(expert_decision, 'decision_type', 'N/A')} · "
-                f"confidence {float(getattr(expert_decision, 'expert_confidence', 0.0)):.2f}"
+                f"confidence {float(getattr(expert_decision, 'expert_confidence', 0.0) or 0.0):.2f}"
             ),
             state="running",
             metadata={
@@ -1048,7 +1049,8 @@ def run_mycelium_workflow(
                 "selected_experts": list(
                     getattr(expert_decision, "selected_experts", []) or []
                 ),
-                "confidence": float(getattr(expert_decision, "expert_confidence", 0.0)),
+                # Guard: expert_confidence may be None when no expert matched.
+                "confidence": float(getattr(expert_decision, "expert_confidence", 0.0) or 0.0),
                 "trm_lookup_found": trm_lookup_result.get("found", False) if trm_lookup_result else False,
                 "contradiction_type": contradiction_result.get("type") if contradiction_result else None,
                 "dst_m_unknown": trm_lookup_result.get("dst_m_unknown") if trm_lookup_result else None,
@@ -1100,7 +1102,8 @@ def run_mycelium_workflow(
             expert_decision.selected_experts[0]
             if expert_decision.selected_experts else "unknown"
         )
-        confidence = float(getattr(expert_decision, "expert_confidence", 0.0))
+        # Guard: expert_confidence may be None when no expert matched.
+        confidence = float(getattr(expert_decision, "expert_confidence", 0.0) or 0.0)
 
         is_patch_decision = expert_decision.decision_type == "CREATE_NEW_PATCH"
         import uuid as _uuid
