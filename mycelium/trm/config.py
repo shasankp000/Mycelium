@@ -111,3 +111,30 @@ class TRMConfig:
 
     fallback_to_router: bool = True
     """If TRM is untrained / unavailable, fall back to raw MultiLensRouter scores."""
+
+    # ------------------------------------------------------------------ #
+    # OOD fallback (Part D)                                               #
+    # ------------------------------------------------------------------ #
+
+    ood_halt_threshold: float = 0.55
+    """
+    If halt_confidence < this value the heuristic OOD trigger considers
+    TRM's answer unstable.  Works in conjunction with ood_divergence_threshold.
+    Deliberately set slightly above halt_threshold (0.5) so that queries
+    that barely triggered a halt are still forwarded to the fallback chain.
+    """
+
+    ood_divergence_threshold: float = 0.35
+    """
+    If (1 - spectral_vec[primary_domain_idx]) > this value the heuristic
+    considers TRM's top-domain pick to be in strong disagreement with
+    MultiLensRouter's spectral prior.
+    Both ood_halt_threshold AND ood_divergence_threshold must be exceeded
+    simultaneously for the heuristic to fire.
+    """
+
+    ood_head_hidden: int = 0
+    """
+    Bottleneck dimension for TRMOODHead.  0 → auto (hidden_size // 4).
+    Set to a positive integer to override.
+    """
