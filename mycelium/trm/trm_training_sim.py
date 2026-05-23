@@ -120,14 +120,11 @@ def _clean_lines(raw: str, expected_n: int) -> List[str]:
     lines = []
     for line in raw.splitlines():
         line = line.strip()
-        # Skip empties, very-short lines (likely headers), lines ending with ":"
         if not line or len(line.split()) <= 3 or line.endswith(":"):
             continue
-        # Strip common LLM preamble artefacts: leading numbers/bullets
         for prefix in ("- ", "* ", "\u2022 "):
             if line.startswith(prefix):
                 line = line[len(prefix):].strip()
-        # Strip leading "1. " / "10. " style numbering
         if line[:3].rstrip(". ").isdigit():
             line = line.split(".", 1)[-1].strip()
         if line:
@@ -235,7 +232,7 @@ def _run_single_query(query: str, sim_prefix: str, idx: int) -> bool:
         run_mycelium_workflow(
             [query],
             trace_id=trace_id,
-            on_event=None,   # no SSE — pure backend mode
+            on_event=None,
         )
         return True
     except Exception as exc:
@@ -257,6 +254,17 @@ def _train_trm(
 
     Saves checkpoint to ``mycelium/trm/trm_checkpoints/trm_latest.pt``.
     Returns True if training completed successfully.
+
+    Fine-tune notes
+    ---------------
+    TRMTrainer.save() stores a dict with keys model_state / ema_state / step
+    / cfg (not a raw state_dict).  We handle both formats here so that
+    runs 2-4 can fine-tune on top of the existing checkpoint without a
+    key-mismatch crash.
+
+    DataLoader batch_size is clamped to min(32, len(dataset)) so that
+    drop_last=False still yields at least one batch even when fewer than
+    32 new samples were written by the gated TraceWriter on later runs.
     """
     if not Path(train_path).exists():
         print(f"[error] Training data not found at {train_path!r} — skipping training.")
@@ -275,21 +283,28 @@ def _train_trm(
         import torch as _torch
         from mycelium.trm.config import TRMConfig
         from mycelium.trm.reasoner import TRMReasoner
-        from mycelium.trm.trainer import TRMTrainer  # correct import path
+        from mycelium.trm.trainer import TRMTrainer, _EmptyDataset
 
         cfg = TRMConfig()
         reasoner = TRMReasoner(cfg)
 
-        # Load existing checkpoint if present (fine-tune rather than train from scratch)
+        # Load existing checkpoint if present (fine-tune rather than cold start).
+        # TRMTrainer.save() writes a trainer dict {model_state, ema_state, step, cfg};
+        # guard against legacy raw state_dict format too.
         if _CHECKPOINT_PATH.exists():
-            state = _torch.load(str(_CHECKPOINT_PATH), map_location="cpu")
+            ckpt = _torch.load(str(_CHECKPOINT_PATH), map_location="cpu")
+            if isinstance(ckpt, dict) and "model_state" in ckpt:
+                state = ckpt["model_state"]
+                _step = ckpt.get("step", "?")
+                print(f"\u2705 Loaded existing checkpoint from {_CHECKPOINT_PATH} — fine-tuning (step={_step})")
+            else:
+                # Legacy: raw state_dict saved directly
+                state = ckpt
+                print(f"\u2705 Loaded legacy checkpoint from {_CHECKPOINT_PATH} — fine-tuning")
             reasoner.load_state_dict(state)
-            print(f"\u2705 Loaded existing checkpoint from {_CHECKPOINT_PATH} — fine-tuning")
         else:
             print("\u26a0\ufe0f  No existing checkpoint — training from random init")
 
-        # Build Dataset objects from the JSONL files
-        from mycelium.trm.trainer import _EmptyDataset
         import json as _json
 
         class _JSONLDataset:
@@ -324,8 +339,14 @@ def _train_trm(
             else None
         )
 
-        # Derive max_train_steps from dataset size + epochs
-        steps_per_epoch = max(1, len(train_dataset) // 32)  # batch_size=32
+        # Clamp batch_size so drop_last=False never silently produces zero
+        # batches when the gated TraceWriter writes fewer than 32 samples.
+        effective_batch_size = min(32, len(train_dataset))
+        if effective_batch_size == 0:
+            print("[error] Training dataset is empty after loading — skipping training.")
+            return False
+
+        steps_per_epoch = max(1, len(train_dataset) // effective_batch_size)
         cfg.max_train_steps = steps_per_epoch * epochs
         cfg.warmup_steps    = min(cfg.warmup_steps, cfg.max_train_steps // 10)
 
@@ -334,17 +355,13 @@ def _train_trm(
             cfg=cfg,
             train_dataset=train_dataset,
             eval_dataset=eval_dataset,
-            batch_size=32,
+            batch_size=effective_batch_size,
         )
         trainer.train()
 
-        # _CHECKPOINT_DIR is already created at module load; .save() also
-        # calls mkdir(parents=True, exist_ok=True) as a safety net.
         trainer.save(str(_CHECKPOINT_PATH))
         print(f"\n\u2705 TRMReasoner checkpoint saved to {_CHECKPOINT_PATH}")
 
-        # Invalidate the in-process reasoner singleton so the next workflow
-        # call reloads from the fresh checkpoint.
         import mycelium.pipeline.run_workflow as _rw
         _rw._trm_reasoner = None
         print("\u2705 In-process TRMReasoner singleton reset — will reload on next workflow call")
@@ -455,7 +472,7 @@ def _parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument(
         "--llm-model",
         default=os.getenv("TRM_SIM_LLM_MODEL", "llama3:8b"),
-        help="LLM model name (default: llama3)",
+        help="LLM model name (default: llama3:8b)",
     )
     parser.add_argument(
         "--queries-per-domain",
