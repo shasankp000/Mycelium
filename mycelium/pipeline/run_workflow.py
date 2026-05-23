@@ -172,9 +172,16 @@ def _adapt_phase2_to_p3(p2: Any, original_text: str = "") -> P3FinalDecisionResu
                 metadata["original_query"] = metadata[fallback_key]
                 break
 
+    # Guard: confidence / expert_confidence may be explicitly None on p2
+    # objects returned when no expert matched. _get() only returns default
+    # when ALL candidates are None-or-missing; use `or 0.5` to catch the
+    # case where the attribute exists but holds None.
+    raw_conf = _get("confidence", "expert_confidence", default=0.5)
+    p2_confidence = float(raw_conf if raw_conf is not None else 0.5)
+
     return P3FinalDecisionResult(
         decision=_get("decision_label", "prediction", "final_decision", "decision"),
-        confidence=float(_get("confidence", "expert_confidence", default=0.5)),
+        confidence=p2_confidence,
         reasoning=reasoning_str,
         action=_get("action_type", "action", "recommended_action", default="use_existing"),
         expert_name=_get("selected_expert", "expert_name", "expert"),
@@ -272,8 +279,6 @@ def _get_trm_reasoner() -> Optional[Any]:
         import os as _os
         if cfg.model_path and _os.path.isfile(cfg.model_path):
             ckpt = _torch.load(cfg.model_path, map_location="cpu")
-            # Support both the legacy raw state_dict and the new TRMTrainer
-            # checkpoint format {"model_state": ..., "ema_state": ..., ...}.
             if isinstance(ckpt, dict) and "model_state" in ckpt:
                 state = ckpt["model_state"]
                 _step = ckpt.get("step", "?")
@@ -282,7 +287,6 @@ def _get_trm_reasoner() -> Optional[Any]:
                     f"{cfg.model_path} (step={_step})"
                 )
             else:
-                # Legacy format — raw state dict
                 state = ckpt
                 print(f"\u2705 TRMReasoner: loaded legacy weights from {cfg.model_path}")
             reasoner.load_state_dict(state)
@@ -308,40 +312,24 @@ def _run_trm_reasoner(
 ) -> Optional[Dict[str, Any]]:
     """
     Run TRMReasoner on a single query and return a compact result dict.
-
     Returns None on any error so callers can safely ignore failures.
-
-    Result keys
-    -----------
-    domain_probs        : list[float]  length == N_DOMAINS
-    primary_domain_idx  : int          argmax of domain_probs
-    primary_domain      : str          DOMAIN_LIST[primary_domain_idx]
-    halt_confidence     : float        sigmoid(halt_logit)
-    n_steps_taken       : int
-    reranked_domains    : list[str]    relevant_domains re-ordered by TRM score
-    trm_output          : raw TRMOutput object (kept for OOD fallback)
-    spectral_tensor     : torch.Tensor [1, N_DOMAINS] (kept for OOD fallback)
     """
     try:
         import torch as _t
         from mycelium.trm.trm_routing_trace_writer import DOMAIN_LIST as _DL
 
-        # 1. token_ids  [1, context_len]
         ids = _trm_encode_query(text)
         token_ids = _t.tensor([ids], dtype=_t.long)
 
-        # 2. spectral_vec  [1, N_DOMAINS]
         spec_scores = getattr(routing_context, "spectral_scores", None)
         sel_doms = list(getattr(routing_context, "selected_domains", []) or [])
         sv = _trm_spectral_vec(spec_scores, sel_doms)
         spectral_vec = _t.tensor([sv], dtype=_t.float32)
 
-        # 3. predicate_family_id  [1]
         clf = str(getattr(routing_context, "classification", "UNKNOWN") or "UNKNOWN").upper()
         pred_id = _TRM_PRED_MAP.get(clf, _TRM_DEF_PRED)
         predicate_family_id = _t.tensor([pred_id], dtype=_t.long)
 
-        # 4. initial_domain_probs  [1, N_DOMAINS]
         init_p = _trm_init_probs(sv)
         initial_domain_probs = _t.tensor([init_p], dtype=_t.float32)
 
@@ -363,7 +351,6 @@ def _run_trm_reasoner(
         halt_conf: float = float(_t.sigmoid(out.halt_logit)[0].item())
         n_steps: int = int(getattr(out, "n_steps_taken", 1))
 
-        # Re-rank relevant_domains by TRM domain_probs score.
         def _trm_score(d: str) -> float:
             idx = _trm_domain_to_idx(d)
             return domain_probs[idx] if 0 <= idx < _TRM_N_DOMAINS else 0.0
@@ -377,7 +364,6 @@ def _run_trm_reasoner(
             "halt_confidence":    halt_conf,
             "n_steps_taken":      n_steps,
             "reranked_domains":   reranked,
-            # kept in-memory for OOD fallback; not serialised to JSON
             "_trm_output":        out,
             "_spectral_tensor":   spectral_vec,
         }
@@ -399,39 +385,6 @@ def run_mycelium_workflow(
         "fast"     -> dfs_max_depth=1, expert_top_k=1, phase3_passes=1
         "balanced" -> dfs_max_depth=2, expert_top_k=2, phase3_passes=2  (default)
         "deep"     -> dfs_max_depth=4, expert_top_k=3, phase3_passes=3
-
-    Phase B wiring:
-        CanonicalizeAndHash.process(text) is called per sentence to build
-        real IRNodes with fully populated SemanticSignatures.
-
-    Phase D wiring:
-        TRMLens refines routing_context.  TRMEngine (owns GraphStore +
-        MultiWorkerDFSLookup + PromotionPolicy) replaces the previous
-        scattered inline plumbing.
-
-    Phase D (Option 2) — TRMReasoner wiring:
-        After MultiLensRouter.route() + TRMLens.refine(), TRMReasoner runs
-        a neural forward pass and produces domain_probs, halt_confidence,
-        primary_domain_idx.  When halt_confidence is low AND the domain
-        prediction diverges from the spectral prior, TRMOODFallback fires:
-
-            ood_fallback.route(query, trm_output, spectral_vec)
-                ├─ LEVEL_0  — straight to MultiLensRouter
-                ├─ LEVEL_1  — CanonicalizeAndHash + DAGDecomposer first
-                └─ LEVEL_2  — full 6-phase reasoning chain
-
-        The selected_domain from OODFallbackResult overrides the TRMReasoner
-        pick when triggered.  On non-trigger the pipeline is unchanged.
-        Never raises — every failure degrades to the router.
-
-    Phase E wiring:
-        ContradictionClassifier compares consecutive Phase 2 outputs.
-
-    Phase F wiring:
-        DSTFusion + MultiWorkerDFSLookup (shared WorkerPool).
-
-    GraphStore persistence:
-        _GRAPH_STORE_DIR resolved at import from config.toml.
     """
     import uuid as _uuid
     import hashlib as _hashlib
@@ -486,9 +439,6 @@ def run_mycelium_workflow(
     phase2_pipeline = Phase2Pipeline()
     phase3_pipeline = Phase3To5Pipeline()
 
-    # ---------------------------------------------------------------
-    # Phase D / F layer — single TRMEngine owns store + DFS + policy
-    # ---------------------------------------------------------------
     _graph_store = GraphStore(
         persistence_path=_GRAPH_STORE_DIR,
         run_decay_on_load=_GRAPH_STORE_DECAY_ON_LOAD,
@@ -502,27 +452,16 @@ def run_mycelium_workflow(
         max_depth=dfs_max_depth,
     )
 
-    # ---------------------------------------------------------------
-    # Phase D (Option 2) — TRMReasoner + OODFallback (lazy, non-fatal)
-    # ---------------------------------------------------------------
     trm_reasoner = _get_trm_reasoner()
     if trm_reasoner is not None:
         print("\u2705 TRMReasoner active (Option 2 wiring)")
     else:
         print("\u26a0\ufe0f  TRMReasoner unavailable — routing via MultiLensRouter only")
 
-    # OODFallback: wired only when TRMReasoner + TRMOODFallback are available.
-    # Injects the shared canonicalizer and the process-wide MultiLensRouter
-    # (created below) via late-binding — router is set after router init.
-    _ood_fallback: Optional[Any] = None  # filled after router is built
+    _ood_fallback: Optional[Any] = None
 
-    # --- Phase B — shared canonicalizer (reuses SRL doc cache §5.1) ---
     _canonicalizer = CanonicalizeAndHash() if _CANON_AVAILABLE else None
-
-    # --- Phase F — shared DST fusion engine ---
     _dst_fusion = DSTFusion() if _DST_AVAILABLE else None
-
-    # --- Phase E — ContradictionClassifier ---
     contradiction_classifier = ContradictionClassifier() if _CONTRADICTION_AVAILABLE else None
     _prev_phase2_result: Optional[Any] = None
 
@@ -569,9 +508,6 @@ def run_mycelium_workflow(
 
     router = MultiLensRouter(spectral_analyzer=spectral_analyzer)
 
-    # ---------------------------------------------------------------
-    # Finalise OODFallback now that router is available
-    # ---------------------------------------------------------------
     if trm_reasoner is not None and TRMOODFallback is not None:
         try:
             _trm_cfg = TRMConfig()
@@ -726,9 +662,6 @@ def run_mycelium_workflow(
 
         relevant_domains = list(set(relevant_domains))
 
-        # -------------------------------------------------------------------
-        # Phase D (Option 2) — TRMReasoner: re-rank relevant_domains
-        # -------------------------------------------------------------------
         trm_reasoner_result: Optional[Dict[str, Any]] = None
         ood_fallback_result: Optional[Dict[str, Any]] = None
 
@@ -745,9 +678,6 @@ def run_mycelium_workflow(
                         f"steps={trm_reasoner_result['n_steps_taken']}"
                     )
 
-                # -----------------------------------------------------------
-                # Phase D — TRMOODFallback: fire when TRM is uncertain/OOD
-                # -----------------------------------------------------------
                 if _ood_fallback is not None:
                     try:
                         _raw_out  = trm_reasoner_result["_trm_output"]
@@ -759,7 +689,6 @@ def run_mycelium_workflow(
                             domain=trm_reasoner_result["primary_domain"],
                         )
                         if _ood_result.triggered:
-                            # Override domain list with OOD fallback's choice
                             from mycelium.trm.trm_routing_trace_writer import DOMAIN_LIST as _DL
                             _fb_dom_idx = _ood_result.selected_domain
                             _fb_dom_name = (
@@ -767,8 +696,6 @@ def run_mycelium_workflow(
                                 if 0 <= _fb_dom_idx < len(_DL)
                                 else trm_reasoner_result["primary_domain"]
                             )
-                            # Promote the fallback domain to front of list,
-                            # keeping any other valid domains for top-k.
                             _other = [
                                 d for d in relevant_domains if d != _fb_dom_name
                             ]
@@ -827,9 +754,6 @@ def run_mycelium_workflow(
             depth_config=depth_cfg,
         )
 
-        # ------------------------------------------------------------------
-        # Phase E — ContradictionClassifier on consecutive p2 outputs
-        # ------------------------------------------------------------------
         contradiction_result: Optional[Dict[str, Any]] = None
         if contradiction_classifier is not None and _prev_phase2_result is not None:
             try:
@@ -900,9 +824,6 @@ def run_mycelium_workflow(
             routing_context, expert_decision,
         )
 
-        # ------------------------------------------------------------------
-        # Phase B + D + F — build real IRNodes, DAG, DST, persist via TRMEngine
-        # ------------------------------------------------------------------
         trm_lookup_result: Optional[Dict[str, Any]] = None
         dag_graph = None
         try:
@@ -915,7 +836,6 @@ def run_mycelium_workflow(
                 getattr(expert_decision, "expert_confidence", 0.5) or 0.5
             )
 
-            # Phase F — DST scalar
             _dst_conf: float = _raw_conf
             _dst_m_unknown: Optional[float] = None
             if _dst_fusion is not None:
@@ -939,7 +859,6 @@ def run_mycelium_workflow(
                 except Exception:
                     pass
 
-            # Phase B — build real IRNodes
             _ir_nodes = []
             if _canonicalizer is not None:
                 try:
@@ -976,20 +895,15 @@ def run_mycelium_workflow(
             if dag_graph is not None:
                 _persisted, obs_count, _target_state = trm_engine.persist(dag_graph)
             else:
-                import types as _types
-                _conf_stub = _types.SimpleNamespace(
-                    overall_confidence=_dst_conf,
-                    contradiction_penalty=0.0,
-                )
-                _graph_stub = _types.SimpleNamespace(
-                    graph_id=_graph_id, nodes=_ir_nodes, edges=[],
-                    state="DRAFT", version="v1",
-                    confidence_state=_conf_stub,
-                    fingerprint=None, ontology_version="1.0",
-                    created_at=timestamp, updated_at=timestamp,
-                    parent_graph_id=None,
-                )
-                _persisted, obs_count, _target_state = trm_engine.persist(_graph_stub)
+                # SimpleNamespace stubs cannot be serialised by ir_to_json
+                # (dataclasses.asdict fails on non-dataclass objects). Only
+                # call trm_engine.persist() when we have a real IRGraph from
+                # the DAGDecomposer; otherwise skip persistence for this query
+                # and record a minimal in-memory observation so TRMEngine stats
+                # stay consistent.
+                obs_count = 0
+                _target_state = "DRAFT"
+                _persisted = False
 
             _lookup = trm_engine.lookup(_ir_nodes)
 
@@ -1020,9 +934,6 @@ def run_mycelium_workflow(
         except Exception as _trm_exc:
             trm_lookup_result = {"found": False, "error": str(_trm_exc)}
 
-        # -------------------------------------------------------------------
-        # Phase D (Option 2) — TRMRoutingTraceWriter: capture training sample
-        # -------------------------------------------------------------------
         selected_domain_prelim = (
             expert_decision.selected_experts[0]
             if getattr(expert_decision, "selected_experts", None)
@@ -1049,7 +960,6 @@ def run_mycelium_workflow(
                 "selected_experts": list(
                     getattr(expert_decision, "selected_experts", []) or []
                 ),
-                # Guard: expert_confidence may be None when no expert matched.
                 "confidence": float(getattr(expert_decision, "expert_confidence", 0.0) or 0.0),
                 "trm_lookup_found": trm_lookup_result.get("found", False) if trm_lookup_result else False,
                 "contradiction_type": contradiction_result.get("type") if contradiction_result else None,
