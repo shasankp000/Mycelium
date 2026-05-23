@@ -1,4 +1,5 @@
 import json
+import os as _os
 import datetime
 import time as _time
 from collections import Counter, deque
@@ -88,6 +89,12 @@ except Exception:
     ConfidenceStateFusion = None  # type: ignore[assignment,misc]
     ConflictError = None  # type: ignore[assignment,misc]
     _DST_AVAILABLE = False
+
+# ---------------------------------------------------------------------------
+# GraphStore persistence directory (create-if-not-exists)
+# ---------------------------------------------------------------------------
+_GRAPH_STORE_DIR = "data"
+_os.makedirs(_GRAPH_STORE_DIR, exist_ok=True)
 
 
 class NumpyEncoder(json.JSONEncoder):
@@ -399,6 +406,15 @@ def run_mycelium_workflow(
         2. MultiWorkerDFSLookup is injected into TRMEngine so the
            WorkerPool is shared across lookup() and the DAGDecomposer
            DFS calls.  Auto-selects single vs multi-worker by store size.
+
+    GraphStore persistence (Phase F):
+        _GRAPH_STORE_DIR ("data/") is created at module load if absent.
+        GraphStore(persistence_path=_GRAPH_STORE_DIR) is passed here so
+        every graph revision is appended to data/graphstore.jsonl on each
+        put() / add_revision().  On the next boot, GraphStore replays the
+        latest version per graph_id and immediately runs GraphDecayManager
+        so EvidenceGrounder never sees stale graphs.  DEPRECATED graphs are
+        excluded from list_all() by default; full audit trail is preserved.
     """
     import uuid as _uuid
     import hashlib as _hashlib
@@ -455,8 +471,13 @@ def run_mycelium_workflow(
 
     # ---------------------------------------------------------------
     # Phase D / F layer — single TRMEngine owns store + DFS + policy
+    # GraphStore is wired with persistence_path so graphs survive
+    # across process restarts and decay runs on every boot.
     # ---------------------------------------------------------------
-    _graph_store = GraphStore()
+    _graph_store = GraphStore(
+        persistence_path=_GRAPH_STORE_DIR,
+        run_decay_on_load=True,
+    )
     _dfs_lookup  = MultiWorkerDFSLookup(_graph_store)
     trm_engine   = TRMEngine(store=_graph_store, dfs=_dfs_lookup)
     graph_store  = trm_engine.store
@@ -1081,7 +1102,8 @@ def run_mycelium_workflow(
                 "DST: conf={dst_conf} m_unknown={m_unk}\n"
                 "DAG: nodes={dag_n} edges={dag_e} phase_b_nodes={pb_n}\n"
                 "Contradiction: type={c_type} severity={c_sev}\n"
-                "MultiWorkerDFS: active\n".format(
+                "MultiWorkerDFS: active\n"
+                "GraphStore: persistence=data/ (decay_on_load=True)\n".format(
                     sent=text, tags=normalized_tags, ts=timestamp,
                     flag=flag, dom=selected_domain, conf=confidence,
                     mode=reasoning_mode, dfs=dfs_max_depth, k=expert_top_k,
