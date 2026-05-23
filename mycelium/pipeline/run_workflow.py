@@ -33,6 +33,7 @@ from mycelium.pipeline.patch_batch_logger import patch_logger
 from mycelium.pipeline.dynamic_signature_manager import DynamicSignatureManager
 from mycelium.pipeline.model_registry import warmup, loaded_models, STARTUP_SPECS
 from mycelium.pipeline.pipeline_event import EventEmitter, make_emitter
+from mycelium.pipeline import config_loader as _cfg
 # Phase 6 — reasoning mode / depth config
 from mycelium.pipeline.api_models import ReasoningMode, get_depth_config
 # Phase D — TRM: routing refinement + TRMEngine (owns GraphStore +
@@ -91,9 +92,15 @@ except Exception:
     _DST_AVAILABLE = False
 
 # ---------------------------------------------------------------------------
-# GraphStore persistence directory (create-if-not-exists)
+# GraphStore persistence directory — read from config.toml [graph_store]
+# section; falls back to "data" if the key is absent.  The directory is
+# created here (once, at import time) so GraphStore never has to worry about
+# whether it exists.
+# Override without editing config.toml:
+#   export MYCELIUM_GRAPH_STORE_PERSISTENCE_DIR=/path/to/dir
 # ---------------------------------------------------------------------------
-_GRAPH_STORE_DIR = "data"
+_GRAPH_STORE_DIR: str = _cfg.graph_store_persistence_dir()
+_GRAPH_STORE_DECAY_ON_LOAD: bool = _cfg.graph_store_run_decay_on_load()
 _os.makedirs(_GRAPH_STORE_DIR, exist_ok=True)
 
 
@@ -407,10 +414,12 @@ def run_mycelium_workflow(
            WorkerPool is shared across lookup() and the DAGDecomposer
            DFS calls.  Auto-selects single vs multi-worker by store size.
 
-    GraphStore persistence (Phase F):
-        _GRAPH_STORE_DIR ("data/") is created at module load if absent.
+    GraphStore persistence:
+        _GRAPH_STORE_DIR is resolved at module import from
+        config.toml [graph_store] persistence_dir (default: "data").
+        The directory is created with exist_ok=True at import time.
         GraphStore(persistence_path=_GRAPH_STORE_DIR) is passed here so
-        every graph revision is appended to data/graphstore.jsonl on each
+        every graph revision is appended to <dir>/graphstore.jsonl on each
         put() / add_revision().  On the next boot, GraphStore replays the
         latest version per graph_id and immediately runs GraphDecayManager
         so EvidenceGrounder never sees stale graphs.  DEPRECATED graphs are
@@ -471,12 +480,11 @@ def run_mycelium_workflow(
 
     # ---------------------------------------------------------------
     # Phase D / F layer — single TRMEngine owns store + DFS + policy
-    # GraphStore is wired with persistence_path so graphs survive
-    # across process restarts and decay runs on every boot.
+    # GraphStore persistence_path + run_decay_on_load come from config.
     # ---------------------------------------------------------------
     _graph_store = GraphStore(
         persistence_path=_GRAPH_STORE_DIR,
-        run_decay_on_load=True,
+        run_decay_on_load=_GRAPH_STORE_DECAY_ON_LOAD,
     )
     _dfs_lookup  = MultiWorkerDFSLookup(_graph_store)
     trm_engine   = TRMEngine(store=_graph_store, dfs=_dfs_lookup)
@@ -692,7 +700,6 @@ def run_mycelium_workflow(
                 trm_reasoner, text, routing_context, relevant_domains
             )
             if trm_reasoner_result is not None:
-                # Use TRM-reranked domain order
                 relevant_domains = trm_reasoner_result["reranked_domains"]
                 if ENABLE_LOGGING and idx % LOG_SAMPLE_RATE == 0:
                     print(
@@ -914,7 +921,6 @@ def run_mycelium_workflow(
                 "phase_b_nodes": len(_ir_nodes),
                 "multi_worker_dfs": True,
                 "trm_engine": True,
-                # Phase D (Option 2) — TRMReasoner fields surfaced in lookup result
                 "trm_reasoner_active": trm_reasoner is not None,
                 "trm_primary_domain": trm_reasoner_result["primary_domain"] if trm_reasoner_result else None,
                 "trm_primary_domain_idx": trm_reasoner_result["primary_domain_idx"] if trm_reasoner_result else None,
@@ -1103,7 +1109,7 @@ def run_mycelium_workflow(
                 "DAG: nodes={dag_n} edges={dag_e} phase_b_nodes={pb_n}\n"
                 "Contradiction: type={c_type} severity={c_sev}\n"
                 "MultiWorkerDFS: active\n"
-                "GraphStore: persistence=data/ (decay_on_load=True)\n".format(
+                "GraphStore: persistence={gs_dir} (decay_on_load={gs_decay})\n".format(
                     sent=text, tags=normalized_tags, ts=timestamp,
                     flag=flag, dom=selected_domain, conf=confidence,
                     mode=reasoning_mode, dfs=dfs_max_depth, k=expert_top_k,
@@ -1129,6 +1135,8 @@ def run_mycelium_workflow(
                     pb_n=trm_lookup_result.get("phase_b_nodes") if trm_lookup_result else 0,
                     c_type=contradiction_result.get("type") if contradiction_result else "N/A",
                     c_sev=contradiction_result.get("severity") if contradiction_result else "N/A",
+                    gs_dir=_GRAPH_STORE_DIR,
+                    gs_decay=_GRAPH_STORE_DECAY_ON_LOAD,
                 )
             )
 
