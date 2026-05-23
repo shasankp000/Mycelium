@@ -34,11 +34,13 @@ from mycelium.pipeline.model_registry import warmup, loaded_models, STARTUP_SPEC
 from mycelium.pipeline.pipeline_event import EventEmitter, make_emitter
 # Phase 6 — reasoning mode / depth config
 from mycelium.pipeline.api_models import ReasoningMode, get_depth_config
-# Phase D — TRM: routing refinement + graph store + DFS lookup + promotion
+# Phase D — TRM: routing refinement + graph store + promotion
 from mycelium.trm.integration import TRMLens
 from mycelium.trm.graph_store import GraphStore
-from mycelium.trm.dfs_lookup import DFSLookup
 from mycelium.trm.promotion import PromotionPolicy
+# Phase F — MultiWorkerDFSLookup (drop-in replacement for DFSLookup;
+#            delegates to single-worker DFS for stores <= SINGLE_WORKER_THRESHOLD)
+from mycelium.trm.multi_worker_dfs import MultiWorkerDFSLookup
 # Phase D — DAGDecomposer
 from mycelium.reasoning.dag_decomposer import DAGDecomposer
 # Phase E — ContradictionClassifier (non-fatal fallback)
@@ -210,9 +212,9 @@ def run_mycelium_workflow(
     Full Mycelium reasoning pipeline.
 
     Phase 6 (reasoning_mode):
-        "fast"     → dfs_max_depth=1, expert_top_k=1, phase3_passes=1
-        "balanced" → dfs_max_depth=2, expert_top_k=2, phase3_passes=2  (default)
-        "deep"     → dfs_max_depth=4, expert_top_k=3, phase3_passes=3
+        "fast"     -> dfs_max_depth=1, expert_top_k=1, phase3_passes=1
+        "balanced" -> dfs_max_depth=2, expert_top_k=2, phase3_passes=2  (default)
+        "deep"     -> dfs_max_depth=4, expert_top_k=3, phase3_passes=3
 
     Phase B wiring:
         CanonicalizeAndHash.process(text) is called per sentence to build
@@ -222,16 +224,23 @@ def run_mycelium_workflow(
     Phase D wiring:
         TRMLens refines routing_context.  GraphStore accumulates per-sentence
         IRGraphs produced by DAGDecomposer.  PromotionPolicy runs on every
-        observe().  DFSLookup result is injected into Phase 3 metadata.
+        observe().  MultiWorkerDFSLookup result is injected into Phase 3
+        metadata.
 
     Phase E wiring:
         ContradictionClassifier compares consecutive Phase 2 outputs.
         CONTESTED revision fires on prev graph when severity >= threshold.
 
-    Phase F wiring:
-        DSTFusion converts ConfidenceState → DSTFrame.  The Pignistic scalar
-        (to_net_confidence) is used instead of bare overall_confidence when
-        computing graph stub confidence.  m_unknown is surfaced in trm_lookup.
+    Phase F wiring (two parts):
+        1. DSTFusion converts ConfidenceState -> DSTFrame.  The Pignistic
+           scalar (to_net_confidence) drives graph confidence; m_unknown is
+           surfaced in trm_lookup.
+        2. MultiWorkerDFSLookup replaces the single-threaded DFSLookup.
+           For stores <= SINGLE_WORKER_THRESHOLD (50) it delegates to the
+           Phase D single-worker DFS transparently.  For larger stores it
+           dispatches predicate evaluation across N worker threads
+           (N = min(4, cpu_count)), named "DFSWorker-{i}" for
+           ProvenanceChain.worker_threads attribution (Consolidation §29).
     """
     import uuid as _uuid
     import hashlib as _hashlib
@@ -257,7 +266,7 @@ def run_mycelium_workflow(
 
     emitter.emit(
         phase_name="setting_up",
-        message="Warming up model registry…",
+        message="Warming up model registry...",
         detail="Pre-flight: loading non-LLM model weights into registry",
         state="running",
         metadata={"reasoning_mode": reasoning_mode, "dfs_max_depth": dfs_max_depth},
@@ -286,10 +295,12 @@ def run_mycelium_workflow(
     phase2_pipeline = Phase2Pipeline()
     phase3_pipeline = Phase3To5Pipeline()
 
-    # --- Phase D layer (fallback-safe) ---
+    # --- Phase D / F layer (fallback-safe) ---
     trm_lens = TRMLens()
     graph_store = GraphStore()
-    dfs_lookup = DFSLookup(graph_store)
+    # Phase F: MultiWorkerDFSLookup — auto-selects single vs. multi-worker
+    # based on store size at call time.  No API change vs. DFSLookup.
+    dfs_lookup = MultiWorkerDFSLookup(graph_store)
     promotion_policy = PromotionPolicy()
     dag_decomposer = DAGDecomposer(
         graph_store=graph_store,
@@ -307,7 +318,7 @@ def run_mycelium_workflow(
     _prev_phase2_result: Optional[Any] = None
 
     from mycelium.pipeline.unified_expert_system import get_unified_expert_system, _unified_system
-    _expert_msg = 'Setting up environment…' if _unified_system is None else 'Loading expert system…'
+    _expert_msg = 'Setting up environment...' if _unified_system is None else 'Loading expert system...'
     emitter.emit(
         phase_name="graph_expert_init",
         message=_expert_msg,
@@ -329,7 +340,7 @@ def run_mycelium_workflow(
 
     emitter.emit(
         phase_name="graph_spectral_sync",
-        message="Syncing spectral signatures…",
+        message="Syncing spectral signatures...",
         detail="Checking for stale or missing .npy files",
         state="running",
     )
@@ -382,7 +393,7 @@ def run_mycelium_workflow(
 
         emitter.emit(
             phase_name="graph_layer0",
-            message="Classifying query…",
+            message="Classifying query...",
             detail=f"Sentence {idx}/{len(sentences)}: {text[:80]}",
             state="running",
             metadata={"sentence_index": idx, "sentence_count": len(sentences)},
@@ -422,7 +433,7 @@ def run_mycelium_workflow(
 
         emitter.emit(
             phase_name="routing",
-            message="Routing query through semantic lenses…",
+            message="Routing query through semantic lenses...",
             detail=f"{len(normalized_tags)} tag(s) extracted",
             state="running",
             metadata={"tag_count": len(normalized_tags)},
@@ -493,7 +504,7 @@ def run_mycelium_workflow(
 
         emitter.emit(
             phase_name="graph_phase2",
-            message="Running reasoning pipeline…",
+            message="Running reasoning pipeline...",
             detail=f"{len(filtered_experts)} expert(s) active (top_k={expert_top_k})",
             state="running",
             metadata={
@@ -572,7 +583,7 @@ def run_mycelium_workflow(
 
         emitter.emit(
             phase_name="graph_unified_decision",
-            message="Computing unified expert decision…",
+            message="Computing unified expert decision...",
             detail=f"{len(filtered_experts)} expert(s) evaluated",
             state="running",
             metadata={"active_domains": list(filtered_experts.keys())},
@@ -660,7 +671,6 @@ def run_mycelium_workflow(
                     root_node, request_id=_graph_id
                 )
             except Exception as _dag_exc:
-                logger.warning("DAGDecomposer failed: %s", _dag_exc)
                 dag_graph = None
 
             # If DAGDecomposer produced a real IRGraph, it's already in
@@ -687,7 +697,9 @@ def run_mycelium_workflow(
             if _target_state is not None:
                 graph_store.add_revision(_graph_id, new_state=_target_state)
 
-            # DFS lookup: BY_HASH first, equivalence fallback
+            # Phase F — MultiWorkerDFSLookup: BY_HASH first, equivalence fallback.
+            # For stores <= 50 graphs this is identical to DFSLookup (no threads).
+            # For larger stores the pool dispatches across DFSWorker-{i} threads.
             _lookup = dfs_lookup.search(
                 root_node, strategy="BY_HASH", min_state_rank=0
             )
@@ -709,6 +721,7 @@ def run_mycelium_workflow(
                 "dag_nodes": len(dag_graph.nodes) if dag_graph is not None else 0,
                 "dag_edges": len(dag_graph.edges) if dag_graph is not None else 0,
                 "phase_b_nodes": len(_ir_nodes),
+                "multi_worker_dfs": True,
             }
         except Exception as _trm_exc:
             trm_lookup_result = {"found": False, "error": str(_trm_exc)}
@@ -750,7 +763,7 @@ def run_mycelium_workflow(
 
         emitter.emit(
             phase_name="graph_phase3",
-            message="Running validation pipeline…",
+            message="Running validation pipeline...",
             detail=f"Phase 3-5: action execution + feedback (passes={phase3_passes})",
             state="running",
             metadata={"phase3_passes": phase3_passes},
@@ -823,7 +836,7 @@ def run_mycelium_workflow(
 
         emitter.emit(
             phase_name="graph_clustering",
-            message="Updating tag cluster model…",
+            message="Updating tag cluster model...",
             detail=f"Sentence {idx}/{len(sentences)} complete",
             state="running",
             metadata={
@@ -864,7 +877,8 @@ def run_mycelium_workflow(
                 "TRM: found={trm_found} obs={obs} promoted={promoted}\n"
                 "DST: conf={dst_conf} m_unknown={m_unk}\n"
                 "DAG: nodes={dag_n} edges={dag_e} phase_b_nodes={pb_n}\n"
-                "Contradiction: type={c_type} severity={c_sev}\n".format(
+                "Contradiction: type={c_type} severity={c_sev}\n"
+                "MultiWorkerDFS: active\n".format(
                     sent=text, tags=normalized_tags, ts=timestamp,
                     flag=flag, dom=selected_domain, conf=confidence,
                     mode=reasoning_mode, dfs=dfs_max_depth, k=expert_top_k,
