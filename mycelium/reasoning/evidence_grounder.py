@@ -89,7 +89,9 @@ class EvidenceGrounder:
     ----------
     graph_store : GraphStore, optional
         TRM GraphStore instance.  Used for Tier 1 (in-memory) grounding.
-        If None, all predicates are marked ungrounded.
+        list_all() is called to retrieve all stored graphs; pass
+        graph_store=None to skip the store and rely only on dag_context
+        sub-claims (useful in tests).
     embedding_fn : callable, optional
         (str) -> list[float].  When provided, cosine similarity is used
         instead of Jaccard for matching; this improves recall significantly
@@ -98,6 +100,11 @@ class EvidenceGrounder:
         Minimum Jaccard similarity to count as a Tier 1 match (default 0.30).
     tier1_cosine_threshold : float
         Minimum cosine similarity for embedding-based Tier 1 match (default 0.72).
+    store_scan_limit : int
+        Max number of graphs to scan from GraphStore per call (default 100).
+        Guards against performance issues when the store is large.
+    nodes_per_graph_limit : int
+        Max nodes to inspect per graph (default 20).
     """
 
     def __init__(
@@ -107,12 +114,15 @@ class EvidenceGrounder:
         embedding_fn: Optional[Any] = None,
         tier1_jaccard_threshold: float = 0.30,
         tier1_cosine_threshold: float = 0.72,
+        store_scan_limit: int = 100,
+        nodes_per_graph_limit: int = 20,
     ) -> None:
         self._store = graph_store
         self._embed = embedding_fn
         self._jac_thresh   = tier1_jaccard_threshold
         self._cos_thresh   = tier1_cosine_threshold
-        self._node_cache: Optional[List[Any]] = None   # lazy-loaded from store
+        self._scan_limit   = store_scan_limit
+        self._node_limit   = nodes_per_graph_limit
 
     # ------------------------------------------------------------------
     # Public API
@@ -145,7 +155,7 @@ class EvidenceGrounder:
         grounded_preds: List[Dict] = []
         scores: List[float] = []
 
-        # Build a local node pool: store nodes + sub_claim nodes from dag_ctx
+        # Build a local node pool: dag_context sub-claims + GraphStore nodes
         node_pool = self._build_node_pool(dag_context)
 
         for pred in all_preds:
@@ -178,39 +188,55 @@ class EvidenceGrounder:
 
     def _build_node_pool(self, dag_context: Optional[Dict]) -> List[Dict]:
         """
-        Collect candidate nodes from GraphStore + dag_context sub_claims.
-        Returns a list of lightweight dicts: {id, label, family, embedding}.
+        Collect candidate nodes from dag_context sub_claims + GraphStore.
+
+        Source 1 (always, free): sub_claims already in dag_context.
+        Source 2 (when store is set): GraphStore.list_all() bulk read.
+
+        Returns a list of lightweight dicts:
+            {id, label, family, embedding}
         """
         pool: List[Dict] = []
 
-        # Source 1: sub_claims already in dag_context (zero-cost)
+        # Source 1: sub_claims already in dag_context (zero-cost, always first)
         if dag_context:
             for sc in dag_context.get("sub_claims", []):
                 pool.append({
-                    "id":     sc.get("id", ""),
-                    "label":  sc.get("label", ""),
-                    "family": sc.get("predicate_family", ""),
+                    "id":        sc.get("id", ""),
+                    "label":     sc.get("label", ""),
+                    "family":    sc.get("predicate_family", ""),
                     "embedding": [],
                 })
 
         # Source 2: GraphStore (Tier 1)
         if self._store is not None:
             try:
-                all_graphs = self._store.list_all()   # returns list of IRGraph
-                for graph in all_graphs[:50]:          # cap at 50 graphs for perf
-                    for node in getattr(graph, "nodes", [])[:10]:
-                        sig = getattr(node, "semantic_signature", None)
-                        pool.append({
-                            "id":    node.id,
-                            "label": node.label,
-                            "family": sig.predicate_family if sig else "",
-                            "embedding": (
-                                list(sig.embedding_signature)
-                                if sig and sig.embedding_signature else []
-                            ),
-                        })
+                # list_all() returns latest version of every stored graph,
+                # sorted by graph_id.  We cap at store_scan_limit graphs.
+                all_graphs = self._store.list_all()[:self._scan_limit]
+                for graph in all_graphs:
+                    for node in list(getattr(graph, "nodes", []))[:self._node_limit]:
+                        try:
+                            sig = getattr(node, "semantic_signature", None)
+                            emb = []
+                            if sig is not None:
+                                raw_emb = getattr(sig, "embedding_signature", None)
+                                if raw_emb:
+                                    emb = list(raw_emb)
+                            pool.append({
+                                "id":        node.id,
+                                "label":     node.label,
+                                "family":    sig.predicate_family if sig else "",
+                                "embedding": emb,
+                            })
+                        except Exception as node_exc:
+                            logger.debug(
+                                "EvidenceGrounder: skipping node (%s)", node_exc
+                            )
             except Exception as exc:
-                logger.debug("EvidenceGrounder: GraphStore query failed (%s)", exc)
+                logger.debug(
+                    "EvidenceGrounder: GraphStore scan failed (%s)", exc
+                )
 
         return pool
 
@@ -219,7 +245,12 @@ class EvidenceGrounder:
         Try to ground a single predicate against the node pool.
         Returns a grounding result dict.
         """
-        query_text = f"{pred.get('subject','')} {pred.get('relation','')} {pred.get('object','')}"
+        query_text = (
+            f"{pred.get('subject', '')} "
+            f"{pred.get('relation', '')} "
+            f"{pred.get('object', '')}"
+        ).strip()
+
         query_emb: List[float] = []
         if self._embed is not None:
             try:
@@ -227,28 +258,29 @@ class EvidenceGrounder:
             except Exception:
                 pass
 
-        best_score  = 0.0
+        best_score   = 0.0
         best_node_id = ""
-        best_label  = ""
+        best_label   = ""
+        use_cosine   = False
 
         for candidate in node_pool:
-            # Family filter: same predicate family preferred, but don't
-            # hard-exclude — cross-family matches still contribute evidence.
-            family_match = (
+            family_match  = (
                 pred.get("predicate_family", "") == candidate.get("family", "")
             )
-            family_bonus = 0.1 if family_match else 0.0
+            family_bonus  = 0.10 if family_match else 0.0
 
-            # Similarity
             cand_emb = candidate.get("embedding", [])
-            sim: float
             if query_emb and cand_emb:
                 cos = _cosine(query_emb, cand_emb)
-                sim = cos if cos is not None else _jaccard(query_text, candidate["label"])
-                threshold = self._cos_thresh
+                sim = cos if cos is not None else _jaccard(
+                    query_text, candidate["label"]
+                )
+                threshold  = self._cos_thresh
+                use_cosine = True
             else:
-                sim = _jaccard(query_text, candidate["label"])
-                threshold = self._jac_thresh
+                sim        = _jaccard(query_text, candidate["label"])
+                threshold  = self._jac_thresh
+                use_cosine = False
 
             adjusted = min(1.0, sim + family_bonus)
 
@@ -257,22 +289,20 @@ class EvidenceGrounder:
                 best_node_id = candidate["id"]
                 best_label   = candidate["label"]
 
+            # Early exit once we have a strong match
             if best_score >= threshold:
-                break  # good enough, stop scanning
+                break
 
-        # Determine grounding tier
-        threshold = (
-            self._cos_thresh if (query_emb and best_node_id)
-            else self._jac_thresh
-        )
-        grounded = best_score >= threshold
+        # Final grounding decision
+        threshold = self._cos_thresh if use_cosine else self._jac_thresh
+        grounded  = best_score >= threshold
 
         return {
-            "grounded":      grounded,
-            "tier":          1 if grounded else 0,
+            "grounded":       grounded,
+            "tier":           1 if grounded else 0,
             "evidence_score": best_score,
-            "match_node_id": best_node_id if grounded else "",
-            "match_label":   best_label   if grounded else "",
+            "match_node_id":  best_node_id if grounded else "",
+            "match_label":    best_label   if grounded else "",
             "notes": (
                 f"Tier 1 match (score={best_score:.3f})"
                 if grounded

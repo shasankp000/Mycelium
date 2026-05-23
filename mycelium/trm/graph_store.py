@@ -114,9 +114,9 @@ class GraphStore:
         new_state : str, optional
             Overrides the state field (e.g. DRAFT → CANDIDATE).
         new_confidence : float, optional
-            Overrides the overall_confidence in the graph’s ConfidenceState.
+            Overrides the overall_confidence in the graph's ConfidenceState.
         extra_metadata : dict, optional
-            Merged into the new graph’s node metadata (not the IRGraph itself
+            Merged into the new graph's node metadata (not the IRGraph itself
             — IRGraph has no metadata field directly).
 
         Returns
@@ -248,6 +248,35 @@ class GraphStore:
         """Return all versions of a graph, oldest first."""
         return list(self._store.get(graph_id, []))
 
+    def list_all(self, *, state: Optional[str] = None) -> List[any]:
+        """Return the latest version of every stored graph.
+
+        This is the primary bulk-read method used by EvidenceGrounder
+        and any other consumer that needs to scan the full store.
+
+        Parameters
+        ----------
+        state : str, optional
+            When provided, only graphs whose latest version has this
+            state string are returned (e.g. ``state="ACTIVE"``).  When
+            None (default) all graphs are returned regardless of state.
+
+        Returns
+        -------
+        list[IRGraph]
+            Latest versions, sorted by graph_id for deterministic order.
+            Empty list when the store is empty.
+        """
+        results: List[any] = []
+        for gid in sorted(self._store.keys()):
+            g = self.get_latest(gid)
+            if g is None:
+                continue
+            if state is not None and g.state != state:
+                continue
+            results.append(g)
+        return results
+
     def find_by_semantic_hash(self, semantic_hash: str) -> List[any]:
         """Return latest versions of all graphs whose nodes include this hash."""
         results: List[any] = []
@@ -259,17 +288,14 @@ class GraphStore:
         return results
 
     def find_by_state(self, state: str) -> List[any]:
-        """Return latest versions of all graphs in the given state."""
-        results = [
-            self.get_latest(gid)
-            for gid in self._store
-            if self.get_latest(gid) is not None and self.get_latest(gid).state == state
-        ]
-        results.sort(key=lambda g: g.graph_id)
-        return results
+        """Return latest versions of all graphs in the given state.
+
+        Equivalent to list_all(state=state).  Kept for API compatibility.
+        """
+        return self.list_all(state=state)
 
     def find_by_predicate_family(self, predicate_family: str) -> List[any]:
-        """Return latest graphs where any node’s predicate_family matches."""
+        """Return latest graphs where any node's predicate_family matches."""
         results: List[any] = []
         for gid in self._store:
             g = self.get_latest(gid)
