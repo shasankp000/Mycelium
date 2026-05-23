@@ -20,17 +20,34 @@ Two components are defined here:
 
     TRMOODFallback
     --------------
-    Pure-Python orchestrator.  Called by the pipeline (run_workflow.py)
-    when TRMOODHead fires.  Executes the following chain:
+    Pure-Python orchestrator.  Called by the pipeline when TRMOODHead
+    fires.  Executes the following chain:
 
-        1. Layer 1-2 contradiction analysis
-           (mycelium/contradiction/classifier.py + dag_decomposer.py)
-        2. [STUB] Layers 3-6  — predicate generation → evidence grounding
-           → hypothesis evaluation → synthesis.  Each layer is called as
-           an optional component; if unavailable the chain degrades
-           gracefully to MultiLensRouter.
-        3. MultiLensRouter final routing pass, optionally enriched with
-           the DAG context produced by Layer 2.
+        Layer 1-2
+        ~~~~~~~~~
+        Raw query text
+            → CanonicalizeAndHash.process()     ← §46 pipeline: SRL →
+              canonical_form → semantic_hash → IRNode
+            → DAGDecomposer.decompose(root_node) ← DFS sub-claim expansion
+            → IRGraph  (the structured representation of the query)
+
+        Contradiction check (optional, on sub-claim pairs)
+        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        If the DAG contains ≥2 sibling nodes, ContradictionClassifier.classify()
+        is called on the first pair to detect whether the query itself
+        contains an internal contradiction (e.g. "X helps but also hurts Y").
+        This is informational only — the fallback never halts on it.
+
+        Layers 3-6 (stubs — filled by subsequent files)
+        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        PredicateGenerator, EvidenceGrounder, HypothesisEvaluator,
+        ReasoningSynthesizer — each is an optional injectable component.
+        Missing layers degrade gracefully to MultiLensRouter.
+
+        MultiLensRouter
+        ~~~~~~~~~~~~~~~
+        Always the terminal step.  Called with optional dag_context so
+        the spectral soft-labels can be enriched with structural signal.
 
     The fallback never raises — every failure is caught, logged, and
     the call falls through to the router so the pipeline keeps running.
@@ -38,25 +55,24 @@ Two components are defined here:
 OOD trigger heuristic (two conditions, both must hold)
 ------------------------------------------------------
     halt_confidence < cfg.ood_halt_threshold   (default 0.55)
-        TRM never reached a stable answer — not confident in its halt.
+        TRM never reached a stable answer.
 
     domain_divergence > cfg.ood_divergence_threshold  (default 0.35)
         argmax(domain_probs) disagrees strongly with spectral_vec peak.
         Measured as  1 - spectral_vec[primary_domain_idx].
 
-Only queries that satisfy BOTH conditions are considered OOD by the
-heuristic.  The learned TRMOODHead adds a third signal once trained.
+    The learned TRMOODHead adds a third signal once trained.
 
 Fallback escalation levels
 --------------------------
     LEVEL_0  — heuristic only: straight to router (no reasoning chain)
-    LEVEL_1  — Layer 1-2: contradiction classifier + DAG decomposer
-    LEVEL_2  — Layers 1-6: full reasoning pipeline (stubs for L3-L6)
+    LEVEL_1  — Layer 1-2: CanonicalizeAndHash + DAGDecomposer
+    LEVEL_2  — Layers 1-6: full reasoning pipeline
 
-The level is selected at runtime based on ood_head_confidence:
-    ood_head_confidence >= 0.8  → LEVEL_2
-    0.5 <= ood_head_confidence < 0.8  → LEVEL_1
-    < 0.5  → LEVEL_0  (heuristic was enough, head agrees it's borderline)
+The level is selected from ood_head_confidence:
+    >= 0.8   → LEVEL_2
+    >= 0.5   → LEVEL_1
+    <  0.5   → LEVEL_1 if canonicalizer available, else LEVEL_0
 """
 
 from __future__ import annotations
@@ -64,7 +80,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import torch
 import torch.nn as nn
@@ -93,8 +109,8 @@ class TRMOODHead(nn.Module):
         → Linear(hidden, 1)
         → sigmoid  → ood_confidence in [0, 1]
 
-    A score near 1.0 means TRM believes the query is OOD.
-    A score near 0.0 means TRM is in-distribution.
+    Score near 1.0 = TRM believes query is OOD.
+    Score near 0.0 = in-distribution.
 
     Parameters
     ----------
@@ -107,10 +123,10 @@ class TRMOODHead(nn.Module):
     def __init__(self, hidden_size: int, bottleneck: Optional[int] = None) -> None:
         super().__init__()
         bottleneck = bottleneck or max(hidden_size // 4, 16)
-        self.norm   = nn.LayerNorm(hidden_size)
-        self.proj1  = nn.Linear(hidden_size, bottleneck)
-        self.act    = nn.GELU()
-        self.proj2  = nn.Linear(bottleneck, 1)
+        self.norm  = nn.LayerNorm(hidden_size)
+        self.proj1 = nn.Linear(hidden_size, bottleneck)
+        self.act   = nn.GELU()
+        self.proj2 = nn.Linear(bottleneck, 1)
 
     def forward(self, final_z: Tensor) -> Tensor:
         """
@@ -123,12 +139,10 @@ class TRMOODHead(nn.Module):
         -------
         Tensor [B]  — OOD confidence in [0, 1].
         """
-        # Pool over sequence dimension
-        z = final_z.mean(dim=1)          # [B, D]
+        z = final_z.mean(dim=1)             # [B, D]
         z = self.norm(z)
-        z = self.act(self.proj1(z))      # [B, bottleneck]
-        logit = self.proj2(z).squeeze(-1)  # [B]
-        return logit.sigmoid()
+        z = self.act(self.proj1(z))          # [B, bottleneck]
+        return self.proj2(z).squeeze(-1).sigmoid()  # [B]
 
 
 # ---------------------------------------------------------------------------
@@ -136,13 +150,13 @@ class TRMOODHead(nn.Module):
 # ---------------------------------------------------------------------------
 
 class FallbackLevel(IntEnum):
-    LEVEL_0 = 0   # heuristic only — straight to router
-    LEVEL_1 = 1   # Layer 1-2 reasoning (contradiction + DAG)
-    LEVEL_2 = 2   # Full 6-phase pipeline (L3-L6 stubs in)
+    LEVEL_0 = 0   # straight to router
+    LEVEL_1 = 1   # CanonicalizeAndHash + DAGDecomposer
+    LEVEL_2 = 2   # full 6-phase pipeline
 
 
 # ---------------------------------------------------------------------------
-# Fallback result dataclass
+# Result dataclass
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -161,10 +175,11 @@ class OODFallbackResult:
     selected_domain : int
         Final domain index selected by the fallback chain.
     router_result : Any
-        Raw return value from MultiLensRouter.route().  The pipeline
-        should use this for the actual routing decision.
+        Raw return value from MultiLensRouter.route().
+    ir_graph : Any
+        IRGraph produced by DAGDecomposer (Level 1+), or None.
     dag_context : Optional[Dict]
-        Decomposed sub-claims from DAGDecomposer (Level 1+), or None.
+        Flat summary dict derived from the IRGraph for downstream layers.
     reasoning_trace : Optional[Dict]
         Structured trace from the reasoning chain (Level 2), or None.
     reason : str
@@ -175,6 +190,7 @@ class OODFallbackResult:
     ood_head_confidence: float
     selected_domain: int
     router_result: Any
+    ir_graph: Any = None
     dag_context: Optional[Dict] = None
     reasoning_trace: Optional[Dict] = None
     reason: str = ""
@@ -192,27 +208,21 @@ class TRMOODFallback:
     Parameters
     ----------
     cfg : TRMConfig
-        Used for ood_halt_threshold and ood_divergence_threshold.
     ood_head : TRMOODHead, optional
-        If provided, used for the learned OOD confidence signal.
-        If None, only the heuristic trigger is used.
     multi_lens_router : Any, optional
-        The live MultiLensRouter instance.  Its .route() method is
-        called as the final step (and as LEVEL_0 fallback).
-    dag_decomposer : Any, optional
-        mycelium.reasoning.dag_decomposer.DAGDecomposer instance.
-        Required for LEVEL_1+.  If None, Level 1 is skipped.
-    contradiction_classifier : Any, optional
-        mycelium.contradiction.classifier.ContradictionClassifier.
-        Required for LEVEL_1+.  Provides Layer 1 signals.
-    layer3_predicate_gen : Any, optional
-        [STUB] Future: mycelium.reasoning.predicate_generator.PredicateGenerator.
-    layer4_evidence_grounder : Any, optional
-        [STUB] Future: mycelium.reasoning.evidence_grounder.EvidenceGrounder.
-    layer5_hypothesis_eval : Any, optional
-        [STUB] Future: mycelium.reasoning.hypothesis_evaluator.HypothesisEvaluator.
-    layer6_synthesizer : Any, optional
-        [STUB] Future: mycelium.reasoning.reasoning_synthesizer.ReasoningSynthesizer.
+        Live MultiLensRouter instance.  Its .route() is the terminal step.
+    canonicalizer : CanonicalizeAndHash, optional
+        Phase B pipeline.  Required for LEVEL_1+.  If None, Level 1
+        is skipped and the fallback degrades to LEVEL_0.
+    dag_decomposer : DAGDecomposer, optional
+        Phase D DAG/DFS decomposer.  Takes an IRNode, returns an IRGraph.
+    contradiction_classifier : ContradictionClassifier, optional
+        Phase E classifier.  Used on sibling node pairs inside the
+        produced IRGraph (informational — never blocks routing).
+    layer3_predicate_gen : PredicateGenerator, optional
+    layer4_evidence_grounder : EvidenceGrounder, optional
+    layer5_hypothesis_eval : HypothesisEvaluator, optional
+    layer6_synthesizer : ReasoningSynthesizer, optional
     """
 
     def __init__(
@@ -221,6 +231,7 @@ class TRMOODFallback:
         *,
         ood_head: Optional[TRMOODHead] = None,
         multi_lens_router: Optional[Any] = None,
+        canonicalizer: Optional[Any] = None,
         dag_decomposer: Optional[Any] = None,
         contradiction_classifier: Optional[Any] = None,
         layer3_predicate_gen: Optional[Any] = None,
@@ -231,9 +242,9 @@ class TRMOODFallback:
         self.cfg = cfg
         self.ood_head = ood_head
         self.router = multi_lens_router
+        self.canonicalizer = canonicalizer
         self.dag_decomposer = dag_decomposer
         self.contradiction_classifier = contradiction_classifier
-        # Layers 3-6 — all optional / stubbed
         self._l3 = layer3_predicate_gen
         self._l4 = layer4_evidence_grounder
         self._l5 = layer5_hypothesis_eval
@@ -245,24 +256,18 @@ class TRMOODFallback:
 
     def should_trigger(
         self,
-        trm_output,          # TRMOutput from TRMReasoner.forward()
-        spectral_vec: Tensor,  # [B, n_domains] — MultiLensRouter soft labels
+        trm_output,
+        spectral_vec: Tensor,
     ) -> tuple[bool, float, str]:
         """
-        Decide whether the OOD fallback should fire for this query.
+        Decide whether the OOD fallback should fire.
 
-        Returns
-        -------
-        (triggered, ood_head_confidence, reason)
+        Returns (triggered, ood_head_confidence, reason).
         """
-        halt_conf   = trm_output.halt_confidence.mean().item()
-        domain_probs = trm_output.domain_probs          # [B, n_domains]
-        primary_idx  = trm_output.primary_domain_idx    # [B]
+        halt_conf    = trm_output.halt_confidence.mean().item()
+        primary_idx  = trm_output.primary_domain_idx          # [B]
+        batch_size   = primary_idx.shape[0]
 
-        # Heuristic: how much does TRM's top domain agree with spectral prior?
-        # spectral_vec[b, primary_idx[b]] — gather the spectral score for
-        # whatever domain TRM picked.
-        batch_size = primary_idx.shape[0]
         spectral_agreement = spectral_vec[
             torch.arange(batch_size, device=primary_idx.device),
             primary_idx,
@@ -274,97 +279,76 @@ class TRMOODFallback:
             and domain_divergence > self.cfg.ood_divergence_threshold
         )
 
-        # Learned head signal
         ood_head_conf = 0.0
         if self.ood_head is not None:
             with torch.no_grad():
                 ood_head_conf = self.ood_head(trm_output.final_z).mean().item()
 
         triggered = heuristic_ood or (ood_head_conf >= 0.5)
-
-        if triggered:
-            reason = (
-                f"halt_conf={halt_conf:.3f} "
-                f"domain_divergence={domain_divergence:.3f} "
-                f"ood_head={ood_head_conf:.3f}"
-            )
-        else:
-            reason = "in-distribution"
+        reason = (
+            f"halt_conf={halt_conf:.3f} "
+            f"domain_divergence={domain_divergence:.3f} "
+            f"ood_head={ood_head_conf:.3f}"
+        ) if triggered else "in-distribution"
 
         return triggered, ood_head_conf, reason
 
     def route(
         self,
         query: str,
-        trm_output,            # TRMOutput
-        spectral_vec: Tensor,  # [B, n_domains]
+        trm_output,
+        spectral_vec: Tensor,
         domain: str = "unknown",
         expert_metadata: Optional[Dict] = None,
     ) -> OODFallbackResult:
         """
-        Full fallback routing chain.
-
-        Always returns an OODFallbackResult.  Never raises.
-
-        Parameters
-        ----------
-        query : str
-            Raw query text.
-        trm_output : TRMOutput
-            Output from TRMReasoner.forward().
-        spectral_vec : Tensor [B, n_domains]
-            Soft domain labels from MultiLensRouter.
-        domain : str
-            Best-guess domain string (for DAGDecomposer template lookup).
-        expert_metadata : dict, optional
-            Pre-computed expert statistics for Layer 1 analysis.
+        Full fallback routing chain.  Always returns an OODFallbackResult.
+        Never raises.
         """
         triggered, ood_conf, reason = self.should_trigger(trm_output, spectral_vec)
 
         if not triggered:
-            # Fast path — TRM is in-distribution, route directly
             return OODFallbackResult(
                 triggered=False,
                 fallback_level=FallbackLevel.LEVEL_0,
                 ood_head_confidence=ood_conf,
-                selected_domain=trm_output.primary_domain_idx[0].item(),
+                selected_domain=int(trm_output.primary_domain_idx[0].item()),
                 router_result=None,
                 reason=reason,
             )
 
         logger.info("TRMOODFallback: triggered — %s", reason)
 
-        # Choose escalation level from head confidence
+        # Escalation level
         if ood_conf >= 0.8:
             level = FallbackLevel.LEVEL_2
         elif ood_conf >= 0.5:
             level = FallbackLevel.LEVEL_1
         else:
-            # Heuristic fired but head is uncertain — LEVEL_1 still better
-            # than LEVEL_0 as long as we have the classifier.
-            level = FallbackLevel.LEVEL_1 if self.contradiction_classifier else FallbackLevel.LEVEL_0
+            level = FallbackLevel.LEVEL_1 if self.canonicalizer else FallbackLevel.LEVEL_0
 
+        ir_graph    = None
         dag_ctx: Optional[Dict] = None
         reasoning_trace: Optional[Dict] = None
 
         # ---------------------------------------------------------------- #
-        # LEVEL_1: Layer 1-2 — contradiction detection + DAG decomposition #
+        # LEVEL_1  —  CanonicalizeAndHash → IRNode → DAGDecomposer         #
         # ---------------------------------------------------------------- #
         if level >= FallbackLevel.LEVEL_1:
-            dag_ctx, level = self._run_layers_1_2(
-                query, domain, expert_metadata, ood_conf, level
+            ir_graph, dag_ctx, level = self._run_layers_1_2(
+                query, domain, expert_metadata, level
             )
 
         # ---------------------------------------------------------------- #
-        # LEVEL_2: Layers 3-6 (predicate → evidence → eval → synthesize)  #
+        # LEVEL_2  —  Layers 3-6 (predicate → evidence → eval → synthesize) #
         # ---------------------------------------------------------------- #
         if level >= FallbackLevel.LEVEL_2 and dag_ctx is not None:
             reasoning_trace = self._run_layers_3_6(query, domain, dag_ctx)
 
         # ---------------------------------------------------------------- #
-        # Final step: MultiLensRouter with optional DAG context            #
+        # Terminal: MultiLensRouter                                        #
         # ---------------------------------------------------------------- #
-        router_result = self._call_router(query, dag_ctx)
+        router_result  = self._call_router(query, dag_ctx)
         selected_domain = self._extract_domain(router_result, trm_output)
 
         return OODFallbackResult(
@@ -373,13 +357,14 @@ class TRMOODFallback:
             ood_head_confidence=ood_conf,
             selected_domain=selected_domain,
             router_result=router_result,
+            ir_graph=ir_graph,
             dag_context=dag_ctx,
             reasoning_trace=reasoning_trace,
             reason=reason,
         )
 
     # ------------------------------------------------------------------ #
-    # Internal helpers                                                     #
+    # Internal — Layer 1-2                                                #
     # ------------------------------------------------------------------ #
 
     def _run_layers_1_2(
@@ -387,57 +372,100 @@ class TRMOODFallback:
         query: str,
         domain: str,
         expert_metadata: Optional[Dict],
-        ood_conf: float,
         current_level: FallbackLevel,
-    ) -> tuple[Optional[Dict], FallbackLevel]:
-        """Run Layer 1 (ContradictionClassifier) + Layer 2 (DAGDecomposer).
-
-        Returns (dag_context, effective_level).  On any exception the
-        level is downgraded and dag_context is None.
+    ) -> tuple[Any, Optional[Dict], FallbackLevel]:
         """
-        if self.contradiction_classifier is None or self.dag_decomposer is None:
-            logger.debug("TRMOODFallback: L1/L2 components not available, downgrading to L0")
-            return None, FallbackLevel.LEVEL_0
+        Layer 1: CanonicalizeAndHash.process(query) → list[IRNode]
+        Layer 2: DAGDecomposer.decompose(root_node)  → IRGraph
+
+        Returns (ir_graph, dag_context_dict, effective_level).
+        On any failure degrades to LEVEL_0 and returns (None, None, LEVEL_0).
+        """
+        if self.canonicalizer is None or self.dag_decomposer is None:
+            logger.debug("TRMOODFallback: canonicalizer/decomposer not available, downgrading to L0")
+            return None, None, FallbackLevel.LEVEL_0
 
         try:
-            # Layer 1: classify the input against learned patterns
-            # ContradictionClassifier.classify_raw() accepts raw text + metadata
-            l1_result = self.contradiction_classifier.classify_raw(
-                text=query,
-                expert_metadata=expert_metadata or {},
+            # ---- Layer 1: §46 pipeline — raw text → IRNode(s) ----------
+            ir_nodes = self.canonicalizer.process(
+                query,
+                abstraction_level=2,
+                source="trm_ood_fallback",
+            )
+            if not ir_nodes:
+                logger.debug("TRMOODFallback L1: no IRNodes produced, downgrading to L0")
+                return None, None, FallbackLevel.LEVEL_0
+
+            root_node = ir_nodes[0]
+            logger.debug(
+                "TRMOODFallback L1: IRNode id=%s family=%s",
+                root_node.id,
+                root_node.semantic_signature.predicate_family,
+            )
+
+            # ---- Optional: check sibling pairs for internal contradiction ---
+            contradiction_signal = None
+            if self.contradiction_classifier is not None and len(ir_nodes) >= 2:
+                try:
+                    contradiction_signal = self.contradiction_classifier.classify(
+                        ir_nodes[0], ir_nodes[1]
+                    )
+                    logger.debug(
+                        "TRMOODFallback L1 contradiction: type=%s severity=%.2f",
+                        contradiction_signal.contradiction_type,
+                        contradiction_signal.severity,
+                    )
+                except Exception as exc:
+                    logger.debug("TRMOODFallback: contradiction check skipped (%s)", exc)
+
+            # ---- Layer 2: DFS DAG decomposition → IRGraph ----------------
+            ir_graph = self.dag_decomposer.decompose(
+                root_node,
+                request_id="ood-fallback",
             )
             logger.debug(
-                "TRMOODFallback L1: type=%s contradiction_score=%.3f",
-                l1_result.get("type", "unknown"),
-                l1_result.get("contradiction_score", 0.0),
+                "TRMOODFallback L2: IRGraph id=%s nodes=%d edges=%d",
+                ir_graph.graph_id,
+                len(ir_graph.nodes),
+                len(ir_graph.edges),
             )
 
-            # If Layer 1 says NOISE — stop, not worth decomposing
-            if l1_result.get("type") == "NOISE":
-                logger.debug("TRMOODFallback: Layer 1 classified as NOISE, downgrading to L0")
-                return None, FallbackLevel.LEVEL_0
-
-            # Layer 2: DAG decomposition of the core claim
-            dag_result = self.dag_decomposer.decompose(
-                claim_text=query,
-                domain=domain,
-                expert_metadata=expert_metadata or {},
-            )
-            logger.debug(
-                "TRMOODFallback L2: %d sub-claims decomposed",
-                len(dag_result.get("sub_claims", [])),
-            )
-
-            dag_ctx = {
-                "l1": l1_result,
-                "l2": dag_result,
+            # ---- Build flat dag_context dict for Layers 3-6 --------------
+            dag_ctx: Dict = {
+                "root_node_id": root_node.id,
+                "root_label": root_node.label,
+                "predicate_family": root_node.semantic_signature.predicate_family,
+                "canonical_form": root_node.semantic_signature.canonical_form,
+                "equivalence_family": root_node.semantic_signature.equivalence_family,
+                "abstraction_level": root_node.semantic_signature.abstraction_level,
+                "sub_claims": [
+                    {
+                        "id": n.id,
+                        "label": n.label,
+                        "predicate_family": n.semantic_signature.predicate_family,
+                        "confidence": n.confidence_state.overall_confidence,
+                    }
+                    for n in ir_graph.nodes
+                ],
+                "n_edges": len(ir_graph.edges),
                 "domain": domain,
+                "contradiction_signal": (
+                    {
+                        "type": contradiction_signal.contradiction_type,
+                        "severity": contradiction_signal.severity,
+                    }
+                    if contradiction_signal is not None else None
+                ),
             }
-            return dag_ctx, current_level
+            return ir_graph, dag_ctx, current_level
 
         except Exception as exc:
-            logger.warning("TRMOODFallback: Layer 1-2 failed (%s), falling back to L0", exc)
-            return None, FallbackLevel.LEVEL_0
+            logger.warning("TRMOODFallback: Layer 1-2 failed (%s), downgrading to L0", exc)
+            return None, None, FallbackLevel.LEVEL_0
+
+    # ------------------------------------------------------------------ #
+    # Internal — Layers 3-6                                               #
+    # ------------------------------------------------------------------ #
 
     def _run_layers_3_6(
         self,
@@ -447,10 +475,9 @@ class TRMOODFallback:
     ) -> Optional[Dict]:
         """
         Run Layers 3-6 (predicate → evidence → eval → synthesize).
-
         All four layers are optional.  Results are accumulated into a
-        single reasoning_trace dict.  Any missing layer is skipped with
-        a warning; the chain continues from whatever was last produced.
+        single reasoning_trace dict.  Any missing layer is skipped;
+        the chain continues from whatever was last produced.
         """
         trace: Dict = {"query": query, "domain": domain, "layers": {}}
 
@@ -459,8 +486,7 @@ class TRMOODFallback:
             l3_result = None
             if self._l3 is not None:
                 l3_result = self._l3.generate(
-                    decomposed_claim=dag_ctx["l2"],
-                    claim_type=dag_ctx["l2"].get("claim_type", {}),
+                    dag_context=dag_ctx,
                 )
                 trace["layers"]["l3"] = l3_result
                 logger.debug(
@@ -468,7 +494,7 @@ class TRMOODFallback:
                     len(l3_result.get("positive_predicates", [])),
                 )
             else:
-                logger.debug("TRMOODFallback: Layer 3 not available (stub)")
+                logger.debug("TRMOODFallback: Layer 3 not available")
 
             # Layer 4 — Evidence grounder
             l4_result = None
@@ -476,6 +502,7 @@ class TRMOODFallback:
                 l4_result = self._l4.ground(
                     predicates=l3_result,
                     domain=domain,
+                    dag_context=dag_ctx,
                 )
                 trace["layers"]["l4"] = l4_result
                 logger.debug(
@@ -483,7 +510,7 @@ class TRMOODFallback:
                     l4_result.get("evidence_score", 0.0),
                 )
             else:
-                logger.debug("TRMOODFallback: Layer 4 not available (stub)")
+                logger.debug("TRMOODFallback: Layer 4 not available")
 
             # Layer 5 — Hypothesis evaluator
             l5_result = None
@@ -491,16 +518,16 @@ class TRMOODFallback:
                 l5_result = self._l5.evaluate(
                     predicates=l3_result,
                     evidence=l4_result,
-                    dag_context=dag_ctx["l2"],
+                    dag_context=dag_ctx,
                 )
                 trace["layers"]["l5"] = l5_result
                 logger.debug(
-                    "TRMOODFallback L5: hypothesis=%s confidence=%.3f",
+                    "TRMOODFallback L5: verdict=%s confidence=%.3f",
                     l5_result.get("verdict", "unknown"),
                     l5_result.get("confidence", 0.0),
                 )
             else:
-                logger.debug("TRMOODFallback: Layer 5 not available (stub)")
+                logger.debug("TRMOODFallback: Layer 5 not available")
 
             # Layer 6 — Reasoning synthesizer + cache
             if self._l6 is not None:
@@ -514,13 +541,8 @@ class TRMOODFallback:
                 trace["layers"]["l6"] = l6_result
                 trace["conclusion"] = l6_result.get("conclusion", "UNCERTAIN")
                 trace["confidence"] = l6_result.get("confidence", 0.0)
-                logger.debug(
-                    "TRMOODFallback L6: conclusion=%s confidence=%.3f",
-                    trace["conclusion"],
-                    trace["confidence"],
-                )
             else:
-                logger.debug("TRMOODFallback: Layer 6 not available (stub)")
+                logger.debug("TRMOODFallback: Layer 6 not available")
                 trace["conclusion"] = "UNCERTAIN"
                 trace["confidence"] = 0.0
 
@@ -530,14 +552,15 @@ class TRMOODFallback:
 
         return trace
 
+    # ------------------------------------------------------------------ #
+    # Internal — router + domain extraction                               #
+    # ------------------------------------------------------------------ #
+
     def _call_router(self, query: str, dag_ctx: Optional[Dict]) -> Any:
         """Call MultiLensRouter, optionally passing dag_context."""
         if self.router is None:
-            logger.debug("TRMOODFallback: no router configured — returning raw dag_ctx")
             return dag_ctx
         try:
-            # MultiLensRouter.route() accepts **kwargs; pass dag_context if
-            # the router supports it (duck-typed — ignore TypeError if not).
             try:
                 return self.router.route(query, dag_context=dag_ctx)
             except TypeError:
@@ -546,21 +569,14 @@ class TRMOODFallback:
             logger.error("TRMOODFallback: router call failed (%s)", exc)
             return None
 
-    def _extract_domain(
-        self,
-        router_result: Any,
-        trm_output,
-    ) -> int:
+    def _extract_domain(self, router_result: Any, trm_output) -> int:
         """Pull a domain index out of whatever the router returned."""
-        # Most routers return an object with .selected_domain or .domain_idx
         for attr in ("selected_domain", "domain_idx", "domain_index"):
             val = getattr(router_result, attr, None)
             if val is not None:
                 return int(val)
-        # Dict-style
         if isinstance(router_result, dict):
             for key in ("selected_domain", "domain_idx", "domain_index"):
                 if key in router_result:
                     return int(router_result[key])
-        # Ultimate fallback: TRM's own (low-confidence) prediction
         return int(trm_output.primary_domain_idx[0].item())
