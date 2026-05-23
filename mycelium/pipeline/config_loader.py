@@ -247,6 +247,22 @@ def api_allowed_origins() -> List[str]:
 
 
 # ---------------------------------------------------------------------------
+# GraphStore persistence
+# ---------------------------------------------------------------------------
+
+def graph_store_persistence_dir() -> str:
+    """Directory where graphstore.jsonl is written (created if absent)."""
+    return _get(
+        "graph_store", "persistence_dir", "data",
+        "MYCELIUM_GRAPH_STORE_PERSISTENCE_DIR",
+    )
+
+def graph_store_run_decay_on_load() -> bool:
+    """Whether GraphDecayManager runs on every boot before graphs are served."""
+    return get_bool("graph_store", "run_decay_on_load", True)
+
+
+# ---------------------------------------------------------------------------
 # Convenience accessors — layer1
 # ---------------------------------------------------------------------------
 
@@ -401,6 +417,8 @@ class _Cfg:
     log_sample_rate                = staticmethod(log_sample_rate)
     patch_batch_dir                = staticmethod(patch_batch_dir)
     traces_dir                     = staticmethod(traces_dir)
+    graph_store_persistence_dir    = staticmethod(graph_store_persistence_dir)
+    graph_store_run_decay_on_load  = staticmethod(graph_store_run_decay_on_load)
     api_allowed_origins            = staticmethod(api_allowed_origins)
     layer1_embed_model             = staticmethod(layer1_embed_model)
     layer1_lens1_top_k             = staticmethod(layer1_lens1_top_k)
