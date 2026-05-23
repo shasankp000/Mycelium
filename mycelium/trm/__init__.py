@@ -1,5 +1,5 @@
 """Phase D — TRM: Graph Store, DFS Lookup, Promotion Pipeline,
-and Samsung TRM Neural Reasoner (arXiv:2510.04871).
+Samsung TRM Neural Reasoner (arXiv:2510.04871), and OOD Fallback.
 """
 
 # --- Graph-persistence layer (Phase D §D.1) ---
@@ -16,6 +16,9 @@ from .output_head import DomainHead, HaltHead
 from .reasoner import TRMReasoner, TRMOutput
 from .trainer import TRMTrainer
 from .integration import TRMLens
+
+# --- OOD fallback chain (Part D hardening) ---
+from .trm_ood_fallback import TRMOODHead, TRMOODFallback, OODFallbackResult, FallbackLevel
 
 __all__ = [
     # persistence
@@ -35,4 +38,9 @@ __all__ = [
     "TRMOutput",
     "TRMTrainer",
     "TRMLens",
+    # OOD fallback
+    "TRMOODHead",
+    "TRMOODFallback",
+    "OODFallbackResult",
+    "FallbackLevel",
 ]
