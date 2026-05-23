@@ -43,6 +43,9 @@ patch_batches/
 traces/
 reports/
 runtime/
+evaluation_data/
+signatures/*.npy
+signatures/manifest.json
 
 # ── IDE / editor ────────────────────────────────────────────────
 .vscode/
