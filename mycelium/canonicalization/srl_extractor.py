@@ -28,16 +28,101 @@ Approach (§B.1 alignment with consolidation notes):
 
     Tier 1 is sufficient for Phase A/B gate tests and offline operation.
     Tier 2 is activated when MYCELIUM_SRL_MODEL=allennlp is set.
+
+spaCy venv routing
+------------------
+    spaCy with en_core_web_sm lives in the dedicated lexis venv at
+    .venv2 (Python 3.11).  This file probes that venv's site-packages
+    FIRST before falling back to the active sys.path so that the TRM /
+    OOD fallback pipeline always gets the full dependency-parsed output
+    rather than the regex fallback.
+
+    Search order:
+        1. .venv2/lib/python3.11/site-packages   (lexis venv, spaCy+model)
+        2. Active sys.path (may also have spaCy if installed in main venv)
+        3. Regex fallback (no spaCy at all)
+
+    The probe is done at import time once and cached in _SPACY_SITE.
+    No subprocess is spawned; we just temporarily prepend the path.
 """
 
 from __future__ import annotations
 
 import os
 import re
+import sys
+import pathlib
 from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Optional
 
+
+# ---------------------------------------------------------------------------
+# .venv2 spaCy path probe
+# ---------------------------------------------------------------------------
+
+def _find_venv2_site() -> Optional[str]:
+    """
+    Walk upward from this file's location looking for a .venv2 directory
+    that contains a spaCy installation.  Returns the site-packages path
+    string if found, else None.
+
+    We search three candidate roots:
+        1. The repository root (two levels above this file: repo/mycelium/canonicalization/)
+        2. The current working directory
+        3. The HOME directory
+    """
+    candidates = [
+        pathlib.Path(__file__).resolve().parent.parent.parent,  # repo root
+        pathlib.Path.cwd(),
+        pathlib.Path.home(),
+    ]
+
+    for base in candidates:
+        # Python 3.11 site-packages inside .venv2
+        site = base / ".venv2" / "lib" / "python3.11" / "site-packages"
+        if site.is_dir() and (site / "spacy").is_dir():
+            return str(site)
+
+    return None
+
+
+# Resolved once at module import; None means .venv2 not found.
+_SPACY_SITE: Optional[str] = _find_venv2_site()
+
+
+def _import_spacy():
+    """
+    Import spaCy, preferring the .venv2 site-packages when available.
+
+    Strategy:
+        - If _SPACY_SITE is set and not already on sys.path, prepend it
+          temporarily so `import spacy` resolves to the .venv2 copy.
+        - After the import succeeds, leave _SPACY_SITE on sys.path so
+          that subsequent imports (e.g. en_core_web_sm) also resolve
+          correctly.
+        - If spaCy import fails entirely, return None.
+    """
+    global _SPACY_SITE
+
+    if _SPACY_SITE and _SPACY_SITE not in sys.path:
+        sys.path.insert(0, _SPACY_SITE)
+
+    try:
+        import spacy  # noqa: PLC0415
+        return spacy
+    except ImportError:
+        # If the venv2 path didn't help, clean it up so we don't pollute
+        # sys.path with a non-working entry.
+        if _SPACY_SITE and _SPACY_SITE in sys.path:
+            sys.path.remove(_SPACY_SITE)
+        _SPACY_SITE = None
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Data types
+# ---------------------------------------------------------------------------
 
 @dataclass
 class SRLTriple:
@@ -59,9 +144,17 @@ class SRLTriple:
     confidence: float = 1.0
 
 
+# ---------------------------------------------------------------------------
+# Main extractor
+# ---------------------------------------------------------------------------
+
 class SRLExtractor:
     """Two-tier SRL extraction: spaCy dependency parser (Tier 1) or
     allennlp SRL model (Tier 2).
+
+    spaCy is loaded from .venv2 (lexis venv, Python 3.11) when that
+    environment is present, ensuring en_core_web_sm is always available
+    regardless of which venv the main process runs in.
 
     Optimisations (§5.1):
     - Per-instance NER/doc cache (_ner_cache) so the same text string is
@@ -87,15 +180,26 @@ class SRLExtractor:
         self._ner_cache: dict = {}
 
     def _load_spacy(self):
+        """
+        Load spaCy, routing to .venv2 first.
+
+        Sets self._nlp to:
+            - a loaded spaCy Language object (en_core_web_sm preferred,
+              blank English as fallback if model not found)
+            - False if spaCy itself is not importable from anywhere
+        """
         if self._nlp is None:
-            try:
-                import spacy
+            spacy = _import_spacy()
+            if spacy is None:
+                self._nlp = False
+            else:
                 try:
                     self._nlp = spacy.load("en_core_web_sm")
                 except OSError:
+                    # Model not installed; blank pipeline still gives
+                    # tokenisation but no dependency parse → regex fallback
+                    # will be used inside _extract_spacy.
                     self._nlp = spacy.blank("en")
-            except ImportError:
-                self._nlp = False  # spaCy not installed
         return self._nlp
 
     def _get_doc(self, text: str):
@@ -111,6 +215,10 @@ class SRLExtractor:
         """Tier 1: rule-based SVO extraction via spaCy dependency parse."""
         doc = self._get_doc(text)
         if doc is None:
+            return self._extract_regex(text)
+
+        # If we got a blank pipeline (no dep parse), fall back to regex
+        if not doc.has_annotation("DEP"):
             return self._extract_regex(text)
 
         triples: list[SRLTriple] = []
@@ -185,7 +293,7 @@ class SRLExtractor:
         multiple times on an identical query during the Phase C IR bridge.
 
         Tries Tier 2 (allennlp) if MYCELIUM_SRL_MODEL=allennlp,
-        else Tier 1 (spaCy), else regex fallback.
+        else Tier 1 (spaCy via .venv2 or active venv), else regex fallback.
 
         Returns
         -------
