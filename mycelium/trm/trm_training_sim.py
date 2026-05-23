@@ -454,7 +454,7 @@ def _parse_args(argv=None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--llm-model",
-        default=os.getenv("TRM_SIM_LLM_MODEL", "llama3"),
+        default=os.getenv("TRM_SIM_LLM_MODEL", "llama3:8b"),
         help="LLM model name (default: llama3)",
     )
     parser.add_argument(
