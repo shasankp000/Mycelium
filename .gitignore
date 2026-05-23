@@ -52,6 +52,7 @@ signatures/manifest.json
 .idea/
 *.swp
 *.swo
+.omm/*
 
 # ── OS cruft ────────────────────────────────────────────────────
 .DS_Store
