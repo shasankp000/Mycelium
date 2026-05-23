@@ -5,8 +5,10 @@ Training loop for TRMReasoner with:
     - AdamW (β1=0.9, β2=0.95, weight_decay=0.1)
     - Cosine LR schedule with linear warmup
     - EMA (decay=0.999) — paper §4.7: critical for stability on small data
-    - Deep supervision loss: domain CE + halt BCE + optional contrastive
+    - Deep supervision loss: domain CE/KL + halt BCE + optional contrastive
     - Stable-max cross-entropy (Prieto et al. 2025, §6 of TRM paper)
+    - Soft-label KL-divergence when target_domain is a float vector
+      (e.g. spectral_vec from MultiLensRouter used as multi-domain ground truth)
 
 Dataset format
 --------------
@@ -16,10 +18,19 @@ Each training sample is a dict:
         "spectral_vec":          FloatTensor [n_domains]
         "predicate_family_id":   LongTensor  scalar
         "initial_domain_probs":  FloatTensor [n_domains]
+
+        # Hard-label path (default):
         "target_domain":         LongTensor  scalar   (ground-truth expert index)
+
+        # Soft-label path (mixed-domain queries):
+        # Pass target_domain as a FloatTensor [n_domains] probability vector.
+        # The loss automatically switches from stable-max cross-entropy to
+        # KL-divergence(log_softmax(logits) || target_soft_label).
+        # spectral_vec from MultiLensRouter is a perfect source: it already
+        # encodes multi-domain probability across all registered experts.
     }
 
-These are sourced from Mycelium's routing trace logs:
+These are sourced from Mycelium’s routing trace logs:
     training_data/routing_traces.jsonl
     evaluation_data/routing_ground_truth.jsonl
 
@@ -71,6 +82,32 @@ def stable_max_cross_entropy(logits: Tensor, targets: Tensor) -> Tensor:
     log_z = shifted.exp().sum(dim=-1).log()
     log_py = shifted.gather(1, targets.unsqueeze(1)).squeeze(1)
     return (log_z - log_py).mean()
+
+
+def soft_label_kl_loss(logits: Tensor, soft_targets: Tensor) -> Tensor:
+    """
+    KL-divergence loss for soft / multi-domain targets.
+
+    Replaces stable_max_cross_entropy when target_domain is a float vector
+    rather than a single integer.  Suitable for mixed-domain queries where
+    the ground truth is a probability distribution over multiple domains
+    (e.g. spectral_vec from MultiLensRouter).
+
+    KL(P || Q) = sum( P * log(P / Q) )  where:
+        P = soft_targets  (the ground-truth distribution)
+        Q = softmax(logits)  (the model’s predicted distribution)
+
+    Using F.kl_div(log_Q, P, reduction="batchmean") which is numerically
+    stable (log-space input, probability-space target).
+
+    logits      : [B, n_classes]  raw domain logits from TRMReasoner
+    soft_targets: [B, n_classes]  target probability distribution (∑ == 1)
+    """
+    log_probs = F.log_softmax(logits, dim=-1)          # [B, n_classes]
+    # Clamp soft_targets to avoid log(0) inside kl_div
+    soft_targets = soft_targets.clamp(min=1e-8)
+    soft_targets = soft_targets / soft_targets.sum(dim=-1, keepdim=True)  # renorm
+    return F.kl_div(log_probs, soft_targets, reduction="batchmean")
 
 
 # --------------------------------------------------------------------------- #
@@ -160,6 +197,16 @@ class TRMTrainer:
         """
         Three-term loss:
             L = w_dom * L_domain  +  w_halt * L_halt  +  w_con * L_contrastive
+
+        L_domain path selection
+        -----------------------
+        Hard label  (target_domain is a 1-D int64 vector [B]):
+            stable_max_cross_entropy(logits, target_domain)
+
+        Soft label  (target_domain is a 2-D float32 matrix [B, n_domains]):
+            KL( softmax(logits) || target_domain )
+            Use this path for mixed-domain queries by passing spectral_vec
+            (from MultiLensRouter) as target_domain in the dataset record.
         """
         cfg = self.cfg
         device = cfg.device
@@ -168,7 +215,7 @@ class TRMTrainer:
         spectral_vec         = batch["spectral_vec"].to(device)
         predicate_family_id  = batch["predicate_family_id"].to(device)
         initial_domain_probs = batch["initial_domain_probs"].to(device)
-        target_domain        = batch["target_domain"].to(device)  # [B] int64
+        target_domain        = batch["target_domain"].to(device)
 
         out = self.model(
             token_ids=token_ids,
@@ -177,14 +224,27 @@ class TRMTrainer:
             initial_domain_probs=initial_domain_probs,
         )
 
-        # 1. Primary routing cross-entropy
-        if cfg.stable_max_loss:
-            l_domain = stable_max_cross_entropy(out.domain_logits, target_domain)
+        # 1. Primary routing loss — auto-select hard vs soft path
+        # target_domain shape [B]           → int64 hard label → stable CE
+        # target_domain shape [B, n_domains] → float soft label → KL divergence
+        if target_domain.dim() == 2:
+            # Soft-label path: spectral_vec used as multi-domain ground truth
+            l_domain = soft_label_kl_loss(
+                out.domain_logits,
+                target_domain.float(),
+            )
+            # Derive a pseudo hard-label for the halt BCE from soft argmax
+            hard_target = target_domain.argmax(dim=-1)  # [B]
         else:
-            l_domain = F.cross_entropy(out.domain_logits, target_domain)
+            # Hard-label path (default): single integer ground-truth domain
+            if cfg.stable_max_loss:
+                l_domain = stable_max_cross_entropy(out.domain_logits, target_domain)
+            else:
+                l_domain = F.cross_entropy(out.domain_logits, target_domain)
+            hard_target = target_domain  # [B]
 
         # 2. Halt BCE: target = 1 if prediction correct, else 0
-        correct = (out.primary_domain_idx == target_domain).float()  # [B]
+        correct = (out.primary_domain_idx == hard_target).float()  # [B]
         l_halt = F.binary_cross_entropy_with_logits(
             self.model.halt_head(self.model.answer_embedder(initial_domain_probs)),
             correct,
@@ -269,14 +329,17 @@ class TRMTrainer:
         ema_model = self.ema.shadow.to(cfg.device).eval()
         correct = total = 0
         for batch in self.eval_dl:
+            target = batch["target_domain"].to(cfg.device)
+            # Support both hard and soft label eval batches
+            hard_target = target.argmax(dim=-1) if target.dim() == 2 else target
             out = ema_model(
                 token_ids=batch["token_ids"].to(cfg.device),
                 spectral_vec=batch["spectral_vec"].to(cfg.device),
                 predicate_family_id=batch["predicate_family_id"].to(cfg.device),
                 initial_domain_probs=batch["initial_domain_probs"].to(cfg.device),
             )
-            correct += (out.primary_domain_idx == batch["target_domain"].to(cfg.device)).sum().item()
-            total   += batch["target_domain"].shape[0]
+            correct += (out.primary_domain_idx == hard_target).sum().item()
+            total   += hard_target.shape[0]
         return correct / max(1, total)
 
     # ------------------------------------------------------------------ #
