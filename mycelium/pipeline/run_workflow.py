@@ -701,8 +701,11 @@ def run_mycelium_workflow(
         tag_vectors = embed_tags_transformer(normalized_tags)
         # cluster_tags_transformer(tags, embeddings) — tags first, vectors second
         tag_clusters = cluster_tags_transformer(normalized_tags, tag_vectors)
-        spatial_analysis = analyze_spatial_locality(text, registered_domains)
-        domain_patch = assign_domain_patch(text, list(registered_domains))
+        # analyze_spatial_locality(recent_statements, clusters) — list[dict] + cluster dict
+        recent_statements = temporal_layer.get_recent_statements()
+        spatial_analysis = analyze_spatial_locality(recent_statements, tag_clusters)
+        # assign_domain_patch(spatial_analysis) — takes the analysis dict, not raw text/domains
+        domain_patch = assign_domain_patch(spatial_analysis)
 
         pre_filter_result = expert_filter.filter_experts_by_tags(
             normalized_tags,
