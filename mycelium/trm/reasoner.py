@@ -46,6 +46,7 @@ Key design decisions (all paper-justified):
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
 from typing import Optional
 
@@ -140,6 +141,16 @@ class TRMReasoner(nn.Module):
         self.domain_head = DomainHead(cfg.hidden_size, cfg.n_domains)
         self.halt_head   = HaltHead(cfg.hidden_size)
 
+        # Cache expected random-init probe Frobenius norm for convergence
+        # detection.  DomainHead.probe is xavier_uniform_ initialised with
+        # shape [n_domains, hidden_size].
+        # xavier_uniform_ scale = sqrt(6 / (fan_in + fan_out))
+        # Frobenius norm ≈ scale * sqrt(n_elements)
+        _scale = math.sqrt(6.0 / (cfg.n_domains + cfg.hidden_size))
+        self._random_probe_norm: float = _scale * math.sqrt(
+            cfg.n_domains * cfg.hidden_size
+        )
+
     # ------------------------------------------------------------------ #
     # Inner recursion                                                      #
     # ------------------------------------------------------------------ #
@@ -170,8 +181,7 @@ class TRMReasoner(nn.Module):
 
         y = self.cell(q=y + z, context=None)
 
-        # Clamp inter-recursion drift: keeps activations in a stable range
-        # regardless of how many outer supervision steps are chained.
+        # Clamp inter-recursion drift
         y = self.y_norm(y)
         z = self.z_norm(z)
         return y, z
@@ -192,10 +202,10 @@ class TRMReasoner(nn.Module):
 
         No-grad stabilisation passes (T-1 passes before the gradient pass)
         are skipped when the model has not yet converged — detected by
-        checking whether domain_head weight norms are below a threshold.
-        With random-init weights the no-grad passes just amplify the
-        residual drift without providing useful look-ahead signal.
-        Once weights are trained the full T-1 passes run as intended.
+        comparing domain_head.probe Frobenius norm against the expected
+        xavier_uniform_ random-init norm.  With random-init weights the
+        no-grad passes just amplify residual drift; once weights are trained
+        the full T-1 passes run as intended.
 
         Returns TRMOutput.
         """
@@ -208,16 +218,11 @@ class TRMReasoner(nn.Module):
         n_steps = cfg.n_supervision if training else cfg.max_supervision_steps
         T = cfg.n_supervision
 
-        # Detect whether the model is roughly converged by checking the
-        # L2 norm of domain_head weights.  Random-init weights have norm
-        # close to sqrt(fan_in) ≈ sqrt(hidden_size); trained weights drift
-        # meaningfully away.  We use a conservative threshold of 1.5x.
-        # This gates the no-grad stabilisation passes: they help a trained
-        # model but amplify explosion in a random-init model.
-        import math as _math
-        _dh_norm = self.domain_head.proj.weight.data.norm().item()
-        _random_init_norm = _math.sqrt(cfg.hidden_size)  # ≈ 22.6 for D=512
-        _is_converged = _dh_norm > _random_init_norm * 1.5
+        # Gate no-grad stabilisation passes on convergence.
+        # domain_head.probe is an nn.Parameter (xavier_uniform_ init),
+        # NOT a Linear layer — access via .probe.data.norm() directly.
+        _probe_norm = self.domain_head.probe.data.norm().item()
+        _is_converged = _probe_norm > self._random_probe_norm * 1.5
         _stabilisation_passes = (T - 1) if _is_converged else 0
 
         last_logits: Optional[Tensor] = None
@@ -225,7 +230,6 @@ class TRMReasoner(nn.Module):
 
         for step in range(n_steps):
             if training:
-                # No-grad stabilisation passes (skipped until converged)
                 if _stabilisation_passes > 0:
                     with torch.no_grad():
                         for _ in range(_stabilisation_passes):
