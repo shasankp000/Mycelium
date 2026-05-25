@@ -121,6 +121,15 @@ def _domain_to_idx(domain: str) -> int:
         return -1
 
 
+def _is_numeric(v: Any) -> bool:
+    """Return True if v can be safely cast to float as a scalar score."""
+    try:
+        float(v)
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
 def _spectral_vec_to_tensor(
     spectral_scores: Any,
     selected_domains: List[str],
@@ -129,7 +138,9 @@ def _spectral_vec_to_tensor(
     Build a float[N_DOMAINS] vector from routing_context spectral scores.
 
     Tries to read a dict / list / object from spectral_scores.
-    Falls back to a soft one-hot over selected_domains if unavailable.
+    Falls back to a soft one-hot over selected_domains if unavailable
+    or if the list contains non-numeric values (e.g. np.str_ domain names
+    instead of scores).
     Always normalises to sum == 1.0.
     """
     vec = [0.0] * N_DOMAINS
@@ -141,8 +152,15 @@ def _spectral_vec_to_tensor(
             if 0 <= idx < N_DOMAINS:
                 vec[idx] = float(score)
 
-    # Case 2: list/tuple of length N_DOMAINS
-    elif isinstance(spectral_scores, (list, tuple)) and len(spectral_scores) == N_DOMAINS:
+    # Case 2: list/tuple of length N_DOMAINS whose elements are numeric.
+    # Guard: if any element is non-numeric (e.g. np.str_ domain name strings
+    # passed instead of float scores) skip this branch entirely and fall
+    # through to the soft one-hot fallback below.
+    elif (
+        isinstance(spectral_scores, (list, tuple))
+        and len(spectral_scores) == N_DOMAINS
+        and all(_is_numeric(v) for v in spectral_scores)
+    ):
         vec = [float(v) for v in spectral_scores]
 
     # Case 3: object with .scores / .domain_scores attribute
