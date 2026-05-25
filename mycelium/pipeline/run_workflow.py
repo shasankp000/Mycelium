@@ -268,6 +268,41 @@ def _get_trm_reasoner() -> Optional[Any]:
         return None
 
 
+def _sanitize_spectral_scores(spectral_scores: Any) -> Any:
+    """
+    Ensure spectral_scores is safe to pass to _trm_spectral_vec.
+
+    If spectral_scores is a list/array whose elements are non-numeric
+    (e.g. np.str_ domain name strings instead of float scores), return
+    None so the caller falls back to the soft one-hot path.
+    If it is a dict, validate that its values are numeric; strip any
+    entries that are not.
+    """
+    if spectral_scores is None:
+        return None
+
+    # Dict: keep only entries with numeric values
+    if isinstance(spectral_scores, dict):
+        cleaned = {}
+        for k, v in spectral_scores.items():
+            try:
+                cleaned[k] = float(v)
+            except (TypeError, ValueError):
+                pass
+        return cleaned if cleaned else None
+
+    # List / tuple: if any element is non-numeric, discard the whole thing
+    if isinstance(spectral_scores, (list, tuple, np.ndarray)):
+        for v in spectral_scores:
+            try:
+                float(v)
+            except (TypeError, ValueError):
+                return None  # contains strings (e.g. np.str_ domain names)
+        return spectral_scores
+
+    return spectral_scores
+
+
 def _run_trm_reasoner(
     reasoner: Any,
     text: str,
@@ -281,7 +316,8 @@ def _run_trm_reasoner(
         ids = _trm_encode_query(text)
         token_ids = _t.tensor([ids], dtype=_t.long)
 
-        spec_scores = getattr(routing_context, "spectral_scores", None)
+        raw_spec_scores = getattr(routing_context, "spectral_scores", None)
+        spec_scores = _sanitize_spectral_scores(raw_spec_scores)
         sel_doms = list(getattr(routing_context, "selected_domains", []) or [])
         sv = _trm_spectral_vec(spec_scores, sel_doms)
         spectral_vec = _t.tensor([sv], dtype=_t.float32)
@@ -737,17 +773,15 @@ def run_mycelium_workflow(
                 f"conf={decision_confidence:.3f}\n"
             )
 
+        # Write routing trace for TRM training.
+        # Uses .record() — the only write method on TRMRoutingTraceWriter.
         if trm_trace_writer is not None:
             try:
-                spec_scores = getattr(routing_context, "spectral_scores", None)
-                sel_doms    = list(getattr(routing_context, "selected_domains", []) or [])
-                clf_str     = str(getattr(routing_context, "classification", "UNKNOWN") or "UNKNOWN").upper()
-                trm_trace_writer.write(
-                    query=text,
-                    spectral_scores=spec_scores,
-                    selected_domains=sel_doms,
-                    classification=clf_str,
-                    ground_truth_domain=selected_domain,
+                trm_trace_writer.record(
+                    text=text,
+                    routing_context=routing_context,
+                    selected_domain=selected_domain,
+                    trm_lookup_result=trm_reasoner_result,
                 )
             except Exception as _tw_err:
                 if ENABLE_LOGGING:
