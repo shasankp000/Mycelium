@@ -203,24 +203,18 @@ class TRMTrainer:
                 l_domain = F.cross_entropy(out.domain_logits, target_domain)
             hard_target = target_domain
 
-        # Halt loss: use the halt_head applied directly to domain_logits
-        # (which is in the gradient graph from the forward pass) rather than
-        # re-running answer_embedder(initial_domain_probs) in isolation.
-        # The previous code computed halt loss on a completely disconnected
-        # subgraph, meaning TRMCell and domain_head received zero halt gradient.
-        # domain_logits is [B, n_domains]; unsqueeze to [B, n_domains, 1] then
-        # expand to [B, n_domains, hidden_size] so HaltHead.proj can pool it.
-        # Simpler: just re-use out.domain_logits as a proxy y for HaltHead —
-        # HaltHead mean-pools over dim=1 [B, n_domains, D] then projects to [B].
-        # We embed domain_logits -> [B, n_domains, hidden_size] via halt_embed.
         correct = (out.primary_domain_idx == hard_target).float()
-        # Compute halt logits from the live forward-pass answer state.
-        # final_y is detached (intentional per paper §4.7 — halt is a separate
-        # signal), but we re-compute halt from domain_logits which IS in the
-        # gradient graph, giving halt_head.proj a proper gradient path.
-        halt_y = out.domain_logits.unsqueeze(-1).expand(
+
+        # Halt loss: build a proxy [B, n_domains, hidden_size] tensor from
+        # softmax(domain_logits) so values are bounded in [0, 1] before
+        # expansion.  Using raw logits caused HaltHead.proj to receive huge
+        # inputs (~hundreds) which exploded l_halt into the thousands.
+        # softmax probs are in [0,1] so expansion is numerically safe.
+        # This tensor IS in the gradient graph (softmax is differentiable),
+        # so halt_head.proj and the domain path both receive proper gradients.
+        halt_y = out.domain_probs.unsqueeze(-1).expand(
             -1, -1, self.model.cfg.hidden_size
-        )  # [B, n_domains, hidden_size]
+        )  # [B, n_domains, hidden_size], values in [0, 1]
         l_halt = F.binary_cross_entropy_with_logits(
             self.model.halt_head(halt_y),
             correct,
