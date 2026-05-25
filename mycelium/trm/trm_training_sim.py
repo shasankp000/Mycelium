@@ -26,9 +26,9 @@ Usage
         --llm-model local-model \\
         --openai-compat
 
-    # Skip simulation entirely — train directly from existing routing traces.
-    # Use this to recover from a power cut or any interruption that left the
-    # JSONL intact but prevented the training step from running.
+    # Skip simulation entirely — train from scratch on existing routing traces.
+    # Use this when you have a routing_traces.jsonl but NO checkpoint yet.
+    # Delete any existing checkpoint first so training starts from random init.
     python -m mycelium.trm.trm_training_sim --train-only
     python -m mycelium.trm.trm_training_sim --train-only --epochs 5
 
@@ -44,6 +44,14 @@ Flow
 3. Save checkpoint to ``mycelium/trm/trm_checkpoints/trm_latest.pt``.
    ``run_mycelium_workflow`` picks it up on next process start via
    ``_get_trm_reasoner()``.
+
+Scratch vs fine-tune
+--------------------
+- ``--train-only`` with NO checkpoint present  →  trains from random init
+  (scratch).  This is the correct path after deleting a corrupt checkpoint.
+- ``--train-only`` with checkpoint present      →  fine-tunes existing weights.
+- Normal ``run_sim`` loop                        →  generates new traces then
+  fine-tunes whatever checkpoint exists (or trains from scratch if none).
 
 LLM integration
 ---------------
@@ -190,20 +198,27 @@ def _train_trm(
     """
     Load accumulated routing traces and run TRMTrainer.
 
-    Checkpoint loading handles two formats:
-      - New:    {model_state, ema_state, step}  (no cfg — PyTorch 2.6 safe)
-      - Legacy: {model_state, ema_state, step, cfg}  (older checkpoints)
-    weights_only=False is used so that legacy checkpoints with TRMConfig
-    objects (saved before this fix) still load correctly.
+    Scratch vs fine-tune
+    --------------------
+    - No checkpoint on disk  →  trains from random init (scratch).
+      Delete the checkpoint file before calling to force this path.
+    - Checkpoint present     →  loads weights and fine-tunes.
 
-    trainer.step is always reset to 0 after loading so that max_train_steps
-    is computed freshly from the current dataset size and the training loop
-    always runs a full pass — regardless of the step count stored in the
-    checkpoint.
+    Device
+    ------
+    cfg.device is overridden to CUDA if available.  TRMConfig defaults to
+    "cpu" for inference but training always uses the fastest device.
 
-    cfg.device is overridden to CUDA if available so training uses the GPU.
-    TRMConfig defaults to "cpu" for inference but training should always
-    use the fastest available device.
+    Checkpoint format
+    -----------------
+    Handles two formats for backwards compatibility:
+      - New:    {model_state, ema_state, step}  (PyTorch 2.6 safe)
+      - Legacy: {model_state, ema_state, step, cfg}
+    weights_only=False used so legacy checkpoints still load.
+
+    trainer.step is always reset to 0 after loading so the training loop
+    always runs a full pass on the current dataset regardless of the step
+    count stored in the checkpoint.
     """
     if not Path(train_path).exists():
         print(f"[error] Training data not found at {train_path!r} — skipping training.")
@@ -225,29 +240,27 @@ def _train_trm(
         from mycelium.trm.trainer import TRMTrainer, _EmptyDataset
 
         cfg = TRMConfig()
-        # Override device: always use CUDA for training if available.
-        # TRMConfig defaults to "cpu" (suitable for inference), but training
-        # on GPU is significantly faster and should always be preferred.
+        # Always train on GPU if available.
         cfg.device = "cuda" if _torch.cuda.is_available() else "cpu"
         print(f"Training device: {cfg.device}"
               + (f" ({_torch.cuda.get_device_name(0)})" if cfg.device == "cuda" else ""))
 
         reasoner = TRMReasoner(cfg)
+        is_scratch = not _CHECKPOINT_PATH.exists()
 
-        if _CHECKPOINT_PATH.exists():
-            # weights_only=False: handles both new (no cfg) and legacy (with cfg)
-            # checkpoints.  Safe because we wrote this file ourselves.
+        if not is_scratch:
             ckpt = _torch.load(str(_CHECKPOINT_PATH), map_location="cpu", weights_only=False)
             if isinstance(ckpt, dict) and "model_state" in ckpt:
                 state = ckpt["model_state"]
                 _step = ckpt.get("step", "?")
-                print(f"\u2705 Loaded existing checkpoint from {_CHECKPOINT_PATH} — fine-tuning (step={_step})")
+                print(f"\u2705 Loaded checkpoint from {_CHECKPOINT_PATH} — fine-tuning (step={_step})")
             else:
                 state = ckpt
                 print(f"\u2705 Loaded legacy checkpoint from {_CHECKPOINT_PATH} — fine-tuning")
             reasoner.load_state_dict(state)
         else:
-            print("\u26a0\ufe0f  No existing checkpoint — training from random init")
+            print("\u26a0\ufe0f  No checkpoint found — training from scratch (random init)")
+            print("    (Delete the checkpoint file to force this path next time.)")
 
         import json as _json
 
@@ -291,6 +304,15 @@ def _train_trm(
         cfg.max_train_steps = steps_per_epoch * epochs
         cfg.warmup_steps    = min(cfg.warmup_steps, cfg.max_train_steps // 10)
 
+        print(f"Mode          : {'scratch' if is_scratch else 'fine-tune'}")
+        print(f"Samples       : {len(train_dataset)}")
+        print(f"Batch size    : {effective_batch_size}")
+        print(f"Steps/epoch   : {steps_per_epoch}")
+        print(f"Epochs        : {epochs}")
+        print(f"Total steps   : {cfg.max_train_steps}")
+        print(f"LR            : {cfg.learning_rate}")
+        print(f"stable_max_loss: {cfg.stable_max_loss}")
+
         trainer = TRMTrainer(
             model=reasoner,
             cfg=cfg,
@@ -298,12 +320,7 @@ def _train_trm(
             eval_dataset=eval_dataset,
             batch_size=effective_batch_size,
         )
-        # Always reset step to 0 so training runs a full pass on the current
-        # dataset.  The checkpoint step is informational only — using it as the
-        # starting counter would cause the loop to exit immediately if
-        # max_train_steps <= saved step.
         trainer.step = 0
-        print(f"Training for {cfg.max_train_steps} steps ({steps_per_epoch} steps/epoch × {epochs} epochs)")
 
         trainer.train()
         trainer.save(str(_CHECKPOINT_PATH))
@@ -404,10 +421,9 @@ def _parse_args(argv=None) -> argparse.Namespace:
         "--train-only", action="store_true",
         default=False,
         help=(
-            "Skip simulation entirely and train directly from the existing "
-            "routing_traces.jsonl. Use this to recover after a power cut or "
-            "any interruption that left the JSONL intact but prevented the "
-            "training step from running."
+            "Skip simulation and train on existing routing_traces.jsonl.  "
+            "Trains from scratch if no checkpoint exists; fine-tunes if one does.  "
+            "Delete the checkpoint file first to force a scratch run."
         ),
     )
     return parser.parse_args(argv)
@@ -417,7 +433,8 @@ if __name__ == "__main__":
     args = _parse_args()
 
     if args.train_only:
-        print("\n[--train-only] Skipping simulation — training directly from existing traces.")
+        mode = "scratch" if not _CHECKPOINT_PATH.exists() else "fine-tune"
+        print(f"\n[--train-only] Skipping simulation — training ({mode}) from existing traces.")
         ok = _train_trm(epochs=args.epochs)
         sys.exit(0 if ok else 1)
 

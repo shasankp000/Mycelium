@@ -10,6 +10,9 @@ All architectural choices are justified by ablation results in the paper:
     n_supervision=3 Table 3 — T=3 outer deep supervision loops
     ema_decay=0.999 §4.7  — prevents sharp collapse on small datasets
     stable_max_loss §6    — numerically stable cross-entropy variant
+                            (disabled by default: F.cross_entropy is more
+                            stable on small datasets with random-init weights;
+                            enable only after the model has converged)
 """
 
 from __future__ import annotations
@@ -60,7 +63,12 @@ class TRMConfig:
     ema_decay: float = 0.999
     """EMA decay for model weights.  §4.7: critical for stability."""
 
-    learning_rate: float = 1e-4
+    learning_rate: float = 1e-5
+    """
+    Conservative LR suitable for both scratch training and fine-tuning.
+    1e-4 caused loss explosions (logits → 1000s) with random-init weights;
+    1e-5 + cosine warmup is stable in both regimes.
+    """
 
     weight_decay: float = 0.1
 
@@ -87,8 +95,13 @@ class TRMConfig:
     # Loss                                                                 #
     # ------------------------------------------------------------------ #
 
-    stable_max_loss: bool = True
-    """Use numerically stable-max cross-entropy (Prieto et al. 2025, §6)."""
+    stable_max_loss: bool = False
+    """
+    Use numerically stable-max cross-entropy (Prieto et al. §6).
+    Disabled by default — standard F.cross_entropy is more stable during
+    early training with random-init weights.  Re-enable after convergence
+    if needed for fine-tuning on harder distributions.
+    """
 
     domain_loss_weight: float = 1.0
     """Weight for primary routing cross-entropy term."""
@@ -104,7 +117,7 @@ class TRMConfig:
     # ------------------------------------------------------------------ #
 
     device: str = "cpu"
-    """Torch device string.  TRM is small enough to run on CPU."""
+    """Torch device string.  Overridden to 'cuda' at training time if available."""
 
     model_path: str = ""
     """Path to a saved .pt checkpoint.  Empty string = untrained (uniform priors)."""
