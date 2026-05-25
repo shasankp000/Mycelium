@@ -3,9 +3,9 @@ import os as _os
 import datetime
 import time as _time
 from collections import Counter, deque
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import asdict, dataclass, field, is_dataclass
 from pathlib import Path as _Path
-from typing import Callable, List, Dict, Any, Optional, Sequence, Tuple
+from typing import Callable, List, Dict, Any, Optional, Sequence, Tuple, cast
 
 import numpy as np
 import pandas as pd
@@ -41,6 +41,7 @@ from mycelium.trm.graph_store import GraphStore
 from mycelium.trm.trm_engine import TRMEngine
 from mycelium.trm.multi_worker_dfs import MultiWorkerDFSLookup
 from mycelium.reasoning.dag_decomposer import DAGDecomposer
+
 try:
     import torch as _torch
     from mycelium.trm.reasoner import TRMReasoner
@@ -56,28 +57,44 @@ try:
         N_DOMAINS as _TRM_N_DOMAINS,
     )
     from mycelium.trm.trm_ood_fallback import TRMOODFallback, TRMOODHead
+
     _TRM_AVAILABLE = True
 except Exception as _trm_import_err:
+    _torch = None
     TRMReasoner = None
     TRMConfig = None
     TRMOODFallback = None
     TRMOODHead = None
     trm_trace_writer = None
+    _trm_encode_query = None
+    _trm_spectral_vec = None
+    _trm_domain_to_idx = None
+    _trm_init_probs = None
+    _TRM_PRED_MAP = {}
+    _TRM_DEF_PRED = 0
+    _TRM_N_DOMAINS = 0
     _TRM_AVAILABLE = False
 try:
     from mycelium.contradiction.classifier import ContradictionClassifier
+
     _CONTRADICTION_AVAILABLE = True
 except Exception:
     ContradictionClassifier = None
     _CONTRADICTION_AVAILABLE = False
 try:
     from mycelium.canonicalization.semantic_hash_pipeline import CanonicalizeAndHash
+
     _CANON_AVAILABLE = True
 except Exception:
     CanonicalizeAndHash = None
     _CANON_AVAILABLE = False
 try:
-    from mycelium.fusion.dst_fusion import DSTFusion, ConfidenceStateFusion, ConflictError
+    from mycelium.fusion.dst_fusion import (
+        DSTFusion,
+        ConfidenceStateFusion,
+        ConflictError,
+    )
+
     _DST_AVAILABLE = True
 except Exception:
     DSTFusion = None
@@ -97,22 +114,22 @@ _TRM_CHECKPOINT_PATH: str = str(
 
 
 class NumpyEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, np.integer):
-            return int(obj)
-        if isinstance(obj, np.floating):
-            return float(obj)
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-        if isinstance(obj, np.bool_):
-            return bool(obj)
-        return super().default(obj)
+    def default(self, o):
+        if isinstance(o, np.integer):
+            return int(o)
+        if isinstance(o, np.floating):
+            return float(o)
+        if isinstance(o, np.ndarray):
+            return o.tolist()
+        if isinstance(o, np.bool_):
+            return bool(o)
+        return super().default(o)
 
 
 def _to_jsonable(obj: Any) -> Any:
     if isinstance(obj, (str, int, float, bool, type(None))):
         return obj
-    if is_dataclass(obj):
+    if is_dataclass(obj) and not isinstance(obj, type):
         return asdict(obj)
     if isinstance(obj, dict):
         return {k: _to_jsonable(v) for k, v in obj.items()}
@@ -142,8 +159,12 @@ def _adapt_phase2_to_p3(p2: Any, original_text: str = "") -> P3FinalDecisionResu
         reasoning_str = str(reasoning_raw)
 
     extra_fields = (
-        "original_text", "input_text", "query", "sentence",
-        "action_details", "expert_predictions",
+        "original_text",
+        "input_text",
+        "query",
+        "sentence",
+        "action_details",
+        "expert_predictions",
     )
     metadata: Dict[str, Any] = {}
     for f in extra_fields:
@@ -168,7 +189,9 @@ def _adapt_phase2_to_p3(p2: Any, original_text: str = "") -> P3FinalDecisionResu
         decision=_get("decision_label", "prediction", "final_decision", "decision"),
         confidence=p2_confidence,
         reasoning=reasoning_str,
-        action=_get("action_type", "action", "recommended_action", default="use_existing"),
+        action=_get(
+            "action_type", "action", "recommended_action", default="use_existing"
+        ),
         expert_name=_get("selected_expert", "expert_name", "expert"),
         domain=_get("domain", "selected_domain", default=""),
         metadata=metadata,
@@ -211,18 +234,10 @@ def _adapt_unified_to_p3(
 
 @dataclass
 class WorkflowMetrics:
-    layer0_routes: Counter = None
-    routing_classifications: Counter = None
-    expert_decisions: Counter = None
-    domains: Counter = None
-
-    def __post_init__(self) -> None:
-        self.layer0_routes = Counter() if self.layer0_routes is None else self.layer0_routes
-        self.routing_classifications = (
-            Counter() if self.routing_classifications is None else self.routing_classifications
-        )
-        self.expert_decisions = Counter() if self.expert_decisions is None else self.expert_decisions
-        self.domains = Counter() if self.domains is None else self.domains
+    layer0_routes: Counter = field(default_factory=Counter)
+    routing_classifications: Counter = field(default_factory=Counter)
+    expert_decisions: Counter = field(default_factory=Counter)
+    domains: Counter = field(default_factory=Counter)
 
     def to_dict(self) -> Dict[str, Dict[str, int]]:
         return {
@@ -243,13 +258,16 @@ def _get_trm_reasoner() -> Optional[Any]:
     if _trm_reasoner is not None:
         return _trm_reasoner
     try:
-        cfg = TRMConfig()
+        assert TRMConfig is not None and TRMReasoner is not None and _torch is not None
+        cfg = cast(Any, TRMConfig)()
         # Point cfg at the canonical checkpoint so the load branch is reached.
         # TRMConfig.model_path defaults to "" which always misses the file check.
         cfg.model_path = _TRM_CHECKPOINT_PATH
-        reasoner = TRMReasoner(cfg)
+        reasoner = cast(Any, TRMReasoner)(cfg)
         if _os.path.isfile(cfg.model_path):
-            ckpt = _torch.load(cfg.model_path, map_location="cpu", weights_only=False)
+            ckpt = cast(Any, _torch).load(
+                cfg.model_path, map_location="cpu", weights_only=False
+            )
             if isinstance(ckpt, dict) and "model_state" in ckpt:
                 state = ckpt["model_state"]
                 _step = ckpt.get("step", "?")
@@ -259,7 +277,9 @@ def _get_trm_reasoner() -> Optional[Any]:
                 )
             else:
                 state = ckpt
-                print(f"\u2705 TRMReasoner: loaded legacy weights from {cfg.model_path}")
+                print(
+                    f"\u2705 TRMReasoner: loaded legacy weights from {cfg.model_path}"
+                )
             reasoner.load_state_dict(state)
         else:
             print(
@@ -314,23 +334,33 @@ def _run_trm_reasoner(
     relevant_domains: List[str],
 ) -> Optional[Dict[str, Any]]:
     try:
+        if (
+            _trm_encode_query is None
+            or _trm_spectral_vec is None
+            or _trm_domain_to_idx is None
+            or _trm_init_probs is None
+        ):
+            return None
+        trm_domain_to_idx = _trm_domain_to_idx
         import torch as _t
         from mycelium.trm.trm_routing_trace_writer import DOMAIN_LIST as _DL
 
-        ids = _trm_encode_query(text)
+        ids = cast(Any, _trm_encode_query)(text)
         token_ids = _t.tensor([ids], dtype=_t.long)
 
         raw_spec_scores = getattr(routing_context, "spectral_scores", None)
         spec_scores = _sanitize_spectral_scores(raw_spec_scores)
         sel_doms = list(getattr(routing_context, "selected_domains", []) or [])
-        sv = _trm_spectral_vec(spec_scores, sel_doms)
+        sv = cast(Any, _trm_spectral_vec)(spec_scores, sel_doms)
         spectral_vec = _t.tensor([sv], dtype=_t.float32)
 
-        clf = str(getattr(routing_context, "classification", "UNKNOWN") or "UNKNOWN").upper()
+        clf = str(
+            getattr(routing_context, "classification", "UNKNOWN") or "UNKNOWN"
+        ).upper()
         pred_id = _TRM_PRED_MAP.get(clf, _TRM_DEF_PRED)
         predicate_family_id = _t.tensor([pred_id], dtype=_t.long)
 
-        init_p = _trm_init_probs(sv)
+        init_p = cast(Any, _trm_init_probs)(sv)
         initial_domain_probs = _t.tensor([init_p], dtype=_t.float32)
 
         with _t.no_grad():
@@ -344,28 +374,26 @@ def _run_trm_reasoner(
         domain_probs: List[float] = _t.softmax(out.domain_logits, dim=-1)[0].tolist()
         primary_domain_idx: int = int(out.primary_domain_idx[0].item())
         primary_domain: str = (
-            _DL[primary_domain_idx]
-            if 0 <= primary_domain_idx < len(_DL)
-            else "unknown"
+            _DL[primary_domain_idx] if 0 <= primary_domain_idx < len(_DL) else "unknown"
         )
         halt_conf: float = float(out.halt_confidence[0].item())
         n_steps: int = int(getattr(out, "n_steps_taken", 1))
 
         def _trm_score(d: str) -> float:
-            idx = _trm_domain_to_idx(d)
+            idx = cast(Any, trm_domain_to_idx)(d)
             return domain_probs[idx] if 0 <= idx < _TRM_N_DOMAINS else 0.0
 
         reranked = sorted(relevant_domains, key=_trm_score, reverse=True)
 
         return {
-            "domain_probs":       domain_probs,
+            "domain_probs": domain_probs,
             "primary_domain_idx": primary_domain_idx,
-            "primary_domain":     primary_domain,
-            "halt_confidence":    halt_conf,
-            "n_steps_taken":      n_steps,
-            "reranked_domains":   reranked,
-            "_trm_output":        out,
-            "_spectral_tensor":   spectral_vec,
+            "primary_domain": primary_domain,
+            "halt_confidence": halt_conf,
+            "n_steps_taken": n_steps,
+            "reranked_domains": reranked,
+            "_trm_output": out,
+            "_spectral_tensor": spectral_vec,
         }
     except Exception as _re:
         print(f"\u26a0\ufe0f  TRMReasoner forward pass failed: {_re}")
@@ -435,10 +463,10 @@ def run_mycelium_workflow(
         persistence_path=_GRAPH_STORE_DIR,
         run_decay_on_load=_GRAPH_STORE_DECAY_ON_LOAD,
     )
-    _dfs_lookup  = MultiWorkerDFSLookup(_graph_store)
-    trm_engine   = TRMEngine(store=_graph_store, dfs=_dfs_lookup)
-    graph_store  = trm_engine.store
-    trm_lens     = TRMLens()
+    _dfs_lookup = MultiWorkerDFSLookup(_graph_store)
+    trm_engine = TRMEngine(store=_graph_store, dfs=_dfs_lookup)
+    graph_store = trm_engine.store
+    trm_lens = TRMLens()
     dag_decomposer = DAGDecomposer(
         graph_store=graph_store,
         max_depth=dfs_max_depth,
@@ -448,24 +476,46 @@ def run_mycelium_workflow(
     if trm_reasoner is not None:
         print("\u2705 TRMReasoner active (Option 2 wiring)")
     else:
-        print("\u26a0\ufe0f  TRMReasoner unavailable \u2014 routing via MultiLensRouter only")
+        print(
+            "\u26a0\ufe0f  TRMReasoner unavailable \u2014 routing via MultiLensRouter only"
+        )
 
     _ood_fallback: Optional[Any] = None
 
-    _canonicalizer = CanonicalizeAndHash() if _CANON_AVAILABLE else None
-    _dst_fusion = DSTFusion() if _DST_AVAILABLE else None
-    contradiction_classifier = ContradictionClassifier() if _CONTRADICTION_AVAILABLE else None
+    _canonicalizer = (
+        cast(Any, CanonicalizeAndHash)()
+        if _CANON_AVAILABLE and CanonicalizeAndHash is not None
+        else None
+    )
+    _dst_fusion = (
+        cast(Any, DSTFusion)() if _DST_AVAILABLE and DSTFusion is not None else None
+    )
+    contradiction_classifier = (
+        cast(Any, ContradictionClassifier)()
+        if _CONTRADICTION_AVAILABLE and ContradictionClassifier is not None
+        else None
+    )
     _prev_phase2_result: Optional[Any] = None
 
-    from mycelium.pipeline.unified_expert_system import get_unified_expert_system, _unified_system
-    _expert_msg = 'Setting up environment...' if _unified_system is None else 'Loading expert system...'
+    from mycelium.pipeline.unified_expert_system import (
+        get_unified_expert_system,
+        _unified_system,
+    )
+
+    _expert_msg = (
+        "Setting up environment..."
+        if _unified_system is None
+        else "Loading expert system..."
+    )
     emitter.emit(
         phase_name="graph_expert_init",
         message=_expert_msg,
         detail="K-Medoids + Calibration + OOD Detection",
         state="running",
     )
-    print("Initializing unified expert system (K-Medoids + Calibration + OOD Detection)...")
+    print(
+        "Initializing unified expert system (K-Medoids + Calibration + OOD Detection)..."
+    )
     expert_system = get_unified_expert_system()
     registered_domains = set(expert_system.experts.keys())
     print(f"Initialized unified expert system with {len(registered_domains)} experts\n")
@@ -502,8 +552,10 @@ def run_mycelium_workflow(
 
     if trm_reasoner is not None and TRMOODFallback is not None:
         try:
-            _trm_cfg = TRMConfig()
-            _ood_head = TRMOODHead(
+            if TRMConfig is None or TRMOODHead is None:
+                raise RuntimeError("TRMConfig/TRMOODHead unavailable")
+            _trm_cfg = cast(Any, TRMConfig)()
+            _ood_head = cast(Any, TRMOODHead)(
                 hidden_size=_trm_cfg.hidden_size,
                 bottleneck=_trm_cfg.ood_head_hidden or None,
             )
@@ -517,7 +569,9 @@ def run_mycelium_workflow(
             )
             print("\u2705 TRMOODFallback active (heuristic + OODHead)")
         except Exception as _oodf_err:
-            print(f"\u26a0\ufe0f  TRMOODFallback init failed: {_oodf_err} \u2014 OOD fallback disabled")
+            print(
+                f"\u26a0\ufe0f  TRMOODFallback init failed: {_oodf_err} \u2014 OOD fallback disabled"
+            )
             _ood_fallback = None
 
     print("Initializing expert filter with automatic semantic clustering...")
@@ -672,7 +726,7 @@ def run_mycelium_workflow(
 
                 if _ood_fallback is not None:
                     _trm_out = trm_reasoner_result["_trm_output"]
-                    _spec_t  = trm_reasoner_result["_spectral_tensor"]
+                    _spec_t = trm_reasoner_result["_spectral_tensor"]
                     _triggered, _ood_conf, _reason = _ood_fallback.should_trigger(
                         _trm_out, _spec_t
                     )
@@ -721,48 +775,55 @@ def run_mycelium_workflow(
                     f"{pre_filter_result['missing_domains']}\n"
                 )
 
+        filtered_experts = {
+            d: expert_system.experts[d]
+            for d in relevant_domains
+            if d in expert_system.experts
+        }
+
         phase2_result = phase2_pipeline.run(
             text=text,
             routing_context=routing_context,
-            relevant_domains=relevant_domains,
-            top_k_experts=expert_top_k,
-            prev_result=_prev_phase2_result,
+            filtered_experts=filtered_experts or None,
+            depth_config=depth_cfg,
         )
         _prev_phase2_result = phase2_result
 
         p3_input = _adapt_phase2_to_p3(phase2_result, original_text=text)
 
-        phase3_result = phase3_pipeline.run(
-            phase2_result=p3_input,
-            routing_context=routing_context,
-            n_passes=phase3_passes,
+        phase3_result = phase3_pipeline.run_complete_pipeline(
+            final_decision_result=p3_input,
         )
 
-        unified_decision = expert_system.decide(
-            text=text,
-            routing_context=routing_context,
-            phase2_result=phase2_result,
-            relevant_domains=relevant_domains,
-            top_k=expert_top_k,
+        unified_decision = expert_system.unified_decision_analysis(
+            input_text=text,
+            routing_result=routing_context,
+            filtered_experts=filtered_experts or None,
+            depth_config=depth_cfg,
         )
 
         p3_from_unified = _adapt_unified_to_p3(
             unified_decision,
             original_text=text,
-            phase2_metadata=_to_jsonable(phase2_result) if is_dataclass(phase2_result) else {},
+            phase2_metadata=_to_jsonable(phase2_result)
+            if is_dataclass(phase2_result)
+            else {},
         )
 
         final_phase3 = phase3_result or p3_from_unified
 
         combined_result = combine_routing_and_expert_decisions(
-            routing_context=routing_context,
-            expert_decision=unified_decision,
+            routing=routing_context,
+            expert=unified_decision,
         )
 
         decision_type: str = getattr(unified_decision, "decision_type", "") or ""
         metrics.expert_decisions[decision_type] += 1
 
         selected_domain: str = ""
+        selected_experts = list(getattr(unified_decision, "selected_experts", []) or [])
+        if selected_experts:
+            selected_domain = str(selected_experts[0])
         for attr in ("domain", "selected_domain", "expert_name"):
             val = getattr(unified_decision, attr, None)
             if val:
@@ -806,10 +867,13 @@ def run_mycelium_workflow(
                 "expert_flag": decision_type,
                 "selected_domain": selected_domain,
                 "decision_confidence": decision_confidence,
-                "trm_reasoner_result": _to_jsonable({
-                    k: v for k, v in (trm_reasoner_result or {}).items()
-                    if not k.startswith("_")
-                }),
+                "trm_reasoner_result": _to_jsonable(
+                    {
+                        k: v
+                        for k, v in (trm_reasoner_result or {}).items()
+                        if not k.startswith("_")
+                    }
+                ),
                 "ood_fallback_result": _to_jsonable(ood_fallback_result or {}),
             }
         )
