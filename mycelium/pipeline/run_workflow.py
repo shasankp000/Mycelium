@@ -263,14 +263,14 @@ def _get_trm_reasoner() -> Optional[Any]:
             reasoner.load_state_dict(state)
         else:
             print(
-                f"\u26a0\ufe0f  TRMReasoner: no checkpoint at {cfg.model_path!r} — "
+                f"\u26a0\ufe0f  TRMReasoner: no checkpoint at {cfg.model_path!r} \u2014 "
                 "using random weights (fallback_to_router=True, safe to proceed)"
             )
         reasoner.eval()
         _trm_reasoner = reasoner
         return _trm_reasoner
     except Exception as _e:
-        print(f"\u274c TRMReasoner init failed: {_e} — TRM disabled for this run")
+        print(f"\u274c TRMReasoner init failed: {_e} \u2014 TRM disabled for this run")
         return None
 
 
@@ -448,7 +448,7 @@ def run_mycelium_workflow(
     if trm_reasoner is not None:
         print("\u2705 TRMReasoner active (Option 2 wiring)")
     else:
-        print("\u26a0\ufe0f  TRMReasoner unavailable — routing via MultiLensRouter only")
+        print("\u26a0\ufe0f  TRMReasoner unavailable \u2014 routing via MultiLensRouter only")
 
     _ood_fallback: Optional[Any] = None
 
@@ -517,7 +517,7 @@ def run_mycelium_workflow(
             )
             print("\u2705 TRMOODFallback active (heuristic + OODHead)")
         except Exception as _oodf_err:
-            print(f"\u26a0\ufe0f  TRMOODFallback init failed: {_oodf_err} — OOD fallback disabled")
+            print(f"\u26a0\ufe0f  TRMOODFallback init failed: {_oodf_err} \u2014 OOD fallback disabled")
             _ood_fallback = None
 
     print("Initializing expert filter with automatic semantic clustering...")
@@ -699,7 +699,8 @@ def run_mycelium_workflow(
                         }
 
         tag_vectors = embed_tags_transformer(normalized_tags)
-        tag_clusters = cluster_tags_transformer(tag_vectors, normalized_tags)
+        # cluster_tags_transformer(tags, embeddings) — tags first, vectors second
+        tag_clusters = cluster_tags_transformer(normalized_tags, tag_vectors)
         spatial_analysis = analyze_spatial_locality(text, registered_domains)
         domain_patch = assign_domain_patch(text, list(registered_domains))
 
