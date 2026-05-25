@@ -4,6 +4,7 @@ import datetime
 import time as _time
 from collections import Counter, deque
 from dataclasses import asdict, dataclass, is_dataclass
+from pathlib import Path as _Path
 from typing import Callable, List, Dict, Any, Optional, Sequence, Tuple
 
 import numpy as np
@@ -87,6 +88,12 @@ except Exception:
 _GRAPH_STORE_DIR: str = _cfg.graph_store_persistence_dir()
 _GRAPH_STORE_DECAY_ON_LOAD: bool = _cfg.graph_store_run_decay_on_load()
 _os.makedirs(_GRAPH_STORE_DIR, exist_ok=True)
+
+# Canonical checkpoint path — mirrors trm_training_sim._CHECKPOINT_PATH.
+# This file lives at mycelium/pipeline/run_workflow.py so parents[1] == mycelium/
+_TRM_CHECKPOINT_PATH: str = str(
+    _Path(__file__).resolve().parents[1] / "trm" / "trm_checkpoints" / "trm_latest.pt"
+)
 
 
 class NumpyEncoder(json.JSONEncoder):
@@ -237,17 +244,17 @@ def _get_trm_reasoner() -> Optional[Any]:
         return _trm_reasoner
     try:
         cfg = TRMConfig()
+        # Point cfg at the canonical checkpoint so the load branch is reached.
+        # TRMConfig.model_path defaults to "" which always misses the file check.
+        cfg.model_path = _TRM_CHECKPOINT_PATH
         reasoner = TRMReasoner(cfg)
-        import os as _os
-        if cfg.model_path and _os.path.isfile(cfg.model_path):
-            # weights_only=False: handles both new checkpoints (no cfg key) and
-            # legacy checkpoints (with TRMConfig object).  Safe — we wrote this file.
+        if _os.path.isfile(cfg.model_path):
             ckpt = _torch.load(cfg.model_path, map_location="cpu", weights_only=False)
             if isinstance(ckpt, dict) and "model_state" in ckpt:
                 state = ckpt["model_state"]
                 _step = ckpt.get("step", "?")
                 print(
-                    f"\u2705 TRMReasoner: loaded TRMTrainer checkpoint from "
+                    f"\u2705 TRMReasoner: loaded checkpoint from "
                     f"{cfg.model_path} (step={_step})"
                 )
             else:
@@ -256,9 +263,8 @@ def _get_trm_reasoner() -> Optional[Any]:
             reasoner.load_state_dict(state)
         else:
             print(
-                "\u26a0\ufe0f  TRMReasoner: no checkpoint found at "
-                f"{cfg.model_path!r} — using random weights "
-                "(fallback_to_router=True, safe to proceed)"
+                f"\u26a0\ufe0f  TRMReasoner: no checkpoint at {cfg.model_path!r} — "
+                "using random weights (fallback_to_router=True, safe to proceed)"
             )
         reasoner.eval()
         _trm_reasoner = reasoner
@@ -281,7 +287,6 @@ def _sanitize_spectral_scores(spectral_scores: Any) -> Any:
     if spectral_scores is None:
         return None
 
-    # Dict: keep only entries with numeric values
     if isinstance(spectral_scores, dict):
         cleaned = {}
         for k, v in spectral_scores.items():
@@ -291,13 +296,12 @@ def _sanitize_spectral_scores(spectral_scores: Any) -> Any:
                 pass
         return cleaned if cleaned else None
 
-    # List / tuple: if any element is non-numeric, discard the whole thing
     if isinstance(spectral_scores, (list, tuple, np.ndarray)):
         for v in spectral_scores:
             try:
                 float(v)
             except (TypeError, ValueError):
-                return None  # contains strings (e.g. np.str_ domain names)
+                return None
         return spectral_scores
 
     return spectral_scores
@@ -773,8 +777,6 @@ def run_mycelium_workflow(
                 f"conf={decision_confidence:.3f}\n"
             )
 
-        # Write routing trace for TRM training.
-        # Uses .record() — the only write method on TRMRoutingTraceWriter.
         if trm_trace_writer is not None:
             try:
                 trm_trace_writer.record(
