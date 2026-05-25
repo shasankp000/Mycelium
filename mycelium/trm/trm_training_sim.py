@@ -80,30 +80,16 @@ import uuid
 from pathlib import Path
 from typing import List, Optional
 
-# ---------------------------------------------------------------------------
-# Domain list — mirrors TRMRoutingTraceWriter.DOMAIN_LIST, skip reserved slots
-# ---------------------------------------------------------------------------
 from mycelium.trm.trm_routing_trace_writer import DOMAIN_LIST as _RAW_DOMAIN_LIST
 
 ACTIVE_DOMAINS: List[str] = [
     d for d in _RAW_DOMAIN_LIST if not d.startswith("__reserved")
 ]
 
-# ---------------------------------------------------------------------------
-# Checkpoint directory: mycelium/trm/trm_checkpoints/
-# Resolved relative to this file so it always lands in the right place
-# regardless of the working directory the sim is launched from.
-# Auto-created at module load so TRMTrainer.save() never hits a missing-dir
-# error mid-run.
-# ---------------------------------------------------------------------------
 _CHECKPOINT_DIR = Path(__file__).parent / "trm_checkpoints"
 _CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
 _CHECKPOINT_PATH = _CHECKPOINT_DIR / "trm_latest.pt"
 
-
-# ---------------------------------------------------------------------------
-# LLM query generation
-# ---------------------------------------------------------------------------
 
 _PROMPT_TEMPLATE = """\
 Generate {n} realistic, diverse user questions about {domain}.
@@ -116,7 +102,6 @@ Rules:
 
 
 def _clean_lines(raw: str, expected_n: int) -> List[str]:
-    """Filter LLM output to a clean list of query strings."""
     lines = []
     for line in raw.splitlines():
         line = line.strip()
@@ -132,50 +117,28 @@ def _clean_lines(raw: str, expected_n: int) -> List[str]:
     return lines[:expected_n]
 
 
-def _ollama_generate(
-    url: str,
-    model: str,
-    prompt: str,
-    timeout: int = 120,
-) -> str:
-    """Call Ollama /api/generate and return the full concatenated response."""
+def _ollama_generate(url: str, model: str, prompt: str, timeout: int = 120) -> str:
     import urllib.request
-
-    payload = json.dumps({
-        "model": model,
-        "prompt": prompt,
-        "stream": False,
-    }).encode()
+    payload = json.dumps({"model": model, "prompt": prompt, "stream": False}).encode()
     req = urllib.request.Request(
-        url,
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
+        url, data=payload,
+        headers={"Content-Type": "application/json"}, method="POST",
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         body = json.loads(resp.read().decode())
     return body.get("response", "")
 
 
-def _openai_generate(
-    url: str,
-    model: str,
-    prompt: str,
-    timeout: int = 120,
-) -> str:
-    """Call an OpenAI-compatible /v1/chat/completions endpoint."""
+def _openai_generate(url: str, model: str, prompt: str, timeout: int = 120) -> str:
     import urllib.request
-
     payload = json.dumps({
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.9,
     }).encode()
     req = urllib.request.Request(
-        url,
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
+        url, data=payload,
+        headers={"Content-Type": "application/json"}, method="POST",
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         body = json.loads(resp.read().decode())
@@ -183,27 +146,15 @@ def _openai_generate(
 
 
 def generate_queries(
-    domain: str,
-    n: int,
-    llm_url: str,
-    llm_model: str,
-    openai_compat: bool = False,
-    timeout: int = 120,
-    retries: int = 2,
+    domain: str, n: int, llm_url: str, llm_model: str,
+    openai_compat: bool = False, timeout: int = 120, retries: int = 2,
 ) -> List[str]:
-    """
-    Ask the LLM to generate ``n`` queries for ``domain``.
-
-    Returns a list of clean query strings.  On failure returns an empty list
-    (the sim continues with whatever other domains produced).
-    """
     prompt = _PROMPT_TEMPLATE.format(n=n, domain=domain)
     for attempt in range(retries + 1):
         try:
-            if openai_compat:
-                raw = _openai_generate(llm_url, llm_model, prompt, timeout)
-            else:
-                raw = _ollama_generate(llm_url, llm_model, prompt, timeout)
+            raw = (_openai_generate if openai_compat else _ollama_generate)(
+                llm_url, llm_model, prompt, timeout
+            )
             queries = _clean_lines(raw, n)
             if queries:
                 return queries
@@ -214,35 +165,16 @@ def generate_queries(
     return []
 
 
-# ---------------------------------------------------------------------------
-# Backend-mode pipeline runner (no SSE)
-# ---------------------------------------------------------------------------
-
 def _run_single_query(query: str, sim_prefix: str, idx: int) -> bool:
-    """
-    Push a single query through run_mycelium_workflow() in backend mode.
-
-    The TRMRoutingTraceWriter singleton inside run_workflow captures the
-    routing decision automatically.  Returns True on success.
-    """
     from mycelium.pipeline.run_workflow import run_mycelium_workflow
-
     trace_id = f"{sim_prefix}-{idx:06d}"
     try:
-        run_mycelium_workflow(
-            [query],
-            trace_id=trace_id,
-            on_event=None,
-        )
+        run_mycelium_workflow([query], trace_id=trace_id, on_event=None)
         return True
     except Exception as exc:
         print(f"  [warn] workflow failed for query {idx!r}: {exc}")
         return False
 
-
-# ---------------------------------------------------------------------------
-# TRM training step
-# ---------------------------------------------------------------------------
 
 def _train_trm(
     train_path: str = "training_data/routing_traces.jsonl",
@@ -250,21 +182,13 @@ def _train_trm(
     epochs: int = 3,
 ) -> bool:
     """
-    Load the accumulated routing traces and run TRMTrainer.
+    Load accumulated routing traces and run TRMTrainer.
 
-    Saves checkpoint to ``mycelium/trm/trm_checkpoints/trm_latest.pt``.
-    Returns True if training completed successfully.
-
-    Fine-tune notes
-    ---------------
-    TRMTrainer.save() stores a dict with keys model_state / ema_state / step
-    / cfg (not a raw state_dict).  We handle both formats here so that
-    runs 2-4 can fine-tune on top of the existing checkpoint without a
-    key-mismatch crash.
-
-    DataLoader batch_size is clamped to min(32, len(dataset)) so that
-    drop_last=False still yields at least one batch even when fewer than
-    32 new samples were written by the gated TraceWriter on later runs.
+    Checkpoint loading handles two formats:
+      - New:    {model_state, ema_state, step}  (no cfg — PyTorch 2.6 safe)
+      - Legacy: {model_state, ema_state, step, cfg}  (older checkpoints)
+    weights_only=False is used so that legacy checkpoints with TRMConfig
+    objects (saved before this fix) still load correctly.
     """
     if not Path(train_path).exists():
         print(f"[error] Training data not found at {train_path!r} — skipping training.")
@@ -288,17 +212,15 @@ def _train_trm(
         cfg = TRMConfig()
         reasoner = TRMReasoner(cfg)
 
-        # Load existing checkpoint if present (fine-tune rather than cold start).
-        # TRMTrainer.save() writes a trainer dict {model_state, ema_state, step, cfg};
-        # guard against legacy raw state_dict format too.
         if _CHECKPOINT_PATH.exists():
-            ckpt = _torch.load(str(_CHECKPOINT_PATH), map_location="cpu")
+            # weights_only=False: handles both new (no cfg) and legacy (with cfg)
+            # checkpoints.  Safe because we wrote this file ourselves.
+            ckpt = _torch.load(str(_CHECKPOINT_PATH), map_location="cpu", weights_only=False)
             if isinstance(ckpt, dict) and "model_state" in ckpt:
                 state = ckpt["model_state"]
                 _step = ckpt.get("step", "?")
                 print(f"\u2705 Loaded existing checkpoint from {_CHECKPOINT_PATH} — fine-tuning (step={_step})")
             else:
-                # Legacy: raw state_dict saved directly
                 state = ckpt
                 print(f"\u2705 Loaded legacy checkpoint from {_CHECKPOINT_PATH} — fine-tuning")
             reasoner.load_state_dict(state)
@@ -308,7 +230,6 @@ def _train_trm(
         import json as _json
 
         class _JSONLDataset:
-            """Minimal torch Dataset that reads a routing_traces JSONL file."""
             def __init__(self, path: str) -> None:
                 import torch as _t
                 self._records = []
@@ -339,8 +260,6 @@ def _train_trm(
             else None
         )
 
-        # Clamp batch_size so drop_last=False never silently produces zero
-        # batches when the gated TraceWriter writes fewer than 32 samples.
         effective_batch_size = min(32, len(train_dataset))
         if effective_batch_size == 0:
             print("[error] Training dataset is empty after loading — skipping training.")
@@ -358,7 +277,6 @@ def _train_trm(
             batch_size=effective_batch_size,
         )
         trainer.train()
-
         trainer.save(str(_CHECKPOINT_PATH))
         print(f"\n\u2705 TRMReasoner checkpoint saved to {_CHECKPOINT_PATH}")
 
@@ -373,18 +291,9 @@ def _train_trm(
         return False
 
 
-# ---------------------------------------------------------------------------
-# Main simulation loop
-# ---------------------------------------------------------------------------
-
 def run_sim(
-    llm_url: str,
-    llm_model: str,
-    queries_per_domain: int,
-    epochs: int,
-    openai_compat: bool,
-    llm_timeout: int,
-    domains: Optional[List[str]] = None,
+    llm_url: str, llm_model: str, queries_per_domain: int, epochs: int,
+    openai_compat: bool, llm_timeout: int, domains: Optional[List[str]] = None,
 ) -> None:
     target_domains = domains or ACTIVE_DOMAINS
     sim_prefix = f"sim-{uuid.uuid4().hex[:8]}"
@@ -409,14 +318,9 @@ def run_sim(
     for domain in target_domains:
         print(f"\n[{domain.upper()}] Generating {queries_per_domain} queries via LLM...")
         queries = generate_queries(
-            domain=domain,
-            n=queries_per_domain,
-            llm_url=llm_url,
-            llm_model=llm_model,
-            openai_compat=openai_compat,
-            timeout=llm_timeout,
+            domain=domain, n=queries_per_domain, llm_url=llm_url,
+            llm_model=llm_model, openai_compat=openai_compat, timeout=llm_timeout,
         )
-
         if not queries:
             print(f"  [skip] No queries generated for domain '{domain}'")
             continue
@@ -428,15 +332,11 @@ def run_sim(
             ok = _run_single_query(query, sim_prefix, global_idx)
             if ok:
                 domain_successes += 1
-            status = "\u2705" if ok else "\u274c"
-            print(f"  {status} [{q_idx}/{len(queries)}] {query[:80]}")
+            print(f"  {'\u2705' if ok else '\u274c'} [{q_idx}/{len(queries)}] {query[:80]}")
 
         total_queries += len(queries)
         total_successes += domain_successes
-        print(
-            f"  Domain '{domain}' done: "
-            f"{domain_successes}/{len(queries)} successful"
-        )
+        print(f"  Domain '{domain}' done: {domain_successes}/{len(queries)} successful")
 
     print(f"\n{'='*60}")
     print(
@@ -456,68 +356,29 @@ def run_sim(
     _train_trm(epochs=epochs)
 
 
-# ---------------------------------------------------------------------------
-# CLI entry point
-# ---------------------------------------------------------------------------
-
 def _parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="TRM training simulation: LLM-driven backend interaction loop"
     )
+    parser.add_argument("--llm-url", default=os.getenv("TRM_SIM_LLM_URL", "http://localhost:11434/api/generate"))
+    parser.add_argument("--llm-model", default=os.getenv("TRM_SIM_LLM_MODEL", "llama3:8b"))
+    parser.add_argument("--queries-per-domain", type=int, default=int(os.getenv("TRM_SIM_QPD", "50")))
+    parser.add_argument("--epochs", type=int, default=int(os.getenv("TRM_SIM_EPOCHS", "3")))
     parser.add_argument(
-        "--llm-url",
-        default=os.getenv("TRM_SIM_LLM_URL", "http://localhost:11434/api/generate"),
-        help="LLM endpoint URL (default: Ollama localhost)",
-    )
-    parser.add_argument(
-        "--llm-model",
-        default=os.getenv("TRM_SIM_LLM_MODEL", "llama3:8b"),
-        help="LLM model name (default: llama3:8b)",
-    )
-    parser.add_argument(
-        "--queries-per-domain",
-        type=int,
-        default=int(os.getenv("TRM_SIM_QPD", "50")),
-        help="Number of queries to generate per domain (default: 50)",
-    )
-    parser.add_argument(
-        "--epochs",
-        type=int,
-        default=int(os.getenv("TRM_SIM_EPOCHS", "3")),
-        help="Training epochs after sim completes (default: 3)",
-    )
-    parser.add_argument(
-        "--openai-compat",
-        action="store_true",
+        "--openai-compat", action="store_true",
         default=os.getenv("TRM_SIM_OPENAI_COMPAT", "").lower() in ("1", "true", "yes"),
-        help="Use OpenAI-compatible chat completions API instead of Ollama",
     )
-    parser.add_argument(
-        "--llm-timeout",
-        type=int,
-        default=int(os.getenv("TRM_SIM_TIMEOUT", "120")),
-        help="LLM request timeout in seconds (default: 120)",
-    )
-    parser.add_argument(
-        "--domains",
-        nargs="+",
-        default=None,
-        help=(
-            "Subset of domains to simulate (default: all active domains). "
-            f"Available: {ACTIVE_DOMAINS}"
-        ),
-    )
+    parser.add_argument("--llm-timeout", type=int, default=int(os.getenv("TRM_SIM_TIMEOUT", "120")))
+    parser.add_argument("--domains", nargs="+", default=None,
+        help=f"Subset of domains to simulate. Available: {ACTIVE_DOMAINS}")
     return parser.parse_args(argv)
 
 
 if __name__ == "__main__":
     args = _parse_args()
     run_sim(
-        llm_url=args.llm_url,
-        llm_model=args.llm_model,
-        queries_per_domain=args.queries_per_domain,
-        epochs=args.epochs,
-        openai_compat=args.openai_compat,
-        llm_timeout=args.llm_timeout,
+        llm_url=args.llm_url, llm_model=args.llm_model,
+        queries_per_domain=args.queries_per_domain, epochs=args.epochs,
+        openai_compat=args.openai_compat, llm_timeout=args.llm_timeout,
         domains=args.domains,
     )

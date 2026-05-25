@@ -70,14 +70,6 @@ logger.addHandler(logging.NullHandler())
 # --------------------------------------------------------------------------- #
 
 def stable_max_cross_entropy(logits: Tensor, targets: Tensor) -> Tensor:
-    """
-    Numerically stable cross-entropy that subtracts the max logit before
-    computing softmax (Prieto et al. 2025).  Identical in value to
-    F.cross_entropy but avoids overflow on large logit scales.
-
-    logits  : [B, n_classes]
-    targets : [B]  int64
-    """
     shifted = logits - logits.max(dim=-1, keepdim=True).values
     log_z = shifted.exp().sum(dim=-1).log()
     log_py = shifted.gather(1, targets.unsqueeze(1)).squeeze(1)
@@ -85,27 +77,9 @@ def stable_max_cross_entropy(logits: Tensor, targets: Tensor) -> Tensor:
 
 
 def soft_label_kl_loss(logits: Tensor, soft_targets: Tensor) -> Tensor:
-    """
-    KL-divergence loss for soft / multi-domain targets.
-
-    Replaces stable_max_cross_entropy when target_domain is a float vector
-    rather than a single integer.  Suitable for mixed-domain queries where
-    the ground truth is a probability distribution over multiple domains
-    (e.g. spectral_vec from MultiLensRouter).
-
-    KL(P || Q) = sum( P * log(P / Q) )  where:
-        P = soft_targets  (the ground-truth distribution)
-        Q = softmax(logits)  (the model's predicted distribution)
-
-    Using F.kl_div(log_Q, P, reduction="batchmean") which is numerically
-    stable (log-space input, probability-space target).
-
-    logits      : [B, n_classes]  raw domain logits from TRMReasoner
-    soft_targets: [B, n_classes]  target probability distribution (∑ == 1)
-    """
-    log_probs = F.log_softmax(logits, dim=-1)          # [B, n_classes]
+    log_probs = F.log_softmax(logits, dim=-1)
     soft_targets = soft_targets.clamp(min=1e-8)
-    soft_targets = soft_targets / soft_targets.sum(dim=-1, keepdim=True)  # renorm
+    soft_targets = soft_targets / soft_targets.sum(dim=-1, keepdim=True)
     return F.kl_div(log_probs, soft_targets, reduction="batchmean")
 
 
@@ -163,6 +137,10 @@ class TRMTrainer:
     drop_last is intentionally False so that a last partial batch is never
     silently discarded.  This prevents zero-batch training when the gated
     TraceWriter produces fewer than batch_size samples on later sim runs.
+
+    The checkpoint format intentionally omits the TRMConfig object so that
+    torch.load(weights_only=True) works on PyTorch >= 2.6.  Config is always
+    reconstructed from TRMConfig() at load time.
     """
 
     def __init__(
@@ -199,20 +177,6 @@ class TRMTrainer:
         self,
         batch: Dict[str, Tensor],
     ) -> Dict[str, Tensor]:
-        """
-        Three-term loss:
-            L = w_dom * L_domain  +  w_halt * L_halt  +  w_con * L_contrastive
-
-        L_domain path selection
-        -----------------------
-        Hard label  (target_domain is a 1-D int64 vector [B]):
-            stable_max_cross_entropy(logits, target_domain)
-
-        Soft label  (target_domain is a 2-D float32 matrix [B, n_domains]):
-            KL( softmax(logits) || target_domain )
-            Use this path for mixed-domain queries by passing spectral_vec
-            (from MultiLensRouter) as target_domain in the dataset record.
-        """
         cfg = self.cfg
         device = cfg.device
 
@@ -229,33 +193,26 @@ class TRMTrainer:
             initial_domain_probs=initial_domain_probs,
         )
 
-        # 1. Primary routing loss — auto-select hard vs soft path
         if target_domain.dim() == 2:
-            l_domain = soft_label_kl_loss(
-                out.domain_logits,
-                target_domain.float(),
-            )
-            hard_target = target_domain.argmax(dim=-1)  # [B]
+            l_domain = soft_label_kl_loss(out.domain_logits, target_domain.float())
+            hard_target = target_domain.argmax(dim=-1)
         else:
             if cfg.stable_max_loss:
                 l_domain = stable_max_cross_entropy(out.domain_logits, target_domain)
             else:
                 l_domain = F.cross_entropy(out.domain_logits, target_domain)
-            hard_target = target_domain  # [B]
+            hard_target = target_domain
 
-        # 2. Halt BCE: target = 1 if prediction correct, else 0
-        correct = (out.primary_domain_idx == hard_target).float()  # [B]
+        correct = (out.primary_domain_idx == hard_target).float()
         l_halt = F.binary_cross_entropy_with_logits(
             self.model.halt_head(self.model.answer_embedder(initial_domain_probs)),
             correct,
         )
 
-        # 3. Contrastive term (optional — skipped if weight==0)
         l_contrastive = torch.tensor(0.0, device=device)
         if cfg.contrastive_loss_weight > 0 and "semantic_hash" in batch:
-            emb = out.final_y.mean(dim=1)          # [B, D]
-            emb = F.normalize(emb, dim=-1)
-            sim = emb @ emb.T / 0.07               # [B, B] cosine sim / temp
+            emb = F.normalize(out.final_y.mean(dim=1), dim=-1)
+            sim = emb @ emb.T / 0.07
             labels = torch.arange(emb.shape[0], device=device)
             l_contrastive = F.cross_entropy(sim, labels)
 
@@ -265,10 +222,10 @@ class TRMTrainer:
             + cfg.contrastive_loss_weight * l_contrastive
         )
         return {
-            "loss":           total,
-            "l_domain":       l_domain.detach(),
-            "l_halt":         l_halt.detach(),
-            "l_contrastive":  l_contrastive.detach(),
+            "loss":          total,
+            "l_domain":      l_domain.detach(),
+            "l_halt":        l_halt.detach(),
+            "l_contrastive": l_contrastive.detach(),
         }
 
     # ------------------------------------------------------------------ #
@@ -319,7 +276,6 @@ class TRMTrainer:
 
     @torch.no_grad()
     def evaluate(self) -> float:
-        """Returns top-1 accuracy on the eval dataset using EMA weights."""
         if self.eval_dl is None:
             return float("nan")
         cfg = self.cfg
@@ -343,20 +299,26 @@ class TRMTrainer:
     # ------------------------------------------------------------------ #
 
     def save(self, path: str) -> None:
-        """Save both live model and EMA shadow weights."""
+        """
+        Save model and EMA weights.
+
+        TRMConfig is intentionally NOT stored in the checkpoint — it contains
+        custom Python objects that break torch.load(weights_only=True) on
+        PyTorch >= 2.6.  Config is always reconstructed via TRMConfig() at
+        load time; none of the load sites read ckpt["cfg"].
+        """
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         torch.save({
-            "model_state":  self.model.state_dict(),
-            "ema_state":    self.ema.state_dict(),
-            "step":         self.step,
-            "cfg":          self.cfg,
+            "model_state": self.model.state_dict(),
+            "ema_state":   self.ema.state_dict(),
+            "step":        self.step,
         }, path)
         logger.info("TRMTrainer: saved checkpoint to %s (step=%d)", path, self.step)
 
     @classmethod
     def load_checkpoint(cls, path: str, model: TRMReasoner, cfg: TRMConfig) -> "TRMTrainer":
         """Restore trainer state from a saved checkpoint."""
-        ckpt = torch.load(path, map_location=cfg.device)
+        ckpt = torch.load(path, map_location=cfg.device, weights_only=True)
         model.load_state_dict(ckpt["model_state"])
         trainer = cls(model, cfg, train_dataset=_EmptyDataset(), batch_size=1)
         trainer.ema.shadow.load_state_dict(ckpt["ema_state"])
