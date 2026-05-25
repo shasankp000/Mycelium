@@ -38,6 +38,9 @@ Key design decisions (all paper-justified):
       (§4.1: IFT degrades 87.4% → 56.5%).
     - Simplified ACT BCE halt (§4.6: removes second forward pass).
     - EMA applied by TRMTrainer, not here (§4.7).
+    - Inter-recursion RMSNorm on y and z after each _latent_recursion call
+      prevents cumulative residual drift when n_recursions * n_supervision
+      is large (54+ cell passes from random init → logits in thousands).
 """
 
 from __future__ import annotations
@@ -51,7 +54,7 @@ import torch.nn as nn
 from torch import Tensor
 
 from .config import TRMConfig
-from .network import TRMCell
+from .network import TRMCell, RMSNorm
 from .embeddings import QueryEmbedder, AnswerEmbedder
 from .output_head import DomainHead, HaltHead
 
@@ -127,6 +130,12 @@ class TRMReasoner(nn.Module):
             use_rope=cfg.use_rope,
         )
 
+        # Inter-recursion normalisers: clamp y and z after each
+        # _latent_recursion call to prevent cumulative residual drift
+        # across n_recursions * n_supervision cell passes.
+        self.y_norm = RMSNorm(cfg.hidden_size)
+        self.z_norm = RMSNorm(cfg.hidden_size)
+
         # Output heads
         self.domain_head = DomainHead(cfg.hidden_size, cfg.n_domains)
         self.halt_head   = HaltHead(cfg.hidden_size)
@@ -146,26 +155,25 @@ class TRMReasoner(nn.Module):
         Run n inner latent steps then one answer update.
 
         Latent update  (§4.3): z ← cell(q=z,   context=x+y)
-            The cell cross-attends z against x+y so the latent state
-            integrates both query information and current answer belief.
-
         Answer update  (§4.3): y ← cell(q=y+z, context=None)
-            Self-attention only — x is excluded so the answer refines
-            itself using only what the latent state has distilled.
+
+        y and z are RMSNorm'd before returning to prevent cumulative
+        residual drift across repeated calls.
 
         Returns updated (y, z).
         """
-        # x has shape [B, L_total, D]; y and z have shape [B, n_domains, D].
-        # For cross-attention, x+y need compatible sequence lengths.
-        # We broadcast x (L_total) and y (n_domains) separately as context.
-        # The paper concatenates them: context = cat([x, y], dim=1).
         context = torch.cat([x, y], dim=1)  # [B, L_total + n_domains, D]
 
         for _ in range(n):
-            z = self.cell(q=z, context=context)        # latent update
-            context = torch.cat([x, y], dim=1)         # recompute after y update below
+            z = self.cell(q=z, context=context)
+            context = torch.cat([x, y], dim=1)
 
-        y = self.cell(q=y + z, context=None)           # answer update (self-attn only)
+        y = self.cell(q=y + z, context=None)
+
+        # Clamp inter-recursion drift: keeps activations in a stable range
+        # regardless of how many outer supervision steps are chained.
+        y = self.y_norm(y)
+        z = self.z_norm(z)
         return y, z
 
     # ------------------------------------------------------------------ #
@@ -182,37 +190,49 @@ class TRMReasoner(nn.Module):
         """
         Full TRM forward pass with deep supervision loop.
 
-        At training time this method is called once per batch; the outer
-        supervision loop runs T times with gradients on the last pass only
-        (§4 deep supervision).  At inference time, it runs until halt or
-        max_supervision_steps, whichever comes first.
+        No-grad stabilisation passes (T-1 passes before the gradient pass)
+        are skipped when the model has not yet converged — detected by
+        checking whether domain_head weight norms are below a threshold.
+        With random-init weights the no-grad passes just amplify the
+        residual drift without providing useful look-ahead signal.
+        Once weights are trained the full T-1 passes run as intended.
 
         Returns TRMOutput.
         """
         cfg = self.cfg
-        # Build x and y0
         x  = self.query_embedder(token_ids, spectral_vec, predicate_family_id)
         y  = self.answer_embedder(initial_domain_probs)
         z  = torch.zeros_like(y)  # [B, n_domains, D]
 
-        # --- Deep supervision outer loop ---
         training = self.training
         n_steps = cfg.n_supervision if training else cfg.max_supervision_steps
         T = cfg.n_supervision
+
+        # Detect whether the model is roughly converged by checking the
+        # L2 norm of domain_head weights.  Random-init weights have norm
+        # close to sqrt(fan_in) ≈ sqrt(hidden_size); trained weights drift
+        # meaningfully away.  We use a conservative threshold of 1.5x.
+        # This gates the no-grad stabilisation passes: they help a trained
+        # model but amplify explosion in a random-init model.
+        import math as _math
+        _dh_norm = self.domain_head.proj.weight.data.norm().item()
+        _random_init_norm = _math.sqrt(cfg.hidden_size)  # ≈ 22.6 for D=512
+        _is_converged = _dh_norm > _random_init_norm * 1.5
+        _stabilisation_passes = (T - 1) if _is_converged else 0
+
         last_logits: Optional[Tensor] = None
         last_halt:   Optional[Tensor] = None
 
         for step in range(n_steps):
             if training:
-                # T-1 no-grad stabilisation passes
-                if T > 1:
+                # No-grad stabilisation passes (skipped until converged)
+                if _stabilisation_passes > 0:
                     with torch.no_grad():
-                        for _ in range(T - 1):
+                        for _ in range(_stabilisation_passes):
                             y, z = self._latent_recursion(x, y, z, cfg.n_recursions)
                 # One gradient-enabled pass
                 y, z = self._latent_recursion(x, y, z, cfg.n_recursions)
             else:
-                # Inference: T passes, all no-grad
                 with torch.no_grad():
                     for _ in range(T):
                         y, z = self._latent_recursion(x, y, z, cfg.n_recursions)
@@ -220,7 +240,6 @@ class TRMReasoner(nn.Module):
             last_logits = self.domain_head(y)   # [B, n_domains]
             last_halt   = self.halt_head(y)     # [B]
 
-            # Halt check (inference only — never halt during training)
             if not training:
                 halt_prob = last_halt.sigmoid()
                 if halt_prob.min().item() > cfg.halt_threshold:
