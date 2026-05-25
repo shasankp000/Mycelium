@@ -203,9 +203,26 @@ class TRMTrainer:
                 l_domain = F.cross_entropy(out.domain_logits, target_domain)
             hard_target = target_domain
 
+        # Halt loss: use the halt_head applied directly to domain_logits
+        # (which is in the gradient graph from the forward pass) rather than
+        # re-running answer_embedder(initial_domain_probs) in isolation.
+        # The previous code computed halt loss on a completely disconnected
+        # subgraph, meaning TRMCell and domain_head received zero halt gradient.
+        # domain_logits is [B, n_domains]; unsqueeze to [B, n_domains, 1] then
+        # expand to [B, n_domains, hidden_size] so HaltHead.proj can pool it.
+        # Simpler: just re-use out.domain_logits as a proxy y for HaltHead —
+        # HaltHead mean-pools over dim=1 [B, n_domains, D] then projects to [B].
+        # We embed domain_logits -> [B, n_domains, hidden_size] via halt_embed.
         correct = (out.primary_domain_idx == hard_target).float()
+        # Compute halt logits from the live forward-pass answer state.
+        # final_y is detached (intentional per paper §4.7 — halt is a separate
+        # signal), but we re-compute halt from domain_logits which IS in the
+        # gradient graph, giving halt_head.proj a proper gradient path.
+        halt_y = out.domain_logits.unsqueeze(-1).expand(
+            -1, -1, self.model.cfg.hidden_size
+        )  # [B, n_domains, hidden_size]
         l_halt = F.binary_cross_entropy_with_logits(
-            self.model.halt_head(self.model.answer_embedder(initial_domain_probs)),
+            self.model.halt_head(halt_y),
             correct,
         )
 
@@ -237,6 +254,10 @@ class TRMTrainer:
         self.model.train()
         logger.info("TRMTrainer: starting training for %d steps", cfg.max_train_steps)
 
+        # Log every step when the run is short so progress is visible on stdout.
+        # For runs > 500 steps, fall back to every 10 steps to reduce noise.
+        log_interval = 1 if cfg.max_train_steps <= 500 else 10
+
         while self.step < cfg.max_train_steps:
             for batch in self.train_dl:
                 if self.step >= cfg.max_train_steps:
@@ -257,13 +278,13 @@ class TRMTrainer:
 
                 self.step += 1
 
-                if self.step % 500 == 0:
-                    logger.info(
-                        "step=%d lr=%.2e loss=%.4f l_dom=%.4f l_halt=%.4f",
-                        self.step, lr,
-                        loss.item(),
-                        losses["l_domain"].item(),
-                        losses["l_halt"].item(),
+                if self.step % log_interval == 0:
+                    print(
+                        f"  step={self.step:4d}/{cfg.max_train_steps}"
+                        f"  lr={lr:.2e}"
+                        f"  loss={loss.item():.4f}"
+                        f"  l_dom={losses['l_domain'].item():.4f}"
+                        f"  l_halt={losses['l_halt'].item():.4f}"
                     )
 
                 if self.step % 5000 == 0 and self.eval_dl:
