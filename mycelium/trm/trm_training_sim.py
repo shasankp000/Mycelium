@@ -195,6 +195,11 @@ def _train_trm(
       - Legacy: {model_state, ema_state, step, cfg}  (older checkpoints)
     weights_only=False is used so that legacy checkpoints with TRMConfig
     objects (saved before this fix) still load correctly.
+
+    trainer.step is always reset to 0 after loading so that max_train_steps
+    is computed freshly from the current dataset size and the training loop
+    always runs a full pass — regardless of the step count stored in the
+    checkpoint.
     """
     if not Path(train_path).exists():
         print(f"[error] Training data not found at {train_path!r} — skipping training.")
@@ -282,6 +287,13 @@ def _train_trm(
             eval_dataset=eval_dataset,
             batch_size=effective_batch_size,
         )
+        # Always reset step to 0 so training runs a full pass on the current
+        # dataset.  The checkpoint step is informational only — using it as the
+        # starting counter would cause the loop to exit immediately if
+        # max_train_steps <= saved step.
+        trainer.step = 0
+        print(f"Training for {cfg.max_train_steps} steps ({steps_per_epoch} steps/epoch × {epochs} epochs)")
+
         trainer.train()
         trainer.save(str(_CHECKPOINT_PATH))
         print(f"\n\u2705 TRMReasoner checkpoint saved to {_CHECKPOINT_PATH}")
