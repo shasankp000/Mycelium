@@ -44,6 +44,16 @@ spaCy venv routing
 
     The probe is done at import time once and cached in _SPACY_SITE.
     No subprocess is spawned; we just temporarily prepend the path.
+
+    Stale-import eviction
+    ---------------------
+    Python 3.13 may ship a stub or broken spaCy build that gets cached
+    in sys.modules['spacy'] before this file runs (e.g. from a top-level
+    `import spacy` elsewhere in the process).  That stale entry would
+    shadow the .venv2 copy even after sys.path injection.
+    _import_spacy() therefore evicts 'spacy' and all 'spacy.*' sub-modules
+    from sys.modules before attempting the path-injected import so the
+    correct 3.11 copy is always resolved.
 """
 
 from __future__ import annotations
@@ -91,30 +101,59 @@ def _find_venv2_site() -> Optional[str]:
 _SPACY_SITE: Optional[str] = _find_venv2_site()
 
 
+def _evict_spacy_from_sys_modules() -> None:
+    """
+    Remove any previously imported 'spacy' and 'spacy.*' entries from
+    sys.modules.
+
+    This is necessary because Python 3.13 (the main venv) may have
+    already imported a stub or incompatible spaCy that lacks `spacy.load`
+    (spaCy 3.x does not support CPython 3.13 as of May 2026).  If that
+    broken import is cached in sys.modules, prepending the .venv2
+    site-packages to sys.path has no effect — Python returns the cached
+    module instead of re-importing from the new path.
+
+    Calling this before `import spacy` forces a clean resolution from
+    whatever is currently at the front of sys.path.
+    """
+    stale = [k for k in sys.modules if k == "spacy" or k.startswith("spacy.")]
+    for key in stale:
+        del sys.modules[key]
+
+
 def _import_spacy():
     """
     Import spaCy, preferring the .venv2 site-packages when available.
 
     Strategy:
-        - If _SPACY_SITE is set and not already on sys.path, prepend it
-          temporarily so `import spacy` resolves to the .venv2 copy.
-        - After the import succeeds, leave _SPACY_SITE on sys.path so
-          that subsequent imports (e.g. en_core_web_sm) also resolve
-          correctly.
-        - If spaCy import fails entirely, return None.
+        1. If _SPACY_SITE is set and not already on sys.path, prepend it.
+        2. Evict any stale spaCy entries from sys.modules so the
+           path-injected copy is always resolved (not a cached 3.13 stub).
+        3. Attempt `import spacy`.
+        4. Validate that the import has a working `load` attribute —
+           if not, treat it as a failed import and fall through to None.
+        5. On failure, clean up the sys.path entry so we don't pollute
+           the process with a non-working path.
     """
     global _SPACY_SITE
 
+    injected = False
     if _SPACY_SITE and _SPACY_SITE not in sys.path:
         sys.path.insert(0, _SPACY_SITE)
+        injected = True
+
+    # Evict any stale/partial spaCy already cached from the 3.13 env.
+    _evict_spacy_from_sys_modules()
 
     try:
         import spacy  # noqa: PLC0415
+        # Guard: a broken install may import but lack `load` (seen on 3.13).
+        if not callable(getattr(spacy, "load", None)):
+            raise ImportError("spacy.load not callable — incompatible build")
         return spacy
-    except ImportError:
-        # If the venv2 path didn't help, clean it up so we don't pollute
-        # sys.path with a non-working entry.
-        if _SPACY_SITE and _SPACY_SITE in sys.path:
+    except (ImportError, Exception):
+        # Clean up so we don't leave a broken path in sys.path.
+        if injected and _SPACY_SITE in sys.path:
             sys.path.remove(_SPACY_SITE)
         _SPACY_SITE = None
         return None
