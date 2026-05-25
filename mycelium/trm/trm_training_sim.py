@@ -90,6 +90,7 @@ import json
 import os
 import sys
 import time
+import traceback as _tb
 import uuid
 from pathlib import Path
 from typing import List, Optional
@@ -187,6 +188,8 @@ def _run_single_query(query: str, sim_prefix: str, idx: int) -> bool:
         return True
     except Exception as exc:
         print(f"  [warn] workflow failed for query {idx!r}: {exc}")
+        print("  [traceback]")
+        _tb.print_exc()
         return False
 
 
