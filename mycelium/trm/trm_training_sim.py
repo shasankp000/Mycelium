@@ -200,6 +200,10 @@ def _train_trm(
     is computed freshly from the current dataset size and the training loop
     always runs a full pass — regardless of the step count stored in the
     checkpoint.
+
+    cfg.device is overridden to CUDA if available so training uses the GPU.
+    TRMConfig defaults to "cpu" for inference but training should always
+    use the fastest available device.
     """
     if not Path(train_path).exists():
         print(f"[error] Training data not found at {train_path!r} — skipping training.")
@@ -221,6 +225,13 @@ def _train_trm(
         from mycelium.trm.trainer import TRMTrainer, _EmptyDataset
 
         cfg = TRMConfig()
+        # Override device: always use CUDA for training if available.
+        # TRMConfig defaults to "cpu" (suitable for inference), but training
+        # on GPU is significantly faster and should always be preferred.
+        cfg.device = "cuda" if _torch.cuda.is_available() else "cpu"
+        print(f"Training device: {cfg.device}"
+              + (f" ({_torch.cuda.get_device_name(0)})" if cfg.device == "cuda" else ""))
+
         reasoner = TRMReasoner(cfg)
 
         if _CHECKPOINT_PATH.exists():
