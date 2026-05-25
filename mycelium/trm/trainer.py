@@ -28,6 +28,13 @@ Each training sample is a dict:
         # KL-divergence(log_softmax(logits) || target_soft_label).
         # spectral_vec from MultiLensRouter is a perfect source: it already
         # encodes multi-domain probability across all registered experts.
+
+        # Halt supervision:
+        "halt_label":            FloatTensor scalar   (1.0=halt, 0.0=continue)
+        # Derived from spectral routing confidence at trace-write time.
+        # When absent (legacy records), falls back to a proxy derived from
+        # whether the domain head's top-1 matches the ground-truth target
+        # at eval time — NOT from the model's own predictions during training.
     }
 
 These are sourced from Mycelium's routing trace logs:
@@ -203,21 +210,38 @@ class TRMTrainer:
                 l_domain = F.cross_entropy(out.domain_logits, target_domain)
             hard_target = target_domain
 
-        correct = (out.primary_domain_idx == hard_target).float()
+        # Halt loss — use ground-truth halt_label from the trace when present.
+        # IMPORTANT: do NOT derive the halt target from out.primary_domain_idx
+        # (the model’s own current prediction).  At the start of training the
+        # domain head is ~12.5% accurate (random over 8 classes), so
+        # (primary_domain_idx == hard_target) is almost always False → the
+        # halt head would learn to always predict “don’t halt” and get stuck.
+        #
+        # When halt_label is present (new records): use it directly.
+        # When absent (legacy records written before this fix): fall back to a
+        # proxy based on whether the GROUND TRUTH domain has a high spectral
+        # score — i.e. use spectral_vec[hard_target] as a soft halt signal.
+        # This is still meaningful (high spectral confidence on the correct
+        # domain → should halt) and is independent of the model’s own output.
+        if "halt_label" in batch:
+            halt_target = batch["halt_label"].float().to(device)  # [B], values in {0,1}
+        else:
+            # Legacy fallback: soft halt proxy from spectral confidence on
+            # the ground-truth domain.  spectral_vec[b, hard_target[b]].
+            gt_spectral = spectral_vec.gather(
+                1, hard_target.unsqueeze(1)
+            ).squeeze(1)  # [B]
+            # Binarise at 0.50: confident spectral score → halt
+            halt_target = (gt_spectral > 0.50).float()
 
-        # Halt loss: build a proxy [B, n_domains, hidden_size] tensor from
-        # softmax(domain_logits) so values are bounded in [0, 1] before
-        # expansion.  Using raw logits caused HaltHead.proj to receive huge
-        # inputs (~hundreds) which exploded l_halt into the thousands.
-        # softmax probs are in [0,1] so expansion is numerically safe.
-        # This tensor IS in the gradient graph (softmax is differentiable),
-        # so halt_head.proj and the domain path both receive proper gradients.
+        # halt_head input: softmax(domain_logits) expanded to [B, n_domains, hidden_size]
+        # Values in [0,1] prevent exploding inputs to halt_head.proj.
         halt_y = out.domain_probs.unsqueeze(-1).expand(
             -1, -1, self.model.cfg.hidden_size
-        )  # [B, n_domains, hidden_size], values in [0, 1]
+        )  # [B, n_domains, hidden_size]
         l_halt = F.binary_cross_entropy_with_logits(
             self.model.halt_head(halt_y),
-            correct,
+            halt_target,
         )
 
         l_contrastive = torch.tensor(0.0, device=device)

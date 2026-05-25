@@ -18,8 +18,28 @@ Schema of each record (matches TRMTrainer dataset format exactly)
         "spectral_vec":          list[float],# length == n_domains   (8)
         "predicate_family_id":   int,        # routing_classification → index
         "initial_domain_probs":  list[float],# length == n_domains   (8)
-        "target_domain":         int         # selected_domain → domain index
+        "target_domain":         int,        # selected_domain → domain index
+        "halt_label":            float,      # 1.0 = halt (confident),
+                                             # 0.0 = continue (ambiguous)
     }
+
+halt_label derivation
+---------------------
+The halt signal encodes whether the model should commit to its current
+domain prediction or continue reasoning:
+
+    halt=1.0   The routing was confident and unambiguous:
+               - Top-1 spectral score > HALT_CONFIDENT_THRESHOLD (0.50), AND
+               - TRM (if active) agreed: primary_domain == target_domain.
+
+    halt=0.0   The routing was uncertain or multi-domain:
+               - Top-1 spectral score <= HALT_CONFIDENT_THRESHOLD, OR
+               - TRM was overruled (primary_domain != target_domain).
+
+This gives the halt head a real binary supervision signal tied to routing
+confidence rather than the model's own domain accuracy at training time
+(which would be near-zero early in training and cause the halt head to
+always predict "don't halt").
 
 Confidence gating (long-term robustness — §A)
 ---------------------------------------------
@@ -55,6 +75,11 @@ CONTEXT_LEN: int = 64
 VOCAB_SIZE: int = 8192
 GATE_THRESHOLD: float = float(os.getenv("TRM_GATE_THRESHOLD", "1.0"))
 EVAL_FRACTION: float = 0.20  # 20 % of samples go to eval split
+
+# Top-1 spectral score above this threshold → halt=1 (routing is confident).
+HALT_CONFIDENT_THRESHOLD: float = float(
+    os.getenv("TRM_HALT_CONFIDENT_THRESHOLD", "0.50")
+)
 
 # Fixed domain list — must match initialize_unified_experts() order.
 # Indices 4-7 are reserved for future expert domains.
@@ -203,6 +228,33 @@ def _initial_domain_probs(spectral_vec: List[float]) -> List[float]:
     return [v / total for v in blended]
 
 
+def _derive_halt_label(
+    spectral_vec: List[float],
+    target_idx: int,
+    trm_primary_idx: int,
+) -> float:
+    """
+    Derive a ground-truth halt label from routing confidence.
+
+    halt=1.0  The routing is confident and unambiguous:
+              - The top spectral score exceeds HALT_CONFIDENT_THRESHOLD, AND
+              - Either TRM is not active (trm_primary_idx == -1) or TRM
+                agreed with the selected domain.
+
+    halt=0.0  The routing is uncertain or TRM was overruled.
+
+    Using spectral confidence (not the model's own domain accuracy) means
+    the halt head always receives a real supervision signal, even at the
+    start of training when domain accuracy is near-chance.
+    """
+    top_score = max(spectral_vec) if spectral_vec else 0.0
+    spectral_confident = top_score > HALT_CONFIDENT_THRESHOLD
+
+    trm_agreed = (trm_primary_idx < 0) or (trm_primary_idx == target_idx)
+
+    return 1.0 if (spectral_confident and trm_agreed) else 0.0
+
+
 # ------------------------------------------------------------------ #
 # TRMRoutingTraceWriter                                               #
 # ------------------------------------------------------------------ #
@@ -318,15 +370,19 @@ class TRMRoutingTraceWriter:
         # 6. initial_domain_probs
         init_probs = _initial_domain_probs(spectral_vec)
 
+        # 7. halt_label — derived from spectral routing confidence, not model accuracy
+        halt_label = _derive_halt_label(spectral_vec, target_idx, trm_primary_idx)
+
         record: Dict[str, Any] = {
             "token_ids":            token_ids,
             "spectral_vec":         spectral_vec,
             "predicate_family_id":  pred_family_id,
             "initial_domain_probs": init_probs,
             "target_domain":        target_idx,
+            "halt_label":           halt_label,
         }
 
-        # 7. Route to train or eval file
+        # 8. Route to train or eval file
         is_eval = random.random() < self._eval_fraction
         path = self._eval_path if is_eval else self._train_path
 
