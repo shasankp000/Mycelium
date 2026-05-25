@@ -26,6 +26,12 @@ Usage
         --llm-model local-model \\
         --openai-compat
 
+    # Skip simulation entirely — train directly from existing routing traces.
+    # Use this to recover from a power cut or any interruption that left the
+    # JSONL intact but prevented the training step from running.
+    python -m mycelium.trm.trm_training_sim --train-only
+    python -m mycelium.trm.trm_training_sim --train-only --epochs 5
+
 Flow
 ----
 1. For each domain in DOMAIN_LIST (skipping __reserved*):
@@ -371,11 +377,27 @@ def _parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--llm-timeout", type=int, default=int(os.getenv("TRM_SIM_TIMEOUT", "120")))
     parser.add_argument("--domains", nargs="+", default=None,
         help=f"Subset of domains to simulate. Available: {ACTIVE_DOMAINS}")
+    parser.add_argument(
+        "--train-only", action="store_true",
+        default=False,
+        help=(
+            "Skip simulation entirely and train directly from the existing "
+            "routing_traces.jsonl. Use this to recover after a power cut or "
+            "any interruption that left the JSONL intact but prevented the "
+            "training step from running."
+        ),
+    )
     return parser.parse_args(argv)
 
 
 if __name__ == "__main__":
     args = _parse_args()
+
+    if args.train_only:
+        print("\n[--train-only] Skipping simulation — training directly from existing traces.")
+        ok = _train_trm(epochs=args.epochs)
+        sys.exit(0 if ok else 1)
+
     run_sim(
         llm_url=args.llm_url, llm_model=args.llm_model,
         queries_per_domain=args.queries_per_domain, epochs=args.epochs,
