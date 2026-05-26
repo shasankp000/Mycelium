@@ -390,14 +390,6 @@ def _run_trm_reasoner(
 # ---------------------------------------------------------------------------
 
 def _extract_shadow_signal(routing_context: Any) -> Optional[Dict[str, Any]]:
-    """
-    Pull shadow_signal out of routing_context regardless of whether it is a
-    dataclass/object with attributes or a plain dict (MultiLensRouter wraps
-    layer1_router results in a RoutingContext dataclass, but the dict path is
-    also guarded for safety).
-
-    Returns the as_dict() payload if a signal is present, else None.
-    """
     sig = getattr(routing_context, "shadow_signal", None)
     if sig is None and isinstance(routing_context, dict):
         sig = routing_context.get("shadow_signal")
@@ -423,9 +415,6 @@ def run_mycelium_workflow(
     dfs_max_depth: int = depth_cfg["dfs_max_depth"]
     expert_top_k: int = depth_cfg["expert_top_k"]
     phase3_passes: int = depth_cfg["phase3_passes"]
-    # Per-mode TRM confidence gate — derived from DEPTH_CONFIGS in api_models.
-    # TRM halt_confidence must *exceed* this value for the pipeline to
-    # short-circuit without escalating to deeper DAG/DFS layers.
     trm_threshold: float = float(depth_cfg["trm_threshold"])
 
     _wall_start = _time.monotonic()
@@ -765,14 +754,34 @@ def run_mycelium_workflow(
 
         relevant_domains = list(set(relevant_domains))
 
+        # ----------------------------------------------------------------
+        # graph:dfs_step  — one event per domain the router surfaced.
+        # Emitted here, after relevant_domains is final, so the frontend
+        # graph builder has the complete explored set before Phase 2 begins.
+        # ----------------------------------------------------------------
+        _fused_scores: Dict[str, float] = dict(
+            getattr(routing_context, "fusion_scores", {}) or {}
+        )
+        for _step_idx, _domain in enumerate(relevant_domains):
+            emitter.emit(
+                phase_name="graph:dfs_step",
+                message=f"Domain explored: {_domain}",
+                detail=f"step {_step_idx + 1}/{len(relevant_domains)}",
+                state="running",
+                metadata={
+                    "domain": _domain,
+                    "step_index": _step_idx,
+                    "total_steps": len(relevant_domains),
+                    "fused_score": round(_fused_scores.get(_domain, 0.0), 4),
+                    "dfs_max_depth": dfs_max_depth,
+                    "classification": str(classification) if classification else "",
+                },
+            )
+        # ----------------------------------------------------------------
+
         trm_reasoner_result: Optional[Dict[str, Any]] = None
         ood_fallback_result: Optional[Dict[str, Any]] = None
-        # should_escalate is True when TRM is not confident enough to
-        # short-circuit given the current reasoning_mode threshold.
-        # Downstream consumers (layer1_router, patch_dag) read this flag
-        # via the SSE metadata; direct Python callers receive it in the
-        # sentence data dict.
-        should_escalate: bool = True  # default: always escalate when TRM unavailable
+        should_escalate: bool = True
 
         if trm_reasoner is not None:
             trm_reasoner_result = _run_trm_reasoner(
@@ -781,10 +790,6 @@ def run_mycelium_workflow(
             if trm_reasoner_result is not None:
                 relevant_domains = trm_reasoner_result["reranked_domains"]
                 halt_conf: float = trm_reasoner_result["halt_confidence"]
-                # Apply per-mode threshold — the heart of the mode system.
-                # fast:       threshold=0.85  → only escalate when clearly uncertain
-                # smart:      threshold=0.70  → default TRM behaviour
-                # researcher: threshold=0.55  → escalate even on moderate confidence
                 should_escalate = halt_conf < trm_threshold
 
                 if ENABLE_LOGGING and idx % LOG_SAMPLE_RATE == 0:
@@ -796,8 +801,6 @@ def run_mycelium_workflow(
                         f"steps={trm_reasoner_result['n_steps_taken']}"
                     )
 
-                # Emit TRM decision so the graph UI can render the
-                # decision-point node with confidence + escalation state.
                 emitter.emit(
                     phase_name="graph_trm_decision",
                     message="TRM routing decision",
@@ -871,6 +874,22 @@ def run_mycelium_workflow(
             if d in expert_system.experts
         }
 
+        # ----------------------------------------------------------------
+        # graph:tool_start — Phase 2 validation
+        # ----------------------------------------------------------------
+        emitter.emit(
+            phase_name="graph:tool_start",
+            message="Starting Phase 2 validation",
+            detail="Expert scoring + confidence calibration",
+            state="running",
+            metadata={
+                "tool": "phase2_validation",
+                "tag_count": len(normalized_tags),
+                "expert_count": len(filtered_experts),
+                "domains": list(filtered_experts.keys()),
+            },
+        )
+
         phase2_result = phase2_pipeline.run(
             text=text,
             routing_context=routing_context,
@@ -879,10 +898,80 @@ def run_mycelium_workflow(
         )
         _prev_phase2_result = phase2_result
 
+        # ----------------------------------------------------------------
+        # graph:tool_done — Phase 2 validation complete
+        # ----------------------------------------------------------------
+        emitter.emit(
+            phase_name="graph:tool_done",
+            message="Phase 2 validation complete",
+            detail="",
+            state="running",
+            metadata={
+                "tool": "phase2_validation",
+                "decision": str(getattr(phase2_result, "decision_label", "") or ""),
+                "confidence": round(
+                    float(getattr(phase2_result, "confidence", 0.0) or 0.0), 4
+                ),
+            },
+        )
+
         p3_input = _adapt_phase2_to_p3(phase2_result, original_text=text)
+
+        # ----------------------------------------------------------------
+        # graph:tool_start — Phase 3 reasoning
+        # ----------------------------------------------------------------
+        emitter.emit(
+            phase_name="graph:tool_start",
+            message="Starting Phase 3 reasoning pipeline",
+            detail=f"phase3_passes={phase3_passes}",
+            state="running",
+            metadata={
+                "tool": "phase3_reasoning",
+                "phase3_passes": phase3_passes,
+                "action": str(getattr(p3_input, "action", "") or ""),
+            },
+        )
 
         phase3_result = phase3_pipeline.run_complete_pipeline(
             final_decision_result=p3_input,
+        )
+
+        # ----------------------------------------------------------------
+        # graph:tool_done — Phase 3 reasoning complete
+        # ----------------------------------------------------------------
+        _p3_latencies: Dict[str, float] = {}
+        if isinstance(phase3_result, dict):
+            _p3_latencies = phase3_result.get("phase_latencies", {}) or {}
+        elif hasattr(phase3_result, "phase_latencies"):
+            _p3_latencies = dict(getattr(phase3_result, "phase_latencies", {}) or {})
+
+        emitter.emit(
+            phase_name="graph:tool_done",
+            message="Phase 3 reasoning complete",
+            detail="",
+            state="running",
+            metadata={
+                "tool": "phase3_reasoning",
+                "phase_latencies_ms": {k: round(v, 1) for k, v in _p3_latencies.items()},
+            },
+        )
+
+        # ----------------------------------------------------------------
+        # graph:synthesis_start — LLM synthesis about to begin
+        # Fires before unified_decision_analysis so the frontend can show
+        # a "thinking" node as soon as the expert arbiter starts.
+        # ----------------------------------------------------------------
+        emitter.emit(
+            phase_name="graph:synthesis_start",
+            message="Expert synthesis starting",
+            detail=f"Arbitrating across {len(filtered_experts)} expert(s)",
+            state="running",
+            metadata={
+                "expert_count": len(filtered_experts),
+                "domains": list(filtered_experts.keys()),
+                "reasoning_mode": reasoning_mode,
+                "should_escalate": should_escalate,
+            },
         )
 
         unified_decision = expert_system.unified_decision_analysis(
