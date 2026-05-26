@@ -17,6 +17,11 @@ that each unique (model_name, device) pair is loaded exactly once per
 process, regardless of how many SpectralSignatureGenerator or
 RuntimeSpectralAnalyzer objects are created.
 
+SpectralSignatureGenerator defers model loading to the first call of
+generate_domain_signatures() via a lazy @property, so constructing it
+(e.g. inside DynamicSignatureManager.__init__) does NOT trigger a
+HuggingFace network request when all signatures are already on disk.
+
 Vectorised scoring (M4 item 7.2)
 ---------------------------------
 After loading all domain signatures, RuntimeSpectralAnalyzer stacks them
@@ -49,13 +54,14 @@ def _get_sentence_transformer(model_name: str) -> Optional[object]:
     Falls back to direct instantiation if ModelRegistry is unavailable.
     Always pins device='cpu' to avoid competing with Ollama for VRAM.
     """
+    # Fully-qualified import so the registry cache is actually hit.
     try:
-        from model_registry import get_model
+        from mycelium.pipeline.model_registry import get_model
         return get_model(model_name, model_type="sentence_transformer", device="cpu")
-    except ImportError:
+    except (ImportError, Exception):
         pass
 
-    # Direct fallback
+    # Direct fallback (only reached if ModelRegistry itself is broken)
     if SentenceTransformer is not None:
         try:
             return SentenceTransformer(model_name)
@@ -75,6 +81,11 @@ class SpectralSignatureGenerator:
     4. Average across dimensions and texts
     5. Normalize to [0, 1]
     6. Save to disk as .npy files
+
+    The SentenceTransformer model is loaded lazily on the first call to
+    generate_domain_signatures(), NOT in __init__.  This means constructing
+    a SpectralSignatureGenerator (e.g. inside DynamicSignatureManager) is
+    free when all signatures are already cached on disk.
     """
 
     def __init__(self, model_name: str = "all-MiniLM-L6-v2", signature_dir: str = "signatures"):
@@ -88,11 +99,17 @@ class SpectralSignatureGenerator:
         self.model_name = model_name
         self.signature_dir = Path(signature_dir)
         self.signature_dir.mkdir(exist_ok=True)
+        # Model is NOT loaded here — see the `model` property below.
+        self._model = None
 
-        # Delegate to ModelRegistry — free after first call
-        self.model = _get_sentence_transformer(model_name)
-        if self.model is None:
-            print("\u26a0\ufe0f  SentenceTransformer not available; signature generation will fail gracefully")
+    @property
+    def model(self):
+        """Lazy-load the SentenceTransformer on first access."""
+        if self._model is None:
+            self._model = _get_sentence_transformer(self.model_name)
+            if self._model is None:
+                print("\u26a0\ufe0f  SentenceTransformer not available; signature generation will fail gracefully")
+        return self._model
 
     def _compute_psd_for_dimension(self, signal: np.ndarray) -> np.ndarray:
         """
@@ -122,6 +139,8 @@ class SpectralSignatureGenerator:
     ) -> Dict[str, Dict]:
         """
         Generate and save spectral signatures for multiple domains.
+
+        The SentenceTransformer model is loaded here on first call.
 
         Args:
             domain_corpus: Dict mapping domain names to lists of texts
@@ -214,7 +233,7 @@ class RuntimeSpectralAnalyzer:
         self.signature_dir = Path(signature_dir)
         self.model_name = model_name
 
-        # Delegate to ModelRegistry — free after first call
+        # Delegate to ModelRegistry — free after first call (registry caches it).
         self.model = _get_sentence_transformer(model_name)
 
         # Load all available signatures into the in-memory cache
