@@ -9,7 +9,7 @@ from datetime import datetime, UTC
 from typing import Any, Dict, Generator, List, Optional
 
 import requests as _requests
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -59,6 +59,13 @@ app.add_middleware(
 
 _warmup_done = threading.Event()
 _warmup_lock = threading.Lock()
+
+# ---------------------------------------------------------------------------
+# Valid reasoning modes — kept in sync with ReasoningMode in api_models.py
+# ---------------------------------------------------------------------------
+_VALID_MODES: frozenset[str] = frozenset(
+    {"fast", "balanced", "smart", "deep_research"}
+)
 
 
 @app.on_event("startup")
@@ -597,10 +604,12 @@ _replay_journals_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
-# Phase 6: /api/v1/chat/stream migrated from GET → POST so the request body
-# can carry reasoning_mode alongside the query text.
-# The old GET signature is kept as a deprecated shim (mode defaults to
-# "balanced") for any clients that haven’t been updated yet.
+# Phase 6: /api/v1/chat/stream
+#
+# POST  — primary endpoint; mode carried in JSON body via ChatRequest.
+# GET   — legacy shim; now accepts optional ?mode= query param so clients
+#         that can't POST a body still get mode routing.
+#         Both paths converge on _make_sse_response.
 # ---------------------------------------------------------------------------
 
 @app.post("/api/v1/chat/stream")
@@ -622,16 +631,41 @@ async def chat_stream_post(req: ChatRequest, request: Request) -> StreamingRespo
 
 
 @app.get("/api/v1/chat/stream")
-async def chat_stream_get(text: str, request: Request) -> StreamingResponse:
-    """GET shim — kept for backwards-compat; always uses mode='balanced'."""
+async def chat_stream_get(
+    text: str,
+    request: Request,
+    mode: Optional[str] = Query(
+        default=None,
+        description=(
+            "Reasoning depth mode. One of: fast | balanced | smart | deep_research. "
+            "Defaults to 'balanced'."
+        ),
+    ),
+) -> StreamingResponse:
+    """GET shim — legacy clients.  Now forwards ?mode= into the pipeline."""
     if not text or not text.strip():
         async def _empty():
             yield _sse_event("error", "Empty query", 0)
         return StreamingResponse(_empty(), media_type="text/event-stream")
 
+    # Validate and normalise the mode param.
+    reasoning_mode: ReasoningMode
+    if mode is None:
+        reasoning_mode = "balanced"
+    elif mode in _VALID_MODES:
+        reasoning_mode = mode  # type: ignore[assignment]
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Invalid mode {mode!r}. "
+                f"Must be one of: {', '.join(sorted(_VALID_MODES))}"
+            ),
+        )
+
     return await _make_sse_response(
         text=text.strip(),
-        reasoning_mode="balanced",
+        reasoning_mode=reasoning_mode,
         request=request,
     )
 
