@@ -673,8 +673,20 @@ def _lens1_embedding_candidates(
         return [s for s in scored[:top_k] if s[1] > 0]
 
 
-def _lens2_ontology_explanations(text: str, candidates: List[str]) -> List[Dict]:
-    """Lens 2: Ontology/behavioral explanations with parent-child suppression."""
+def _lens2_ontology_explanations(
+    text: str,
+    candidates: List[str],
+    max_candidates: Optional[int] = None,
+) -> List[Dict]:
+    """Lens 2: Ontology/behavioral explanations with parent-child suppression.
+
+    ``max_candidates`` caps how many candidates are examined when the caller
+    wants to bound work (e.g. when dfs_max_depth is low).  Passing None
+    (the default) examines all candidates, which is the original behaviour.
+    """
+    if max_candidates is not None:
+        candidates = candidates[:max_candidates]
+
     tokens = set(_tokenize(text))
     results = []
     coverage_map: Dict[str, Dict] = {}
@@ -754,6 +766,64 @@ def _lens3_abstraction_signature(text: str, concepts: List[str]) -> Dict:
 
 
 # ---------------------------------------------------------------------------
+# Fast lexical-only routing (used when TRM halts escalation)
+# ---------------------------------------------------------------------------
+
+def _fast_lexical_route(text: str) -> Dict:
+    """Minimal, zero-model routing for TRM halt paths.
+
+    Scores every live domain purely on token overlap against its core/attribute
+    vocab — no embedding model, no clustering, no shadow detector.  Returns a
+    result dict shaped identically to multi_lens_route() so callers need no
+    special-casing, but with classification="FAST" to distinguish it.
+    """
+    tokens = set(_tokenize(text))
+    scored: List[Tuple[str, float]] = []
+    for domain, ont in _DOMAIN_ONTOLOGY.items():
+        vocab = set(ont.get("core", []) + ont.get("attributes", []))
+        hits = len(tokens & vocab)
+        if hits:
+            scored.append((domain, hits / max(1, len(tokens))))
+    scored.sort(key=lambda x: x[1], reverse=True)
+
+    if not scored:
+        return {
+            "primary_domain": None,
+            "secondary_domains": [],
+            "explanation": "TRM halted escalation; no lexical domain evidence found.",
+            "lens1_candidates": [],
+            "lens2_explanations": [],
+            "lens3_signature": {"levels": {"core": {}, "modifiers": {}}, "active_domains": {"core": 0, "modifiers": 0}},
+            "classification": "FAST",
+            "shadow_signal": None,
+        }
+
+    primary_domain, primary_score = scored[0]
+    secondary: List[Dict] = []
+    for domain, score in scored[1:3]:
+        parent = _ONTOLOGY_PARENTS.get(domain)
+        if parent == primary_domain:
+            continue
+        weight = round(min(0.6, score / max(primary_score, 1e-6) * 0.6), 3)
+        if weight > 0.2:
+            secondary.append({"domain": domain, "weight": weight})
+
+    return {
+        "primary_domain": primary_domain,
+        "secondary_domains": secondary,
+        "explanation": (
+            f"TRM halted escalation; fast lexical pass selected {primary_domain} "
+            f"(score={primary_score:.3f})."
+        ),
+        "lens1_candidates": scored[:cfg.layer1_lens1_top_k()],
+        "lens2_explanations": [],
+        "lens3_signature": {"levels": {"core": {}, "modifiers": {}}, "active_domains": {"core": 0, "modifiers": 0}},
+        "classification": "FAST",
+        "shadow_signal": None,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Event helpers
 # ---------------------------------------------------------------------------
 
@@ -823,14 +893,38 @@ def multi_lens_route(
     text: str,
     top_k: Optional[int] = None,
     on_event: Optional[Callable[[Dict[str, Any]], None]] = None,
+    *,
+    should_escalate: bool = True,
+    dfs_max_depth: int = 3,
 ) -> Dict:
     """Multi-lens similarity and gated routing over live expert domains.
 
-    Pipeline:
+    Parameters
+    ----------
+    text:
+        Raw query string to route.
+    top_k:
+        Maximum candidates forwarded from Lens 1 to Lens 2/3.  Defaults to
+        the value in config (layer1.lens1.top_k).
+    on_event:
+        Optional SSE event callback; passed through to every internal emitter.
+    should_escalate:
+        When *False* the TRM has already decided the query does not need deep
+        reasoning.  The full Lens 1/2/3 + shadow DFS is skipped and a fast
+        lexical-only pass runs instead.  The returned dict will carry
+        ``classification="FAST"`` so downstream callers can distinguish it.
+        Defaults to *True* (existing behaviour — full DFS always runs).
+    dfs_max_depth:
+        Caps the number of Lens 2 candidates examined when ``should_escalate``
+        is *True*.  Bounds work on deep-research mode without changing the
+        scoring logic.  Defaults to 3 (original behaviour).
+
+    Pipeline (when should_escalate=True):
       Lens 1  — embedding similarity against ALL live domain anchors,
                 followed by _deduplicate_candidates() to cluster overlapping
                 domains (e.g. automobile + engine_spec) before they propagate.
-      Lens 2  — ontology coverage with parent-child suppression.
+      Lens 2  — ontology coverage with parent-child suppression;
+                capped to ``dfs_max_depth`` candidates.
       Lens 3  — abstraction signature (core vs. modifier detection).
       Shadow  — if no live domain scores above the low-confidence threshold,
                 the query is forwarded to ShadowDomainDetector which
@@ -840,6 +934,32 @@ def multi_lens_route(
     If no object-level domain evidence is found the result is ATTRIBUTE_ONLY
     and the caller must decide whether to invoke CREATE_NEW_EXPERT.
     """
+    # -------------------------------------------------------------------
+    # Fast path — TRM says halt; skip the full DFS.
+    # -------------------------------------------------------------------
+    if not should_escalate:
+        fast_result = _fast_lexical_route(text)
+        _emit_layer1(
+            on_event,
+            phase_name="graph_routing",
+            phase_id=4,
+            substep="decision",
+            state="done",
+            visibility="public",
+            message=f"Routing complete (fast) — {fast_result['primary_domain']}",
+            detail="TRM halted escalation; lexical-only pass used",
+            metadata={
+                "primary_domain": fast_result["primary_domain"],
+                "classification": "FAST",
+                "should_escalate": False,
+                "elapsed_ms": 0,
+            },
+        )
+        return fast_result
+
+    # -------------------------------------------------------------------
+    # Full DFS path
+    # -------------------------------------------------------------------
     if top_k is None:
         top_k = cfg.layer1_lens1_top_k()
 
@@ -853,8 +973,13 @@ def multi_lens_route(
         state="running",
         visibility="public",
         message="Running multi-lens router\u2026",
-        detail=f"top_k={top_k}  live_domains={len(_DOMAIN_ONTOLOGY)}",
-        metadata={"top_k": top_k, "live_domain_count": len(_DOMAIN_ONTOLOGY)},
+        detail=f"top_k={top_k}  live_domains={len(_DOMAIN_ONTOLOGY)}  dfs_max_depth={dfs_max_depth}",
+        metadata={
+            "top_k": top_k,
+            "live_domain_count": len(_DOMAIN_ONTOLOGY),
+            "dfs_max_depth": dfs_max_depth,
+            "should_escalate": True,
+        },
     )
 
     # Lens 1 — deduplication happens inside _lens1_embedding_candidates
@@ -876,7 +1001,12 @@ def multi_lens_route(
         },
     )
 
-    lens2 = _lens2_ontology_explanations(text, lens1_domains or list(_DOMAIN_ONTOLOGY.keys()))
+    # Lens 2 — cap candidates to dfs_max_depth
+    lens2 = _lens2_ontology_explanations(
+        text,
+        lens1_domains or list(_DOMAIN_ONTOLOGY.keys()),
+        max_candidates=dfs_max_depth,
+    )
     considered = lens1_domains or [e["concept"] for e in lens2]
     lens3 = _lens3_abstraction_signature(text, considered)
 
@@ -909,7 +1039,7 @@ def multi_lens_route(
             substep="decision",
             state="done",
             visibility="public",
-            message="Routing complete \u2014 attribute-only query",
+            message="Routing complete — attribute-only query",
             detail="No core object domain evidence detected",
             metadata={
                 "primary_domain": None,
@@ -1001,7 +1131,7 @@ def multi_lens_route(
         substep="decision",
         state="done",
         visibility="public",
-        message=f"Routing complete \u2014 {primary}",
+        message=f"Routing complete — {primary}",
         detail=(
             f"primary={primary} \u00b7 secondary={len(secondary)} \u00b7 "
             f"classification={result['classification']}"
@@ -1046,7 +1176,7 @@ def _run_shadow_check(
         state="done",
         visibility="public",
         message=(
-            f"Shadow domain detected \u2014 {signal.shadow_id} "
+            f"Shadow domain detected — {signal.shadow_id} "
             f"[{signal.status}] evidence={signal.evidence}"
         ),
         detail=f"top_tokens={signal.top_tokens[:6]}",
@@ -1068,10 +1198,11 @@ def test_layer1_multilens() -> None:
         print(f"Final decision -> primary: {result['primary_domain']}, secondary: {result['secondary_domains']}")
         print(f"Explanation: {result['explanation']}")
         print(f"Shadow signal: {result.get('shadow_signal')}")
+        print(f"Classification: {result.get('classification')}")
 
     text_a = "Earth orbits the Sun"
     res_a = multi_lens_route(text_a)
-    _print_result("Test A \u2014 Single-domain input", text_a, res_a)
+    _print_result("Test A — Single-domain input", text_a, res_a)
     assert res_a["classification"] in {"NORMAL", "SHADOW"}
     assert res_a["primary_domain"] in {"astronomy", "physics"}
     assert len(res_a["secondary_domains"]) <= 2
@@ -1079,25 +1210,32 @@ def test_layer1_multilens() -> None:
 
     text_b = "maruti 700 cc tubeless tires red cherry"
     res_b = multi_lens_route(text_b)
-    _print_result("Test B \u2014 Compositional, multi-attribute input", text_b, res_b)
+    _print_result("Test B — Compositional, multi-attribute input", text_b, res_b)
     assert res_b["classification"] in {"NORMAL", "SHADOW"}
     assert res_b["primary_domain"] in {"automobile"}
     sec_domains = {s["domain"] for s in res_b["secondary_domains"]}
     assert "engine_spec" not in sec_domains or "automobile" not in sec_domains, (
-        "engine_spec and automobile should be deduplicated \u2014 one must be suppressed"
+        "engine_spec and automobile should be deduplicated — one must be suppressed"
     )
     assert len(sec_domains) <= 2
 
     text_c = "red glossy metallic finish"
     res_c = multi_lens_route(text_c)
-    _print_result("Test C \u2014 Attribute-heavy input", text_c, res_c)
+    _print_result("Test C — Attribute-heavy input", text_c, res_c)
     assert res_c["classification"] in {"ATTRIBUTE_ONLY", "SHADOW", "UNKNOWN"}
 
     text_d = "iphone 15 pro max titanium blue"
     res_d = multi_lens_route(text_d)
-    _print_result("Test D \u2014 OOD input (no live expert)", text_d, res_d)
+    _print_result("Test D — OOD input (no live expert)", text_d, res_d)
     # OOD input should generate a shadow signal
     # (will be None only if embedding model is absent AND lexical score is 0)
+
+    # --- New: fast-path smoke test ---
+    text_e = "what is oxidation reduction reaction"
+    res_e = multi_lens_route(text_e, should_escalate=False)
+    _print_result("Test E — Fast-path (TRM halt)", text_e, res_e)
+    assert res_e["classification"] == "FAST"
+    assert res_e["lens2_explanations"] == []
 
     print("\nLive domains on disk:", DOMAIN_LIST)
 
