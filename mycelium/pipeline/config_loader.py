@@ -23,7 +23,9 @@ the file.
 
 from __future__ import annotations
 
+import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -41,6 +43,8 @@ except ModuleNotFoundError:
 # Path fix: this file lives at mycelium/pipeline/config_loader.py
 # so we go up two levels to reach the repo root where config.toml lives.
 _CONFIG_PATH = Path(__file__).parent.parent.parent / "config.toml"
+
+_log = logging.getLogger(__name__)
 
 
 def _load() -> Dict[str, Any]:
@@ -209,6 +213,80 @@ def max_experts() -> int:
 
 def expert_similarity_threshold() -> float:
     return _get("experts", "similarity_threshold", 0.45, "EXPERT_SIMILARITY_THRESHOLD")
+
+def experts_dir() -> str:
+    """Directory where expert models live. Reads [experts].dir from config.toml.
+    Falls back to 'experts' if the key is absent.
+    Override via env: MYCELIUM_EXPERTS_DIR
+    """
+    return _get("experts", "dir", "experts", "MYCELIUM_EXPERTS_DIR")
+
+
+# ---------------------------------------------------------------------------
+# Dynamic domain discovery helpers
+# ---------------------------------------------------------------------------
+
+_MODEL_EXTS: frozenset[str] = frozenset({".pt", ".bin", ".safetensors", ".gguf"})
+_SUFFIX_RE = re.compile(r"[_\-](bert|model|expert)$", re.IGNORECASE)
+
+
+def _write_back_domain_list(domains: List[str]) -> None:
+    """Rewrite the domains = [...] line in [layer1.domain_list] inside config.toml.
+
+    Uses a regex replacement so no extra dependencies (no tomlkit) are needed.
+    The operation is non-fatal: a warning is logged and the process continues
+    if the file cannot be read or written.
+    """
+    if not _CONFIG_PATH.exists():
+        return
+    try:
+        text = _CONFIG_PATH.read_text(encoding="utf-8")
+        quoted = ", ".join(f'"{d}"' for d in domains)
+        new_line = f"domains = [{quoted}]"
+        # Replace everything between 'domains = [' ... ']' (possibly multiline)
+        text = re.sub(
+            r"domains\s*=\s*\[[^\]]*\]",
+            new_line,
+            text,
+            flags=re.DOTALL,
+        )
+        _CONFIG_PATH.write_text(text, encoding="utf-8")
+        _log.debug("config_loader: wrote back discovered domains: %s", domains)
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("config_loader: could not write back domain list: %s", exc)
+
+
+def discover_live_domains() -> List[str]:
+    """Scan experts_dir for subdirectories that contain at least one model file.
+
+    Directory names are normalised (strip _BERT/_Model/_Expert suffix, lowercase)
+    to derive the canonical domain name.  The result is written back into
+    config.toml so the cache stays fresh without manual editing.
+
+    Falls back to the static [layer1.domain_list] if no live models are found.
+    """
+    base = Path(experts_dir())
+    live: List[str] = []
+
+    if base.is_dir():
+        for d in sorted(base.iterdir()):
+            if not d.is_dir():
+                continue
+            has_model = any(f.suffix in _MODEL_EXTS for f in d.rglob("*"))
+            if has_model:
+                name = _SUFFIX_RE.sub("", d.name).lower()
+                live.append(name)
+
+    if live:
+        _write_back_domain_list(live)
+        return live
+
+    _log.warning(
+        "config_loader.discover_live_domains: no models found under '%s', "
+        "falling back to config cache.",
+        base,
+    )
+    return layer1_domain_list()
 
 
 # ---------------------------------------------------------------------------
@@ -413,6 +491,8 @@ class _Cfg:
     soft_stop_percentage           = staticmethod(soft_stop_percentage)
     max_experts                    = staticmethod(max_experts)
     expert_similarity_threshold    = staticmethod(expert_similarity_threshold)
+    experts_dir                    = staticmethod(experts_dir)
+    discover_live_domains          = staticmethod(discover_live_domains)
     enable_logging                 = staticmethod(enable_logging)
     log_sample_rate                = staticmethod(log_sample_rate)
     patch_batch_dir                = staticmethod(patch_batch_dir)

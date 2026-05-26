@@ -56,6 +56,7 @@ enable_attribute_override        = true   # env: ENABLE_ATTRIBUTE_OVERRIDE
 # Expert selection
 # ---------------------------------------------------------------------------
 [experts]
+dir                  = "tests/fixtures/dummy_models"  # env: MYCELIUM_EXPERTS_DIR
 coverage_threshold  = 0.70   # env: COVERAGE_THRESHOLD
 soft_stop_pct       = 0.90   # env: SOFT_STOP_PERCENTAGE
 max_experts         = 3      # env: MAX_EXPERTS
@@ -129,14 +130,13 @@ spatial_dominance_threshold = 0.3
 tag_clusters_filename = "tag_clusters.json"
 
 # ---------------------------------------------------------------------------
-# [layer1.domain_list]  Canonical domain vocabulary for tag extraction
+# [layer1.domain_list]  Canonical domain vocabulary for tag extraction.
+# NOTE: This section is auto-updated by cfg.discover_live_domains() each run.
+#       Add new expert model dirs to [experts].dir and they will appear here
+#       automatically on the next discovery pass. Do not edit manually.
 # ---------------------------------------------------------------------------
 [layer1.domain_list]
-domains = [
-    "AI", "healthcare", "logistics", "finance", "education",
-    "physics", "maths", "biology", "chemistry", "technology",
-    "sports", "politics", "history", "art", "music", "literature"
-]
+domains = ["AI", "healthcare", "logistics", "finance", "education", "physics", "maths", "biology", "chemistry", "technology", "sports", "politics", "history", "art", "music", "literature"]
 
 # ---------------------------------------------------------------------------
 # [layer1.llama]  Ollama / local-LLM tag extractor
