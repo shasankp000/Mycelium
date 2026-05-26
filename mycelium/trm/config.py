@@ -17,7 +17,35 @@ All architectural choices are justified by ablation results in the paper:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+
+def _count_live_domains() -> int:
+    """Return the number of expert domains currently on disk.
+
+    Resolution order:
+      1. _discover_live_domains() from layer1_router  — authoritative source,
+         reads whatever subdirectories exist under the experts/ directory.
+      2. config_loader.layer1_domain_list()           — toml fallback.
+      3. 8                                            — hard fallback of last
+         resort (only if disk AND config are both unavailable).
+
+    This is called as a dataclass default_factory so every TRMConfig()
+    constructed anywhere in the codebase automatically picks up the current
+    domain count without any manual synchronisation.
+    """
+    try:
+        from mycelium.pipeline.layer1_router import _discover_live_domains
+        domains = _discover_live_domains()
+        if domains:
+            return len(domains)
+    except Exception:
+        pass
+    try:
+        from mycelium.pipeline import config_loader as cfg
+        return len(cfg.layer1_domain_list())
+    except Exception:
+        return 8
 
 
 @dataclass
@@ -29,8 +57,11 @@ class TRMConfig:
     hidden_size: int = 512
     """Embedding dimension D.  Should match the spectral analyser's output dim."""
 
-    n_domains: int = 8
-    """Number of expert routing domains.  Must match MultiLensRouter."""
+    n_domains: int = field(default_factory=_count_live_domains)
+    """Number of expert routing domains.
+    Auto-discovered from the experts/ directory at instantiation time via
+    _count_live_domains() so this value always stays in sync with whatever
+    expert subdirectories exist on disk.  Never hardcode this field."""
 
     context_len: int = 64
     """Maximum canonical query token length L."""
