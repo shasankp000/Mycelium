@@ -2,9 +2,10 @@
 // useGraphBuilder — stateful hook that consumes SSE events and builds
 // the live graph state deterministically.
 // Plan refs: §2.3.1, §3, §4.3
+// Phase 5: swap `mode` closure dep → modeRef (Gap 2 fix).
 // ---------------------------------------------------------------------------
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import type { SseEvent, ReasoningMode } from '../types/pipeline';
 import type { GraphNode, GraphEdge, GraphLifecycle, LayoutMode } from '../types/graph';
 import {
@@ -48,8 +49,15 @@ export function useGraphBuilder(
   mode: ReasoningMode,
   isMobile = false,
 ) {
-  const seqRef     = useRef<number>(0);
+  const seqRef      = useRef<number>(0);
   const lastNodeRef = useRef<GraphNode | null>(null);
+
+  // Gap 2 fix: keep mode in a ref so ingestSseEvent / finalise callbacks
+  // always read the current value without needing to be re-created on every
+  // mode change.  This eliminates the stale-closure risk while avoiding
+  // unnecessary renders.
+  const modeRef = useRef<ReasoningMode>(mode);
+  useEffect(() => { modeRef.current = mode; }, [mode]);
 
   const [state, setState] = useState<GraphBuilderState>({
     rawNodes:     [],
@@ -60,8 +68,9 @@ export function useGraphBuilder(
     snapshot:     null,
   });
 
-  // ── ingestSseEvent ────────────────────────────────────────────────
+  // ── ingestSseEvent ────────────────────────────────────────────────────
   // Main entry point. Called from useSseStream callbacks in index.tsx.
+  // `mode` dep removed — reads modeRef.current instead (Gap 2).
   const ingestSseEvent = useCallback(
     (event: SseEvent) => {
       const phase = (event.phase_name ?? event.phase ?? '') as string;
@@ -75,7 +84,8 @@ export function useGraphBuilder(
       const newNode = buildNodeFromSseEvent(event, seq);
 
       setState((prev) => {
-        const updatedRaw = insertNodeDeterministic(prev.rawNodes, newNode);
+        const currentMode = modeRef.current;
+        const updatedRaw  = insertNodeDeterministic(prev.rawNodes, newNode);
 
         // Build edge to previous node in same zone (simple sequential DAG)
         let updatedEdges = prev.edges;
@@ -85,7 +95,7 @@ export function useGraphBuilder(
             newNode,
             seq,
             newNode.confidence,
-            mode === 'researcher',
+            currentMode === 'researcher',
           );
           // Avoid duplicate edges
           const edgeExists = prev.edges.some((e) => e.id === newEdge.id);
@@ -93,7 +103,7 @@ export function useGraphBuilder(
         }
         lastNodeRef.current = newNode;
 
-        const displayNodes = applySmartModeClustering(updatedRaw, mode, isMobile);
+        const displayNodes = applySmartModeClustering(updatedRaw, currentMode, isMobile);
 
         return {
           ...prev,
@@ -104,12 +114,15 @@ export function useGraphBuilder(
         };
       });
     },
-    [mode, isMobile],
+    // isMobile is a stable prop that changes at most on viewport resize;
+    // modeRef is a ref so it never changes identity — no mode dep needed.
+    [isMobile],
   );
 
   // ── finalise ──────────────────────────────────────────────────────
   // Called when done/error is received. Transitions to stabilising,
   // then builds + saves the snapshot.
+  // `mode` dep removed — reads modeRef.current instead (Gap 2).
   const finalise = useCallback(
     (params: {
       traceId?: string;
@@ -122,7 +135,7 @@ export function useGraphBuilder(
           snapshotId,
           traceId:          params.traceId,
           queryText:        params.queryText,
-          reasoningMode:    mode,
+          reasoningMode:    modeRef.current,
           nodes:            prev.rawNodes,
           edges:            prev.edges,
           lifecycle:        'stabilising',
@@ -139,10 +152,11 @@ export function useGraphBuilder(
         };
       });
     },
-    [mode],
+    // No mode dep — modeRef.current is read at call time (Gap 2).
+    [],
   );
 
-  // ── freeze ───────────────────────────────────────────────────────────
+  // ── freeze ────────────────────────────────────────────────────────
   // Called by useGraphStabilization after the cooldown fires.
   // Fixes all node positions to pause physics.
   const freeze = useCallback((frozenPositions: Map<string, { x: number; y: number }>) => {
@@ -160,7 +174,7 @@ export function useGraphBuilder(
     }));
   }, []);
 
-  // ── resumePhysics ───────────────────────────────────────────────────────
+  // ── resumePhysics ────────────────────────────────────────────────────
   // Unfreezes positions so physics simulation can resume.
   const resumePhysics = useCallback(() => {
     setState((prev) => ({
@@ -171,12 +185,12 @@ export function useGraphBuilder(
     }));
   }, []);
 
-  // ── setLayoutMode ───────────────────────────────────────────────────────
+  // ── setLayoutMode ───────────────────────────────────────────────────
   const setLayoutMode = useCallback((lm: LayoutMode) => {
     setState((prev) => ({ ...prev, layoutMode: lm }));
   }, []);
 
-  // ── expandClusterById ─────────────────────────────────────────────────────
+  // ── expandClusterById ─────────────────────────────────────────────────
   // Expands a cluster node to reveal constituent nodes (§9.2).
   const expandClusterById = useCallback((clusterId: string) => {
     setState((prev) => ({
@@ -185,9 +199,9 @@ export function useGraphBuilder(
     }));
   }, []);
 
-  // ── reset ──────────────────────────────────────────────────────────────
+  // ── reset ──────────────────────────────────────────────────────────
   const reset = useCallback(() => {
-    seqRef.current     = 0;
+    seqRef.current      = 0;
     lastNodeRef.current = null;
     setState({
       rawNodes:     [],
