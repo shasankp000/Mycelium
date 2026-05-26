@@ -1,8 +1,7 @@
 // ---------------------------------------------------------------------------
-// ReasoningGraph/index.tsx — Phase 5 update
-// Adds: GraphDiffView integration; GraphSnapshotLoader onCompare wiring;
-//       diff panel mount/unmount; snapshot A/B queryText threading.
-// All Phase 4 canvas rendering retained.
+// ReasoningGraph/index.tsx — Phase 5 polish
+// Adds: keyboard shortcuts, mobile constraints, simulation disposal on unmount.
+// All Phase 4 + Phase 5 diff/snapshot features retained.
 // ---------------------------------------------------------------------------
 
 'use client';
@@ -18,7 +17,7 @@ import type { StabilizationControls } from '../../hooks/useGraphStabilization';
 import type {
   GraphNode, GraphEdge, LayoutMode, GraphSnapshot, GraphDiff,
 } from '../../types/graph';
-import { NODE_COLORS } from '../../types/graph';
+import { NODE_COLORS, CLUSTER_THRESHOLDS } from '../../types/graph';
 import { SubgraphControls }     from './SubgraphControls';
 import { LayoutToolbar }        from './LayoutToolbar';
 import { NodeDetailDrawer }     from './NodeDetailDrawer';
@@ -33,6 +32,22 @@ const ForceGraph2D = dynamic(
   () => import('react-force-graph-2d').then((m) => m.default),
   { ssr: false, loading: () => <div className={styles.canvasLoading}>Initialising graph renderer…</div> },
 );
+
+// ---------------------------------------------------------------------------
+// Mobile detection helper (runs once per render, safe for SSR)
+// ---------------------------------------------------------------------------
+
+function useIsMobile(): boolean {
+  const [mobile, setMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)');
+    setMobile(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setMobile(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  return mobile;
+}
 
 // ---------------------------------------------------------------------------
 // Canvas drawing helpers
@@ -63,6 +78,7 @@ function drawNode(
   globalScale: number,
   selectedId: string | null,
   frozenPositions: Map<string, { x: number; y: number }> | null,
+  isMobile: boolean,
 ) {
   const x = node.x ?? 0;
   const y = node.y ?? 0;
@@ -114,7 +130,7 @@ function drawNode(
   // Selection ring
   if (isSelected) {
     ctx.beginPath();
-    ctx.arc(x, y, r + 2.5, 0, 2 * Math.PI);
+    ctx.arc(x, y + 2.5, r + 2.5, 0, 2 * Math.PI);
     ctx.strokeStyle = 'rgba(165,180,252,0.9)';
     ctx.lineWidth   = 2;
     ctx.stroke();
@@ -128,8 +144,8 @@ function drawNode(
     ctx.fill();
   }
 
-  // Label (only at sufficient zoom)
-  if (globalScale >= 1.2) {
+  // Labels: suppressed entirely on mobile; visible at zoom ≥1.2 on desktop
+  if (!isMobile && globalScale >= 1.2) {
     ctx.font         = `${Math.min(4.5, 4 / globalScale * 5)}px sans-serif`;
     ctx.fillStyle    = 'rgba(255,255,255,0.75)';
     ctx.textAlign    = 'center';
@@ -161,6 +177,13 @@ function drawEdge(
 }
 
 // ---------------------------------------------------------------------------
+// Subgraph zone cycle order for keyboard nav
+// ---------------------------------------------------------------------------
+
+type ZoneFilter = 'all' | 'pipeline' | 'reasoning' | 'evidence';
+const ZONE_CYCLE: ZoneFilter[] = ['all', 'pipeline', 'reasoning', 'evidence'];
+
+// ---------------------------------------------------------------------------
 // ReasoningGraph props
 // ---------------------------------------------------------------------------
 
@@ -186,21 +209,48 @@ export function ReasoningGraph({
   const { displayNodes, edges, lifecycle, layoutMode, snapshot } = graphState;
 
   const fgRef = useRef<ForceGraphMethods<GraphNode, GraphEdge>>(null);
+  const isMobile = useIsMobile();
 
   const [activeTab, setActiveTab]               = useState<'graph' | 'snapshots'>('graph');
   const [selectedNode, setSelectedNode]         = useState<GraphNode | null>(null);
   const [frozenPositions, setFrozenPositions]   = useState<Map<string, { x: number; y: number }> | null>(null);
   const [tooltip, setTooltip]                   = useState<{ node: GraphNode; x: number; y: number } | null>(null);
+  const [zoneFilter, setZoneFilter]             = useState<ZoneFilter>('all');
 
   // Phase 5: diff state
   const [activeDiff, setActiveDiff]   = useState<GraphDiff | null>(null);
   const [diffSnapA, setDiffSnapA]     = useState<GraphSnapshot | null>(null);
   const [diffSnapB, setDiffSnapB]     = useState<GraphSnapshot | null>(null);
 
-  const isLive     = lifecycle === 'streaming';
+  const isLive        = lifecycle === 'streaming';
   const isStabilising = lifecycle === 'stabilising';
-  const isFrozen   = lifecycle === 'frozen' || lifecycle === 'resumed';
-  const isEmpty    = displayNodes.length === 0;
+  const isFrozen      = lifecycle === 'frozen' || lifecycle === 'resumed';
+  const isEmpty       = displayNodes.length === 0;
+
+  // Mobile node cap — slice to mobileMaxNodes, preferring high-confidence nodes
+  const visibleNodes = React.useMemo(() => {
+    let nodes = zoneFilter === 'all'
+      ? displayNodes
+      : displayNodes.filter((n) => n.zone === zoneFilter);
+    if (isMobile && nodes.length > CLUSTER_THRESHOLDS.mobileMaxNodes) {
+      nodes = [...nodes]
+        .sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))
+        .slice(0, CLUSTER_THRESHOLDS.mobileMaxNodes);
+    }
+    return nodes;
+  }, [displayNodes, zoneFilter, isMobile]);
+
+  // Edges that connect visible nodes only
+  const visibleNodeIds = React.useMemo(
+    () => new Set(visibleNodes.map((n) => n.id)),
+    [visibleNodes],
+  );
+  const visibleEdges = React.useMemo(
+    () => edges.filter(
+      (e) => visibleNodeIds.has(String(e.source)) && visibleNodeIds.has(String(e.target)),
+    ),
+    [edges, visibleNodeIds],
+  );
 
   // Freeze: collect positions from engine
   useEffect(() => {
@@ -218,7 +268,7 @@ export function ReasoningGraph({
     }
   }, [isFrozen, displayNodes]);
 
-  // Hierarchy layout: tier by layerDepth (re-run when layout changes)
+  // Hierarchy / radial layout pin
   useEffect(() => {
     if (layoutMode === 'hierarchy' && fgRef.current) {
       const tierMap = new Map<number, GraphNode[]>();
@@ -231,7 +281,7 @@ export function ReasoningGraph({
       const yStep = 80;
       tierMap.forEach((nodes, depth) => {
         nodes.forEach((n, i) => {
-          const nodeObj = n as GraphNode & { x?: number; y?: number; fx?: number | null; fy?: number | null };
+          const nodeObj = n as GraphNode & { fx?: number | null; fy?: number | null };
           nodeObj.fx = (i - (nodes.length - 1) / 2) * (W / Math.max(nodes.length, 1));
           nodeObj.fy = depth * yStep - ((Math.max(...[...tierMap.keys()]) * yStep) / 2);
         });
@@ -246,7 +296,6 @@ export function ReasoningGraph({
         nodeObj.fy = Math.sin(angle) * radius;
       });
     } else if (layoutMode === 'force') {
-      // Release all position locks for force layout
       displayNodes.forEach((n) => {
         const nodeObj = n as GraphNode & { fx?: number | null; fy?: number | null };
         if (!frozenPositions?.has(n.id)) {
@@ -258,6 +307,65 @@ export function ReasoningGraph({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layoutMode]);
 
+  // ── Phase 5: Force simulation disposal on unmount ──────────────────────
+  useEffect(() => {
+    return () => {
+      if (fgRef.current) {
+        try { fgRef.current.pauseAnimation(); } catch { /* ignore */ }
+      }
+    };
+  }, []);
+
+  // ── Phase 5: Keyboard shortcuts ────────────────────────────────────────
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      // Don't fire when user is typing in an input / textarea
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+      switch (e.key) {
+        case 'Escape':
+          onClose();
+          break;
+        case 'h':
+        case 'H':
+          onLayoutChange('hierarchy');
+          break;
+        case 'r':
+        case 'R':
+          onLayoutChange('radial');
+          break;
+        case 'f':
+        case 'F':
+          onLayoutChange('force');
+          break;
+        case ' ':
+          e.preventDefault(); // stop page scroll
+          if (isFrozen) stabilization.resumeSimulation();
+          break;
+        case 'ArrowLeft': {
+          e.preventDefault();
+          setZoneFilter((prev) => {
+            const idx = ZONE_CYCLE.indexOf(prev);
+            return ZONE_CYCLE[(idx - 1 + ZONE_CYCLE.length) % ZONE_CYCLE.length];
+          });
+          break;
+        }
+        case 'ArrowRight': {
+          e.preventDefault();
+          setZoneFilter((prev) => {
+            const idx = ZONE_CYCLE.indexOf(prev);
+            return ZONE_CYCLE[(idx + 1) % ZONE_CYCLE.length];
+          });
+          break;
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [onClose, onLayoutChange, isFrozen, stabilization]);
+
   const handleNodeClick = useCallback((node: GraphNode) => {
     if (node.isCluster) {
       onExpandCluster(node.id);
@@ -266,8 +374,7 @@ export function ReasoningGraph({
     setSelectedNode((prev) => (prev?.id === node.id ? null : node));
   }, [onExpandCluster]);
 
-  const handleNodeHover = useCallback((node: GraphNode | null, prevNode: GraphNode | null) => {
-    void prevNode;
+  const handleNodeHover = useCallback((node: GraphNode | null) => {
     if (!node) { setTooltip(null); return; }
     const d = node as GraphNode & { x?: number; y?: number };
     if (d.x !== undefined && d.y !== undefined) {
@@ -276,13 +383,9 @@ export function ReasoningGraph({
   }, []);
 
   const handleLoadSnapshot = useCallback((snap: GraphSnapshot) => {
-    // Load a snapshot's nodes/edges into the view (read-only replay)
-    // For now: just show a toast-like status in the header
-    // Full replay playback is post-Phase 5
     console.info('[ReasoningGraph] snapshot loaded:', snap.snapshotId, snap.nodeCount, 'nodes');
   }, []);
 
-  // Phase 5: compare handler
   const handleCompare = useCallback((
     diff: GraphDiff,
     snapA: GraphSnapshot,
@@ -291,7 +394,7 @@ export function ReasoningGraph({
     setActiveDiff(diff);
     setDiffSnapA(snapA);
     setDiffSnapB(snapB);
-    setActiveTab('graph'); // switch to graph tab to show the diff panel
+    setActiveTab('graph');
   }, []);
 
   const handleCloseDiff = useCallback(() => {
@@ -301,24 +404,40 @@ export function ReasoningGraph({
   }, []);
 
   const graphData = React.useMemo(() => ({
-    nodes: displayNodes as (GraphNode & object)[],
-    links: edges as (GraphEdge & object)[],
-  }), [displayNodes, edges]);
+    nodes: visibleNodes as (GraphNode & object)[],
+    links: visibleEdges as (GraphEdge & object)[],
+  }), [visibleNodes, visibleEdges]);
 
-  // Cooldown ticks: 0 when frozen, 150 otherwise
-  const cooldownTicks = isFrozen ? 0 : 150;
+  // Mobile: halve cooldown ticks so physics settles sooner
+  const cooldownTicks = isFrozen ? 0 : (isMobile ? 75 : 150);
+
+  // Canvas dimensions
+  const canvasWidth  = typeof window !== 'undefined' ? window.innerWidth  : 800;
+  const canvasHeight = typeof window !== 'undefined'
+    ? window.innerHeight - (isMobile ? 160 : 100)
+    : 600;
 
   return (
-    <div className={styles.overlay} role="dialog" aria-modal="true" aria-label="Reasoning graph overlay">
+    <div
+      className={styles.overlay}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Reasoning graph overlay"
+    >
       {/* Header */}
       <div className={styles.overlayHeader}>
         <div className={styles.overlayTitle}>
           Reasoning Graph
-          {isLive       && <span className={styles.liveBadge} aria-label="Streaming live">LIVE</span>}
+          {isLive        && <span className={styles.liveBadge}       aria-label="Streaming live">LIVE</span>}
           {isStabilising && <span className={styles.stabilisingBadge} aria-label="Stabilising">⋅⋅⋅</span>}
-          {isFrozen     && <span className={styles.frozenBadge} aria-label="Physics frozen">▣ frozen</span>}
+          {isFrozen      && <span className={styles.frozenBadge}     aria-label="Physics frozen">▣ frozen</span>}
           <span className={styles.nodeCount}>
-            {displayNodes.length}n / {edges.length}e
+            {visibleNodes.length}n / {visibleEdges.length}e
+            {isMobile && displayNodes.length > CLUSTER_THRESHOLDS.mobileMaxNodes && (
+              <span className={styles.mobileCap} title="Mobile node cap active">
+                {' '}(of {displayNodes.length})
+              </span>
+            )}
           </span>
         </div>
 
@@ -332,18 +451,36 @@ export function ReasoningGraph({
             <button
               className={styles.resumeBtn}
               onClick={stabilization.resumeSimulation}
-              aria-label="Resume physics simulation"
+              aria-label="Resume physics simulation (Space)"
+              title="Resume simulation [Space]"
             >
-              Resume simulation
+              ⟳ Resume
             </button>
           )}
-          <button className={styles.closeBtn} onClick={onClose} aria-label="Close graph overlay">
+          <button
+            className={styles.closeBtn}
+            onClick={onClose}
+            aria-label="Close graph overlay (Escape)"
+            title="Close [Esc]"
+          >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
               <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
             </svg>
           </button>
         </div>
       </div>
+
+      {/* Keyboard hint bar — desktop only, shown once until dismissed */}
+      {!isMobile && (
+        <div className={styles.keyHintBar} aria-hidden="true">
+          <kbd>H</kbd> hierarchy &nbsp;·&nbsp;
+          <kbd>R</kbd> radial &nbsp;·&nbsp;
+          <kbd>F</kbd> force &nbsp;·&nbsp;
+          <kbd>Space</kbd> resume &nbsp;·&nbsp;
+          <kbd>←</kbd><kbd>→</kbd> zone &nbsp;·&nbsp;
+          <kbd>Esc</kbd> close
+        </div>
+      )}
 
       {/* Tab strip */}
       <div className={styles.tabStrip}>
@@ -386,7 +523,7 @@ export function ReasoningGraph({
                   <line x1="14" y1="14" x2="24" y2="22" stroke="white" strokeWidth="1" />
                 </svg>
                 <p className={styles.emptyText}>
-                  No graph data yet. Send a query and the pipeline’s reasoning graph will appear here in real-time.
+                  No graph data yet. Send a query and the pipeline&apos;s reasoning graph will appear here in real-time.
                 </p>
               </div>
             ) : (
@@ -400,6 +537,7 @@ export function ReasoningGraph({
                     globalScale,
                     selectedNode?.id ?? null,
                     frozenPositions,
+                    isMobile,
                   )
                 }
                 linkCanvasObject={(link, ctx) =>
@@ -409,14 +547,14 @@ export function ReasoningGraph({
                   )
                 }
                 onNodeClick={(node) => handleNodeClick(node as GraphNode)}
-                onNodeHover={(node) => handleNodeHover(node as GraphNode | null, null)}
+                onNodeHover={(node) => handleNodeHover(node as GraphNode | null)}
                 cooldownTicks={cooldownTicks}
                 nodeId="id"
                 linkSource="source"
                 linkTarget="target"
                 backgroundColor="#0d0d12"
-                width={typeof window !== 'undefined' ? window.innerWidth : 800}
-                height={typeof window !== 'undefined' ? window.innerHeight - 100 : 600}
+                width={canvasWidth}
+                height={canvasHeight}
               />
             )}
 
