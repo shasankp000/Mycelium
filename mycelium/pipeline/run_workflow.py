@@ -398,14 +398,11 @@ def _extract_shadow_signal(routing_context: Any) -> Optional[Dict[str, Any]]:
 
     Returns the as_dict() payload if a signal is present, else None.
     """
-    # Attribute path (dataclass / object)
     sig = getattr(routing_context, "shadow_signal", None)
     if sig is None and isinstance(routing_context, dict):
         sig = routing_context.get("shadow_signal")
     if sig is None:
         return None
-    # sig may already be a dict (MultiLensRouter serialises it) or a
-    # ShadowDomainSignal dataclass — normalise to dict.
     if isinstance(sig, dict):
         return sig
     if hasattr(sig, "as_dict"):
@@ -417,7 +414,7 @@ def run_mycelium_workflow(
     sentences: Sequence[str],
     trace_id: Optional[str] = None,
     on_event: Optional[Callable[[Dict[str, Any]], None]] = None,
-    reasoning_mode: ReasoningMode = "balanced",
+    reasoning_mode: ReasoningMode = "smart",
 ) -> Tuple[List[Dict[str, Any]], WorkflowMetrics]:
     import uuid as _uuid
     import hashlib as _hashlib
@@ -426,6 +423,10 @@ def run_mycelium_workflow(
     dfs_max_depth: int = depth_cfg["dfs_max_depth"]
     expert_top_k: int = depth_cfg["expert_top_k"]
     phase3_passes: int = depth_cfg["phase3_passes"]
+    # Per-mode TRM confidence gate — derived from DEPTH_CONFIGS in api_models.
+    # TRM halt_confidence must *exceed* this value for the pipeline to
+    # short-circuit without escalating to deeper DAG/DFS layers.
+    trm_threshold: float = float(depth_cfg["trm_threshold"])
 
     _wall_start = _time.monotonic()
     _request_id = trace_id or str(_uuid.uuid4())
@@ -446,7 +447,11 @@ def run_mycelium_workflow(
         message="Warming up model registry...",
         detail="Pre-flight: loading non-LLM model weights into registry",
         state="running",
-        metadata={"reasoning_mode": reasoning_mode, "dfs_max_depth": dfs_max_depth},
+        metadata={
+            "reasoning_mode": reasoning_mode,
+            "dfs_max_depth": dfs_max_depth,
+            "trm_threshold": trm_threshold,
+        },
     )
 
     print("\U0001f9e0 Pre-flight: loading non-LLM model weights into registry...")
@@ -683,7 +688,7 @@ def run_mycelium_workflow(
             if _shadow_status == "PROMOTE_TO_EXPERT":
                 print(
                     f"\U0001f7e1 ShadowDomain PROMOTE_TO_EXPERT: "
-                    f"{_shadow_id} — evidence={_shadow_evid} "
+                    f"{_shadow_id} \u2014 evidence={_shadow_evid} "
                     f"top_tokens={_shadow_tokens[:6]}"
                 )
                 emitter.emit(
@@ -696,14 +701,11 @@ def run_mycelium_workflow(
                     state="done",
                     metadata=shadow_signal_dict,
                 )
-                # Refresh domain ontology so the new shadow domain is
-                # reachable by name on the very next query in this batch.
                 try:
                     reload_domain_ontology()
                 except Exception as _rdo_err:
                     print(f"\u26a0\ufe0f  reload_domain_ontology failed: {_rdo_err}")
             else:
-                # ACCUMULATING — just log at debug level
                 print(
                     f"\U0001f7e4 ShadowDomain accumulating: "
                     f"{_shadow_id} evidence={_shadow_evid} "
@@ -765,6 +767,12 @@ def run_mycelium_workflow(
 
         trm_reasoner_result: Optional[Dict[str, Any]] = None
         ood_fallback_result: Optional[Dict[str, Any]] = None
+        # should_escalate is True when TRM is not confident enough to
+        # short-circuit given the current reasoning_mode threshold.
+        # Downstream consumers (layer1_router, patch_dag) read this flag
+        # via the SSE metadata; direct Python callers receive it in the
+        # sentence data dict.
+        should_escalate: bool = True  # default: always escalate when TRM unavailable
 
         if trm_reasoner is not None:
             trm_reasoner_result = _run_trm_reasoner(
@@ -772,12 +780,42 @@ def run_mycelium_workflow(
             )
             if trm_reasoner_result is not None:
                 relevant_domains = trm_reasoner_result["reranked_domains"]
+                halt_conf: float = trm_reasoner_result["halt_confidence"]
+                # Apply per-mode threshold — the heart of the mode system.
+                # fast:       threshold=0.85  → only escalate when clearly uncertain
+                # smart:      threshold=0.70  → default TRM behaviour
+                # researcher: threshold=0.55  → escalate even on moderate confidence
+                should_escalate = halt_conf < trm_threshold
+
                 if ENABLE_LOGGING and idx % LOG_SAMPLE_RATE == 0:
                     print(
                         f"\U0001f9e0 TRMReasoner: primary={trm_reasoner_result['primary_domain']} "
-                        f"halt_conf={trm_reasoner_result['halt_confidence']:.3f} "
+                        f"halt_conf={halt_conf:.3f} "
+                        f"threshold={trm_threshold:.2f} "
+                        f"should_escalate={should_escalate} "
                         f"steps={trm_reasoner_result['n_steps_taken']}"
                     )
+
+                # Emit TRM decision so the graph UI can render the
+                # decision-point node with confidence + escalation state.
+                emitter.emit(
+                    phase_name="graph_trm_decision",
+                    message="TRM routing decision",
+                    detail=(
+                        f"halt_conf={halt_conf:.3f} threshold={trm_threshold:.2f} "
+                        f"escalate={should_escalate}"
+                    ),
+                    state="running",
+                    metadata={
+                        "primary_domain": trm_reasoner_result["primary_domain"],
+                        "halt_confidence": halt_conf,
+                        "trm_threshold": trm_threshold,
+                        "should_escalate": should_escalate,
+                        "dfs_max_depth": dfs_max_depth,
+                        "reasoning_mode": reasoning_mode,
+                        "n_steps_taken": trm_reasoner_result["n_steps_taken"],
+                    },
+                )
 
                 if _ood_fallback is not None:
                     _trm_out = trm_reasoner_result["_trm_output"]
@@ -920,6 +958,7 @@ def run_mycelium_workflow(
                 "selected_domain": selected_domain,
                 "decision_confidence": decision_confidence,
                 "shadow_signal": shadow_signal_dict,
+                "should_escalate": should_escalate,
                 "trm_reasoner_result": _to_jsonable(
                     {
                         k: v
