@@ -1,28 +1,28 @@
 # Mycelium — Architecture Diagram
 
 > **WIP — updated in stages.** See `.diagram_wip.md` for expansion plan.  
-> Stage 2: `layer1_router.py` internals expanded (domain discovery, multi-lens route, temporal/spatial layers).
+> Stage 3: `multi_lens_router.py` internals expanded (spectral analysis, fusion engine, budget-select, classification).
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │  CLIENT (Next.js / web-ui)                                                                         │
 │                                                                                                    │
 │   ReasoningGraph/index.tsx                                                                         │
-│   └─ EventSource  POST /api/v1/chat/stream  ─────────────────────────────────────────────────┬────┐│
-│               GET  /api/v1/chat/stream  (legacy shim)                      SSE stream         │    ││
-│              POST  /api/v1/chat          (blocking JSON)                                      │    ││
+│   └─ EventSource  POST /api/v1/chat/stream  ──────────────────────────────────────────────────┬───┐│
+│               GET  /api/v1/chat/stream  (legacy shim)                        SSE stream        │   ││
+│              POST  /api/v1/chat          (blocking JSON)                                       │   ││
 └────────────────────────────────────────────────────────────────────────────────────────────────────┘
-                                                                                               │    │
+                                                                                                │   │
 ┌────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│  FASTAPI BACKEND  (broadcast_api.py)                                                  │    │        │
+│  FASTAPI BACKEND  (broadcast_api.py)                                                               │
 │                                                                                                    │
 │  Startup                                                                                           │
 │  └─ preload_models()                                                                               │
 │      └─ model_registry.warmup([mpnet, MiniLM])  ── _warmup_done.set()                              │
 │      └─ _write_calibration_state()  →  runtime/calibration_state.json                              │
 │                                                                                                    │
-│  POST /api/v1/chat/stream  (primary SSE)                                              ◄────┘       │
-│  GET  /api/v1/chat/stream  (legacy GET shim, same path)                                            │
+│  POST /api/v1/chat/stream  (primary SSE)                                               ◄───┘       │
+│  GET  /api/v1/chat/stream  (legacy GET shim)                                                       │
 │  POST /api/v1/chat         (blocking, returns ChatResponse)                                        │
 │  POST /api/v1/query        (legacy, returns MyceliumRunSummary only)                               │
 │  GET  /health  /api/v1/health                                                                      │
@@ -33,13 +33,13 @@
 │  ├─ ReplayJournal (maxlen=200)  ←─ reconnect replay via Last-Event-ID header                       │
 │  └─ ThreadPoolExecutor(1)  →  _producer()                                                          │
 │       └─ _full_pipeline_generator()                                                                │
-│            ├─ _build_run_summary()  ───────────────────────────────────────────────────────────────┐│
+│            ├─ _build_run_summary()  ──────────────────────────────────────────────────────────────┐│
 │            ├─ _run_sandbox()                                                                       ││
 │            ├─ ConversationAgent.answer()                                                           ││
 │            ├─ append_trace()  →  traces/*.jsonl                                                    ││
 │            └─ patch_logger.log_query() / fill_response()  (patch queries)                         ││
 │                                                                                                    │
-│  asyncio.Queue  ─────────────────────── pipeline events (SSE)  ────────────────────────────────────┘
+│  asyncio.Queue ──────────────────────── pipeline events (SSE) ─────────────────────────────────────┘
 │  (loop.call_soon_threadsafe)  →  StreamingResponse(_async_gen)                                     │
 └────────────────────────────────────────────────────────────────────────────────────────────────────┘
                                             |
@@ -83,10 +83,9 @@
 │  │       ├─ route == REASONING_PIPELINE  →  continue to step 3                                     │
 │  │       └─ other routes (refusal, direct)  →  emit SSE + skip remaining steps                     │
 │  │                                                                                                 │
-│  ├── 3. MULTI-LENS ROUTING  [multi_lens_router.py]                                                 │
-│  │       MultiLensRouter.route(text)  →  routing_context                                           │
+│  ├── 3. MULTI-LENS ROUTING  [multi_lens_router.py]  ←── see detail block below                    │
+│  │       MultiLensRouter.route(text)  →  RoutingResult                                             │
 │  │       TRMLens.refine(routing_context)  →  refined routing_context                               │
-│  │       ShadowDomainDetector (embedded in MultiLensRouter)                                        │
 │  │       └─ shadow_signal PROMOTE_TO_EXPERT → reload_domain_ontology()                             │
 │  │                                                                                                 │
 │  ├── 4. DOMAIN RESOLUTION                                                                          │
@@ -139,13 +138,12 @@
 │                   ood_fallback_result, should_escalate                                             │
 └────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
-                                    |
-                         step 1 + step 6 detail
-                                    |
+
+                              ↑ step 1 + step 6 expand here ↓
 ┌────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │  LAYER 1 ROUTER  (layer1_router.py)                                                                │
 │                                                                                                    │
-│  ┌─ DOMAIN ONTOLOGY (built once at import, refreshed by reload_domain_ontology()) ──────────────┐  │
+│  ┌─ DOMAIN ONTOLOGY ────────────────────────────────────────────────────────────────────────────┐  │
 │  │  _BASE_ONTOLOGY — statically defined per-domain core+attribute vocabularies                  │  │
 │  │  _build_domain_ontology()                                                                    │  │
 │  │  └─ _discover_live_domains()  →  cfg.discover_live_domains()                                 │  │
@@ -166,68 +164,113 @@
 │  ┌─ EMBEDDING & CLUSTERING ───────────────────────────────────────────────────────────────────┐  │
 │  │  embed_tags_transformer(tags)                                                               │  │
 │  │  └─ model_registry.embed_batch(tags, model_name)  →  np.array of vectors                   │  │
-│  │                                                                                             │  │
 │  │  cluster_tags_transformer(tags, embeddings)  →  cosine-similarity greedy merge             │  │
-│  │  └─ clusters: {cluster_id: [member_tags]}                                                  │  │
-│  │                                                                                             │  │
 │  │  cluster_tags(tags, embeddings)  →  AgglomerativeClustering(cosine, average)               │  │
 │  │  └─ distance_threshold from cfg (layer1.tag_cluster_distance_threshold)                    │  │
 │  └──────────────────────────────────────────────────────────────────────────────────────────────┘  │
 │                                                                                                    │
-│  ┌─ TEMPORAL LOCALITY LAYER ─────────────────────────────────────────────────────────────────┐  │
-│  │  TemporalLocalityLayer(max_size, time_window_hours)                                        │  │
-│  │  ├─ add_statement(sentence, tags, timestamp)  →  deque + tag_frequency counter             │  │
-│  │  ├─ get_recent_statements(time_limit_hours)  →  entries within cutoff window               │  │
-│  │  ├─ get_temporal_similarity(input_tags)                                                    │  │
-│  │  │    →  Jaccard(input ∩ recent / input ∪ recent)                                          │  │
-│  │  └─ get_frequent_tags(min_frequency)  →  {tag: freq}                                      │  │
+│  ┌─ TEMPORAL LOCALITY LAYER ──────────────────────────────────────────────────────────────────┐  │
+│  │  TemporalLocalityLayer(max_size, time_window_hours)                                         │  │
+│  │  ├─ add_statement(sentence, tags, timestamp)  →  deque + tag_frequency counter              │  │
+│  │  ├─ get_recent_statements(time_limit_hours)  →  entries within cutoff window                │  │
+│  │  ├─ get_temporal_similarity(input_tags)  →  Jaccard(input ∩ recent / input ∪ recent)        │  │
+│  │  └─ get_frequent_tags(min_frequency)  →  {tag: freq}                                       │  │
 │  └──────────────────────────────────────────────────────────────────────────────────────────────┘  │
 │                                                                                                    │
-│  ┌─ SPATIAL LOCALITY ANALYSIS ────────────────────────────────────────────────────────────────┐  │
+│  ┌─ SPATIAL LOCALITY & DOMAIN PATCH ─────────────────────────────────────────────────────────┐  │
 │  │  analyze_spatial_locality(recent_statements, clusters)                                     │  │
-│  │  └─ cluster_counts from recent tags  →  dominant_clusters[], cluster_distribution          │  │
-│  │                                                                                             │  │
+│  │  └─ cluster_counts  →  dominant_clusters[], cluster_distribution                           │  │
 │  │  assign_domain_patch(spatial_analysis)                                                     │  │
-│  │  ├─ dominance_ratio > threshold  →  use_existing_patch   (cluster_id)                     │  │
-│  │  ├─ moderate dominance           →  create_hybrid_patch  (primary_cluster)                │  │
-│  │  └─ no dominant clusters         →  create_new_patch                                      │  │
+│  │  ├─ dominance > threshold   →  use_existing_patch   (cluster_id)                          │  │
+│  │  ├─ moderate dominance      →  create_hybrid_patch  (primary_cluster)                     │  │
+│  │  └─ no dominance            →  create_new_patch                                           │  │
 │  └──────────────────────────────────────────────────────────────────────────────────────────────┘  │
 │                                                                                                    │
-│  ┌─ MULTI-LENS ROUTE (multi_lens_route) ─────────────────────────────────────────────────────┐  │
-│  │                                                                                             │  │
-│  │  should_escalate=False  →  _fast_lexical_route()  →  classification=FAST                  │  │
-│  │                              pure token-overlap scoring, no embedding model                │  │
-│  │                                                                                             │  │
-│  │  should_escalate=True   →  full DFS                                                        │  │
-│  │  │                                                                                         │  │
-│  │  ├─ Lens 1  _lens1_embedding_candidates(text, top_k)                                       │  │
-│  │  │          ├─ anchor text = core[:5] + attributes[:3] per domain                          │  │
-│  │  │          ├─ embed_weight * cosine_sim + lex_weight * token_overlap                       │  │
-│  │  │          └─ _deduplicate_candidates()  →  cosine cluster → keep best scorer             │  │
-│  │  │               └─ _parent_dedup()  fallback if embedding unavailable                    │  │
-│  │  │                                                                                         │  │
-│  │  ├─ Lens 2  _lens2_ontology_explanations(text, candidates, max_candidates)                 │  │
-│  │  │          ├─ token overlap against core + 0.5×attribute vocab per domain                 │  │
-│  │  │          ├─ child-domain penalty: child_core ⊆ parent_core  →  ×0.7                    │  │
-│  │  │          ├─ secondary dampening: parent_cov ≥ 0.9×child_cov  →  ×0.9                  │  │
-│  │  │          └─ parent-child suppression: suppress child if parent scores ≥ 0.9×           │  │
-│  │  │                                                                                         │  │
-│  │  ├─ Lens 3  _lens3_abstraction_signature(text, concepts)                                   │  │
-│  │  │          └─ {core: {domain:[hits]}, modifiers: {domain:[hits]}}                         │  │
-│  │  │               active_domains.core == 0  →  ATTRIBUTE_ONLY path                         │  │
-│  │  │                                                                                         │  │
-│  │  └─ Shadow  _run_shadow_check(text, fusion_scores)                                         │  │
-│  │             └─ ShadowDomainDetector.observe()                                              │  │
-│  │                  ├─ ATTRIBUTE_ONLY path: always runs                                       │  │
-│  │                  └─ NORMAL path: only if top lens1 score < shadow_threshold                │  │
-│  │                       signal.status == PROMOTE_TO_EXPERT                                   │  │
-│  │                       →  reload_domain_ontology() + emit promote_shadow_domain             │  │
-│  │                                                                                             │  │
-│  │  Output: {primary_domain, secondary_domains[], explanation,                                │  │
-│  │           lens1_candidates, lens2_explanations, lens3_signature,                           │  │
-│  │           classification: NORMAL|ATTRIBUTE_ONLY|SHADOW|FAST,                               │  │
-│  │           shadow_signal}                                                                   │  │
+│  ┌─ MULTI-LENS ROUTE (called by MultiLensRouter) ────────────────────────────────────────────┐  │
+│  │  Lens 1  _lens1_embedding_candidates(text, top_k)                                          │  │
+│  │          embed_weight*cosine_sim + lex_weight*token_overlap per domain anchor               │  │
+│  │          _deduplicate_candidates()  →  cosine cluster, keep best scorer                    │  │
+│  │  Lens 2  _lens2_ontology_explanations(text, candidates)                                    │  │
+│  │          token overlap vs core+0.5×attr vocab; child/parent suppression                    │  │
+│  │  Lens 3  _lens3_abstraction_signature(text, concepts)                                      │  │
+│  │          {core:{domain:[hits]}, modifiers:{domain:[hits]}}                                  │  │
+│  │          active_domains.core == 0  →  ATTRIBUTE_ONLY path                                  │  │
+│  │  Shadow  _run_shadow_check(text, fusion_scores)                                            │  │
+│  │          ShadowDomainDetector.observe()                                                    │  │
+│  │          PROMOTE_TO_EXPERT → reload_domain_ontology() + emit promote_shadow_domain         │  │
 │  └──────────────────────────────────────────────────────────────────────────────────────────────┘  │
+└────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+                              ↑ step 3 expands here ↓
+┌────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│  MULTI-LENS ROUTER  (multi_lens_router.py :: MultiLensRouter.route)                                │
+│                                                                                                    │
+│  ┌─ CONSTRUCTION ───────────────────────────────────────────────────────────────────────────────┐  │
+│  │  MultiLensRouter(spectral_analyzer=<synced analyzer from DynamicSignatureManager>)           │  │
+│  │  ├─ _spectral_analyzer = RuntimeSpectralAnalyzer(sig_dir, model=all-MiniLM-L6-v2)           │  │
+│  │  │   (or injected from run_workflow's DynamicSignatureManager.sync_signatures())             │  │
+│  │  └─ _fusion_engine     = FusionEngine()                                                     │  │
+│  └──────────────────────────────────────────────────────────────────────────────────────────────┘  │
+│                                                                                                    │
+│  route(text) — full pipeline                                                                       │
+│  │                                                                                                 │
+│  ├─ A. multi_lens_route(text)  [layer1_router.py]                                                  │
+│  │       → base_result { classification, lens1_candidates, lens2_explanations,                     │
+│  │                        lens3_signature, primary_domain, shadow_signal }                         │
+│  │       is_attribute_only = classification == "ATTRIBUTE_ONLY"                                    │
+│  │       semantic_scores   = lens1_candidates  →  {domain: score}                                  │
+│  │       object_level_domains = lens3.core hits + lens2 "object" level matches                     │
+│  │                                                                                                 │
+│  ├─ B. SPECTRAL ANALYSIS  [spectral_analyzer.py]                                                   │
+│  │       RuntimeSpectralAnalyzer.analyze_text(text)  →  spectral_scores {domain: score}            │
+│  │       (skipped silently if analyzer not ready)                                                  │
+│  │                                                                                                 │
+│  ├─ C. FUSION  [fusion_engine.py]                                                                  │
+│  │       FusionEngine.fuse(semantic_scores, spectral_scores, confidence_scores)                    │
+│  │       → fused_scores {domain: fused_score}                                                      │
+│  │       FALLBACK if FusionEngine unavailable or raises:                                           │
+│  │         _merge_scores_fallback()                                                                │
+│  │         domain in both sources:  0.55×sem + 0.45×spc                                           │
+│  │         domain in semantic only: 0.55×sem                                                       │
+│  │         domain in spectral only: 0.45×spc                                                       │
+│  │                                                                                                 │
+│  ├─ D. PRE-SELECTION CLUSTERING                                                                    │
+│  │       _preselect_cluster(fused_scores)                                                          │
+│  │       └─ _deduplicate_candidates()  →  collapse near-synonym domains before budget-select       │
+│  │                                                                                                 │
+│  ├─ E. BUDGET SELECT                                                                               │
+│  │       _budget_select(fused_scores, confidence_scores,                                           │
+│  │                      min_score=DOMAIN_SCORE_THRESHOLD, max_experts=MAX_EXPERTS)                 │
+│  │       sort by (fused_score DESC, confidence DESC, domain ASC)                                   │
+│  │       → selected_experts[], budget_cap_applied                                                  │
+│  │       create_new_expert = True when selected_experts=[] AND NOT attribute_only                  │
+│  │                                                                                                 │
+│  ├─ F. ATTRIBUTE OVERRIDE  (if ATTRIBUTE_ONLY and ENABLE_ATTRIBUTE_OVERRIDE)                       │
+│  │       promote object_level_domains scoring ≥ threshold into selected_experts                   │
+│  │       (respects max_experts budget cap)                                                         │
+│  │                                                                                                 │
+│  ├─ G. LAST-RESORT FALLBACK                                                                        │
+│  │       if still empty → use base_result.primary_domain                                          │
+│  │                                                                                                 │
+│  └─ H. CLASSIFICATION                                                                              │
+│         variance = var(fused_scores.values())                                                      │
+│         ATTRIBUTE_ONLY        no override applied, is_attribute_only=True                          │
+│         SINGLE_DOMAIN         len(selected)==1                                                     │
+│         MULTI_DOMAIN          len(selected)>1  AND  variance >= 0.1                                │
+│         AMBIGUOUS             len(selected)>1  AND  variance < 0.1                                 │
+│         NO_EXPERT_AVAILABLE   selected empty after all fallbacks                                   │
+│                                                                                                    │
+│  Returns: RoutingResult {                                                                          │
+│    classification, selected_domains, primary_domain, fusion_scores,                                │
+│    coverage, create_new_expert,                                                                    │
+│    metadata { lens_scores:{semantic,spectral,confidence},                                          │
+│               fused_scores, variance, explanation }                                                │
+│  }                                                                                                 │
+│                                                                                                    │
+│  Metrics tracked (in-process): total_requests, attribute_only, single_domain,                     │
+│  multi_domain, ambiguous, no_expert, create_new_expert_true,                                       │
+│  attribute_override_applied, budget_cap_applied                                                    │
 └────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
 
@@ -260,6 +303,9 @@
   pipeline_event.py         EventEmitter, PipelineEvent, ReplayJournal
   model_registry.py         warmup(), loaded_models(), STARTUP_SPECS
   dynamic_signature_manager.py  sync_signatures()  →  SpectralAnalyzer (.npy)
+  spectral_analyzer.py      RuntimeSpectralAnalyzer.analyze_text()  →  {domain:score}
+  fusion_engine.py          FusionEngine.fuse(semantic, spectral, confidence)
+                            fallback: _merge_scores_fallback() (0.55/0.45 weights)
   patch_batch_logger.py     log_query() / fill_response()  for CREATE_NEW_PATCH
   patch_dag.py              Patch DAG graph manager
   sandbox_manager.py        get_sandbox_manager()  →  MCP tool execution
@@ -300,7 +346,7 @@
 
 ---
 
-> **Stage 2 complete.** `layer1_router.py` internals expanded: domain discovery/write-back,
-> multi-lens route (Lens 1/2/3 + shadow check), temporal locality layer, spatial locality
-> + domain patch assignment.
-> Next: expand `multi_lens_router.py`, `unified_expert_system.py`, `phase2/`, `phase3/`, `layer0/`, TRM subsystem.
+> **Stage 3 complete.** `multi_lens_router.py` expanded: full route() pipeline (A→H),
+> spectral analysis, FusionEngine + fallback merge weights, pre-selection clustering,
+> budget-select, attribute override, last-resort fallback, classification logic, metrics.
+> Next: `unified_expert_system.py`, `phase2/pipeline.py`, `phase3/pipeline.py`, `layer0/router.py`, TRM internals, web-ui.
