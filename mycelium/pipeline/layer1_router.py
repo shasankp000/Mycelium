@@ -79,31 +79,24 @@ except Exception:  # pragma: no cover
 
 
 # ---------------------------------------------------------------------------
-# Dynamic domain discovery — reads whatever expert subdirs exist on disk.
-# Falls back to config-supplied list if the experts directory is absent.
+# Dynamic domain discovery — delegates to cfg.discover_live_domains().
+# That function scans experts_dir for subdirectories containing model files,
+# writes the result back into config.toml (non-fatal on failure), and falls
+# back to the static [layer1.domain_list] cache if nothing is found on disk.
+# Call reload_domain_ontology() after adding a new expert to pick it up
+# without restarting the process.
 # ---------------------------------------------------------------------------
 
 def _discover_live_domains(experts_dir: Optional[str] = None) -> List[str]:
-    """Return sorted list of domain names that have an expert directory on disk."""
-    if experts_dir is None:
-        try:
-            experts_dir = cfg.experts_dir()  # type: ignore[attr-defined]
-        except Exception:
-            experts_dir = "experts"
-    try:
-        if os.path.isdir(experts_dir):
-            return sorted(
-                d for d in os.listdir(experts_dir)
-                if os.path.isdir(os.path.join(experts_dir, d))
-                and not d.startswith(".")
-            )
-    except OSError:
-        pass
-    # Fallback: config-supplied list
-    try:
-        return sorted(cfg.layer1_domain_list())
-    except Exception:
-        return []
+    """Return sorted list of domain names that have an expert directory on disk.
+
+    Delegates to cfg.discover_live_domains() which handles scanning,
+    suffix-stripping, write-back, and fallback in one place.
+    The ``experts_dir`` argument is accepted for backwards compatibility but
+    ignored — the directory is always read from [experts].dir in config.toml
+    (or MYCELIUM_EXPERTS_DIR env var).
+    """
+    return cfg.discover_live_domains()
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +210,10 @@ _ATTRIBUTE_LEVEL_DOMAINS: set = {
 }
 
 # DOMAIN_LIST kept in sync with disk-discovered domains for LLM prompts.
-DOMAIN_LIST: List[str] = _discover_live_domains() or list(_DOMAIN_ONTOLOGY.keys())
+# Uses cfg.discover_live_domains() directly so the LLM sees the same set
+# that the ontology was built from, and the result is written back to
+# config.toml as a side-effect.
+DOMAIN_LIST: List[str] = cfg.discover_live_domains() or list(_DOMAIN_ONTOLOGY.keys())
 
 
 def reload_domain_ontology(experts_dir: Optional[str] = None) -> None:
@@ -225,10 +221,12 @@ def reload_domain_ontology(experts_dir: Optional[str] = None) -> None:
 
     Call this after a new expert has been created on disk so the router
     immediately recognises the new domain without a process restart.
+    The ``experts_dir`` argument is accepted for backwards compatibility but
+    ignored — the directory is always read from [experts].dir in config.toml.
     """
     global _DOMAIN_ONTOLOGY, _ONTOLOGY_PARENTS, _OBJECT_LEVEL_DOMAINS
     global _ATTRIBUTE_LEVEL_DOMAINS, DOMAIN_LIST
-    _DOMAIN_ONTOLOGY = _build_domain_ontology(experts_dir)
+    _DOMAIN_ONTOLOGY = _build_domain_ontology()
     _ONTOLOGY_PARENTS = {
         k: v["parent"] for k, v in _DOMAIN_ONTOLOGY.items() if "parent" in v
     }
@@ -238,7 +236,7 @@ def reload_domain_ontology(experts_dir: Optional[str] = None) -> None:
     _ATTRIBUTE_LEVEL_DOMAINS = {
         k for k, v in _DOMAIN_ONTOLOGY.items() if v.get("level") == "attribute"
     }
-    DOMAIN_LIST = _discover_live_domains(experts_dir) or list(_DOMAIN_ONTOLOGY.keys())
+    DOMAIN_LIST = cfg.discover_live_domains() or list(_DOMAIN_ONTOLOGY.keys())
 
 
 # ---------------------------------------------------------------------------
