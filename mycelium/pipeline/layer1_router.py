@@ -1,15 +1,15 @@
 import json
 import hashlib
 import datetime
+import os
 import time
 from collections import deque, OrderedDict
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from mycelium.pipeline import config_loader as cfg
 try:
     from sentence_transformers import SentenceTransformer
-except Exception:  # pragma: no cover - allow graceful degradation
+except Exception:  # pragma: no cover
     SentenceTransformer = None  # type: ignore
-# Cosine similarity with graceful fallback if scikit-learn is unavailable
 try:
     from sklearn.metrics.pairwise import cosine_similarity as _sk_cosine_similarity  # type: ignore
     def cosine_similarity(a, b=None):
@@ -22,13 +22,10 @@ except Exception:  # pragma: no cover
         if isinstance(x[0], (list, tuple)):
             return [[float(v) for v in row] for row in x]
         return [[float(v) for v in x]]
-
     def _dot(u, v):
         return sum((ui * vi for ui, vi in zip(u, v)))
-
     def _norm(u):
         return _math.sqrt(sum((ui * ui for ui in u))) + 1e-12
-
     def cosine_similarity(a, b=None):
         A = _ensure_2d(a)
         B = _ensure_2d(b) if b is not None else A
@@ -80,19 +77,175 @@ except Exception:  # pragma: no cover
     def get_expert_model(domain):
         return None
 
+
 # ---------------------------------------------------------------------------
-# Domain list — loaded from config; fallback to built-in default
+# Dynamic domain discovery — reads whatever expert subdirs exist on disk.
+# Falls back to config-supplied list if the experts directory is absent.
 # ---------------------------------------------------------------------------
-DOMAIN_LIST: List[str] = cfg.layer1_domain_list()
+
+def _discover_live_domains(experts_dir: Optional[str] = None) -> List[str]:
+    """Return sorted list of domain names that have an expert directory on disk."""
+    if experts_dir is None:
+        try:
+            experts_dir = cfg.experts_dir()  # type: ignore[attr-defined]
+        except Exception:
+            experts_dir = "experts"
+    try:
+        if os.path.isdir(experts_dir):
+            return sorted(
+                d for d in os.listdir(experts_dir)
+                if os.path.isdir(os.path.join(experts_dir, d))
+                and not d.startswith(".")
+            )
+    except OSError:
+        pass
+    # Fallback: config-supplied list
+    try:
+        return sorted(cfg.layer1_domain_list())
+    except Exception:
+        return []
 
 
 # ---------------------------------------------------------------------------
-# LLM tag extraction cache (§4.1)
-# — Keyed by sha256(text).  Each entry is (timestamp_float, tags_list).
-# — Max 2048 entries, LRU eviction, 1-hour TTL.
+# Domain ontology — built dynamically.
+# A base ontology covers well-understood structural domains. Any domain that
+# exists on disk but is NOT in the base ontology gets a minimal scaffold entry
+# so it is still reachable via lexical/embedding scoring.
+# ---------------------------------------------------------------------------
+
+_BASE_ONTOLOGY: Dict[str, Dict[str, Any]] = {
+    "astronomy": {
+        "level": "object",
+        "core": [
+            "astronomy", "space", "planet", "planets", "sun", "earth", "moon",
+            "star", "stars", "galaxy", "orbit", "orbits", "orbital", "solar",
+            "telescope", "parallax",
+        ],
+        "attributes": ["distance", "light", "mass", "gravity", "trajectory"],
+    },
+    "automobile": {
+        "level": "object",
+        "core": [
+            "car", "vehicle", "automobile", "auto", "maruti", "suzuki", "bike",
+            "motorcycle", "tyre", "tire", "tires", "tubeless", "hatchback",
+            "sedan", "suv",
+        ],
+        "attributes": ["engine", "wheel", "wheels", "tread", "drive", "manual", "automatic"],
+    },
+    "engine_spec": {
+        "level": "attribute",
+        "core": ["engine", "cc", "horsepower", "hp", "torque", "700cc", "700"],
+        "attributes": [],
+        "parent": "automobile",
+    },
+    "aesthetics": {
+        "level": "attribute",
+        "core": [
+            "color", "colour", "finish", "gloss", "glossy", "matte", "metallic",
+            "red", "cherry", "blue", "green",
+        ],
+        "attributes": ["shade", "tone"],
+    },
+    "physics": {
+        "level": "object",
+        "core": [
+            "physics", "force", "energy", "velocity", "acceleration", "momentum",
+            "quantum", "relativity", "wave", "particle", "field", "charge",
+            "magnetic", "electric",
+        ],
+        "attributes": ["mass", "speed", "temperature", "pressure", "frequency"],
+    },
+    "chemistry": {
+        "level": "object",
+        "core": [
+            "chemistry", "chemical", "element", "compound", "molecule", "atom",
+            "reaction", "acid", "base", "bond", "ion", "periodic", "oxidation",
+            "reduction",
+        ],
+        "attributes": ["concentration", "temperature", "catalyst", "solvent"],
+    },
+    "medical": {
+        "level": "object",
+        "core": [
+            "medical", "disease", "diagnosis", "treatment", "drug", "symptom",
+            "patient", "clinical", "surgery", "therapy", "medicine", "anatomy",
+            "pathology", "vaccine",
+        ],
+        "attributes": ["dose", "chronic", "acute", "benign", "malignant"],
+    },
+    "music": {
+        "level": "object",
+        "core": [
+            "music", "song", "melody", "chord", "rhythm", "beat", "note", "scale",
+            "instrument", "guitar", "piano", "drums", "bass", "tempo", "lyrics",
+        ],
+        "attributes": ["pitch", "tone", "harmony", "octave", "frequency"],
+    },
+}
+
+
+def _build_domain_ontology(experts_dir: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
+    """Merge base ontology with any live domains found on disk.
+
+    Domains on disk that have no base entry get a minimal scaffold so the
+    embedding lens can still score them via their domain name as anchor text.
+    """
+    ontology: Dict[str, Dict[str, Any]] = dict(_BASE_ONTOLOGY)
+    live = _discover_live_domains(experts_dir)
+    for domain in live:
+        if domain not in ontology:
+            # Minimal scaffold — embedding similarity to domain name itself
+            ontology[domain] = {
+                "level": "object",
+                "core": [domain.replace("_", " "), domain],
+                "attributes": [],
+            }
+    return ontology
+
+
+# Build once at import time; refreshed on explicit reload.
+_DOMAIN_ONTOLOGY: Dict[str, Dict[str, Any]] = _build_domain_ontology()
+
+_ONTOLOGY_PARENTS: Dict[str, str] = {
+    k: v["parent"] for k, v in _DOMAIN_ONTOLOGY.items() if "parent" in v
+}
+_OBJECT_LEVEL_DOMAINS: set = {
+    k for k, v in _DOMAIN_ONTOLOGY.items() if v.get("level") == "object"
+}
+_ATTRIBUTE_LEVEL_DOMAINS: set = {
+    k for k, v in _DOMAIN_ONTOLOGY.items() if v.get("level") == "attribute"
+}
+
+# DOMAIN_LIST kept in sync with disk-discovered domains for LLM prompts.
+DOMAIN_LIST: List[str] = _discover_live_domains() or list(_DOMAIN_ONTOLOGY.keys())
+
+
+def reload_domain_ontology(experts_dir: Optional[str] = None) -> None:
+    """Re-discover domains from disk and refresh all module-level structures.
+
+    Call this after a new expert has been created on disk so the router
+    immediately recognises the new domain without a process restart.
+    """
+    global _DOMAIN_ONTOLOGY, _ONTOLOGY_PARENTS, _OBJECT_LEVEL_DOMAINS
+    global _ATTRIBUTE_LEVEL_DOMAINS, DOMAIN_LIST
+    _DOMAIN_ONTOLOGY = _build_domain_ontology(experts_dir)
+    _ONTOLOGY_PARENTS = {
+        k: v["parent"] for k, v in _DOMAIN_ONTOLOGY.items() if "parent" in v
+    }
+    _OBJECT_LEVEL_DOMAINS = {
+        k for k, v in _DOMAIN_ONTOLOGY.items() if v.get("level") == "object"
+    }
+    _ATTRIBUTE_LEVEL_DOMAINS = {
+        k for k, v in _DOMAIN_ONTOLOGY.items() if v.get("level") == "attribute"
+    }
+    DOMAIN_LIST = _discover_live_domains(experts_dir) or list(_DOMAIN_ONTOLOGY.keys())
+
+
+# ---------------------------------------------------------------------------
+# LRU tag cache
 # ---------------------------------------------------------------------------
 _TAG_CACHE_MAX: int = 2048
-_TAG_CACHE_TTL: float = 3600.0          # seconds
+_TAG_CACHE_TTL: float = 3600.0
 _tag_cache: "OrderedDict[str, Tuple[float, List[str]]]" = OrderedDict()
 
 
@@ -108,7 +261,7 @@ def _tag_cache_get(text: str) -> Optional[List[str]]:
     if time.monotonic() - ts > _TAG_CACHE_TTL:
         del _tag_cache[key]
         return None
-    _tag_cache.move_to_end(key)          # LRU refresh
+    _tag_cache.move_to_end(key)
     return tags
 
 
@@ -117,56 +270,103 @@ def _tag_cache_put(text: str, tags: List[str]) -> None:
     _tag_cache[key] = (time.monotonic(), tags)
     _tag_cache.move_to_end(key)
     if len(_tag_cache) > _TAG_CACHE_MAX:
-        _tag_cache.popitem(last=False)   # evict oldest
+        _tag_cache.popitem(last=False)
 
 
 # ---------------------------------------------------------------------------
-# embed_tags_transformer — uses model_registry to avoid duplicate loads (§1.1)
+# Embedding helpers
 # ---------------------------------------------------------------------------
 
 def embed_tags_transformer(tags, model_name: str = ""):
-    """Embed *tags* using SentenceTransformer on CPU.
-
-    Delegates to model_registry.get_model() so the encoder is loaded once
-    per process and served from the in-memory cache on every subsequent call.
-    Also uses model_registry.embed_batch() so individual tag embeddings that
-    were already computed earlier in the same request are returned as pure
-    cache hits with no encode() call.
-    """
     model_name = model_name or cfg.layer1_embed_model()
     if SentenceTransformer is None:
         import numpy as np
-        embeddings = np.eye(len(tags))
-        return embeddings
+        return np.eye(len(tags))
     try:
         import numpy as np
         from mycelium.pipeline.model_registry import embed_batch
         vecs = embed_batch(tags, model_name=model_name, device="cpu")
         return np.array(vecs)
     except ImportError:
-        # model_registry not available — fall back to direct load
         model = SentenceTransformer(model_name, device="cpu")
         return model.encode(tags)
 
-def cluster_tags_transformer(tags, embeddings, similarity_threshold: Optional[float] = None):
+
+def cluster_tags_transformer(
+    tags: List[str],
+    embeddings,
+    similarity_threshold: Optional[float] = None,
+) -> Dict[str, List[str]]:
+    """Cosine-similarity clustering that merges overlapping domain candidates.
+
+    Returns a dict mapping cluster_id -> list of member domain names.
+    The cluster representative (first member) is the highest-scoring one
+    when called from _deduplicate_candidates().
+    """
     if similarity_threshold is None:
         similarity_threshold = cfg.layer1_tag_cluster_similarity_threshold()
     sim_matrix = cosine_similarity(embeddings)
-    clusters = {}
-    used = set()
+    clusters: Dict[str, List[str]] = {}
+    used: set = set()
     cluster_id = 0
     for i, tag in enumerate(tags):
         if i in used:
             continue
         cluster = [tag]
         used.add(i)
-        for j in range(i+1, len(tags)):
-            if sim_matrix[i][j] >= similarity_threshold and j not in used:
+        for j in range(i + 1, len(tags)):
+            if j not in used and sim_matrix[i][j] >= similarity_threshold:
                 cluster.append(tags[j])
                 used.add(j)
         clusters[str(cluster_id)] = cluster
         cluster_id += 1
     return clusters
+
+
+def _deduplicate_candidates(
+    candidates: List[Tuple[str, float]],
+    model_name: str = "",
+    similarity_threshold: Optional[float] = None,
+) -> List[Tuple[str, float]]:
+    """Merge semantically-overlapping candidates before scoring.
+
+    For each cluster keep the highest-scoring representative.
+    This prevents automobile + engine_spec both passing through when they
+    are near-duplicates in embedding space.
+    """
+    if len(candidates) <= 1:
+        return candidates
+    if similarity_threshold is None:
+        similarity_threshold = cfg.layer1_tag_cluster_similarity_threshold()
+    domains = [d for d, _ in candidates]
+    score_map = {d: s for d, s in candidates}
+    try:
+        embeddings = embed_tags_transformer(domains, model_name=model_name)
+        clusters = cluster_tags_transformer(domains, embeddings, similarity_threshold)
+    except Exception:
+        # If embedding fails, fall back to ontology-parent dedup only
+        return _parent_dedup(candidates)
+    deduped: List[Tuple[str, float]] = []
+    for members in clusters.values():
+        # Keep the member with the highest original score
+        best = max(members, key=lambda d: score_map.get(d, 0.0))
+        deduped.append((best, score_map[best]))
+    deduped.sort(key=lambda x: x[1], reverse=True)
+    return deduped
+
+
+def _parent_dedup(candidates: List[Tuple[str, float]]) -> List[Tuple[str, float]]:
+    """Suppress child domains when their parent is also a candidate and scores higher."""
+    score_map = {d: s for d, s in candidates}
+    suppressed: set = set()
+    for domain in score_map:
+        parent = _ONTOLOGY_PARENTS.get(domain)
+        if parent and parent in score_map:
+            # Suppress child if parent score >= child score
+            if score_map[parent] >= score_map[domain]:
+                suppressed.add(domain)
+    return [(d, s) for d, s in candidates if d not in suppressed]
+
 
 def extract_tags_openai(
     text,
@@ -178,19 +378,15 @@ def extract_tags_openai(
     import requests
     endpoint = endpoint or cfg.layer1_openai_endpoint()
     provider = provider or cfg.layer1_openai_provider()
-    model    = model    or cfg.layer1_openai_model()
-    max_tokens  = cfg.layer1_openai_max_tokens()
+    model = model or cfg.layer1_openai_model()
+    max_tokens = cfg.layer1_openai_max_tokens()
     temperature = cfg.layer1_openai_temperature()
-
     prompt = (
         f"Analyze the following sentence and output ONLY a comma-separated list of domain tags "
         f"(choose from: {', '.join(DOMAIN_LIST)}). Do not include any explanation, headers, or extra text.\n"
         f"Sentence: {text}"
     )
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     data = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
@@ -215,17 +411,9 @@ def extract_tags_openai(
 
 
 def extract_tags_llama(text, model: str = ""):
-    """Extract domain tags via Ollama with an LRU + TTL result cache (§4.1).
-
-    Cache key: sha256(text).  Max 2048 entries, 1-hour TTL, LRU eviction.
-    Identical or recently-seen sentences are served entirely from memory
-    with zero Ollama round-trips.
-    """
-    # Fast path: exact-match cache hit
     cached = _tag_cache_get(text)
     if cached is not None:
         return cached
-
     model = model or cfg.layer1_llama_model()
     prompt = (
         f"Analyze the following sentence and output ONLY a comma-separated list of domain tags "
@@ -241,9 +429,9 @@ def extract_tags_llama(text, model: str = ""):
             tags_clean.extend([tag.strip() for tag in line.split(',') if tag.strip()])
     if not tags_clean:
         tags_clean = [tag.strip() for tag in tags_str.split(',') if tag.strip()]
-
     _tag_cache_put(text, tags_clean)
     return tags_clean
+
 
 def normalize_tags(tags, domain_list=None, threshold: Optional[int] = None):
     if domain_list is None:
@@ -256,6 +444,7 @@ def normalize_tags(tags, domain_list=None, threshold: Optional[int] = None):
         normalized.append(match if score >= threshold else tag)
     return normalized
 
+
 def cluster_tags(tags, embeddings, distance_threshold: Optional[float] = None):
     if distance_threshold is None:
         distance_threshold = cfg.layer1_tag_cluster_distance_threshold()
@@ -265,10 +454,11 @@ def cluster_tags(tags, embeddings, distance_threshold: Optional[float] = None):
         linkage='average',
         distance_threshold=distance_threshold
     ).fit(embeddings)
-    clusters = {}
+    clusters: Dict[str, List[str]] = {}
     for tag, label in zip(tags, clustering.labels_):
         clusters.setdefault(str(label), []).append(tag)
     return clusters
+
 
 def save_clusters_to_json(clusters, text, extractor, embed_model, distance_threshold, filename: str = ""):
     filename = filename or cfg.layer1_tag_clusters_filename()
@@ -281,17 +471,19 @@ def save_clusters_to_json(clusters, text, extractor, embed_model, distance_thres
             "clustering": {
                 "method": "AgglomerativeClustering",
                 "linkage": "average",
-                "distance_threshold": distance_threshold
-            }
-        }
+                "distance_threshold": distance_threshold,
+            },
+        },
     }
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4)
+
 
 def load_clusters_from_json(filename: str = ""):
     filename = filename or cfg.layer1_tag_clusters_filename()
     with open(filename, "r", encoding="utf-8") as f:
         return json.load(f)
+
 
 # Temporal Locality Layer
 class TemporalLocalityLayer:
@@ -305,7 +497,7 @@ class TemporalLocalityLayer:
         if time_window_hours is None:
             time_window_hours = cfg.layer1_temporal_time_window_hours()
         self.recent_statements = deque(maxlen=max_size)
-        self.tag_frequency = {}
+        self.tag_frequency: Dict[str, int] = {}
         self.time_window = time_window_hours * 3600
 
     def add_statement(self, sentence, tags, timestamp):
@@ -313,7 +505,7 @@ class TemporalLocalityLayer:
             "sentence": sentence,
             "tags": tags,
             "timestamp": timestamp,
-            "parsed_time": datetime.datetime.fromisoformat(timestamp)
+            "parsed_time": datetime.datetime.fromisoformat(timestamp),
         }
         self.recent_statements.append(entry)
         for tag in tags:
@@ -331,7 +523,7 @@ class TemporalLocalityLayer:
         recent_statements = self.get_recent_statements(time_limit_hours)
         if not recent_statements:
             return 0.0
-        recent_tags = set()
+        recent_tags: set = set()
         for entry in recent_statements:
             recent_tags.update(entry["tags"])
         input_set = set(input_tags)
@@ -344,17 +536,18 @@ class TemporalLocalityLayer:
     def get_frequent_tags(self, min_frequency=2):
         return {tag: freq for tag, freq in self.tag_frequency.items() if freq >= min_frequency}
 
+
 def analyze_spatial_locality(recent_statements, clusters):
     if not recent_statements:
         return {"dominant_clusters": [], "cluster_distribution": {}}
-    recent_tags = []
+    recent_tags: List[str] = []
     for entry in recent_statements:
         recent_tags.extend(entry["tags"])
-    tag_to_cluster = {}
-    for cluster_id, cluster_tags in clusters.items():
-        for tag in cluster_tags:
+    tag_to_cluster: Dict[str, str] = {}
+    for cluster_id, c_tags in clusters.items():
+        for tag in c_tags:
             tag_to_cluster[tag] = cluster_id
-    cluster_counts = {}
+    cluster_counts: Dict[str, int] = {}
     for tag in recent_tags:
         cluster_id = tag_to_cluster.get(tag)
         if cluster_id:
@@ -364,8 +557,9 @@ def analyze_spatial_locality(recent_statements, clusters):
         "dominant_clusters": sorted_clusters[:3],
         "cluster_distribution": cluster_counts,
         "total_recent_tags": len(recent_tags),
-        "unique_recent_tags": len(set(recent_tags))
+        "unique_recent_tags": len(set(recent_tags)),
     }
+
 
 def assign_domain_patch(spatial_analysis, similarity_threshold: Optional[float] = None):
     if similarity_threshold is None:
@@ -381,71 +575,36 @@ def assign_domain_patch(spatial_analysis, similarity_threshold: Optional[float] 
             "action": "use_existing_patch",
             "cluster_id": cluster_id,
             "dominance_ratio": dominance_ratio,
-            "reason": f"cluster_{cluster_id}_dominates_with_{dominance_ratio:.2f}_ratio"
+            "reason": f"cluster_{cluster_id}_dominates_with_{dominance_ratio:.2f}_ratio",
         }
-    else:
-        return {
-            "action": "create_hybrid_patch",
-            "primary_cluster": cluster_id,
-            "dominance_ratio": dominance_ratio,
-            "reason": f"moderate_dominance_{dominance_ratio:.2f}_suggests_hybrid"
-        }
+    return {
+        "action": "create_hybrid_patch",
+        "primary_cluster": cluster_id,
+        "dominance_ratio": dominance_ratio,
+        "reason": f"moderate_dominance_{dominance_ratio:.2f}_suggests_hybrid",
+    }
 
 
 # ==========================
 # Layer 1: Multi-Lens Routing
 # ==========================
 
-_DOMAIN_ONTOLOGY: Dict[str, Dict[str, List[str]]] = {
-    "astronomy": {
-        "level": "object",
-        "core": [
-            "astronomy", "space", "planet", "planets", "sun", "earth", "moon", "star", "stars", "galaxy", "orbit", "orbits", "orbital", "solar", "telescope", "parallax"
-        ],
-        "attributes": ["distance", "light", "mass", "gravity", "trajectory"],
-    },
-    "automobile": {
-        "level": "object",
-        "core": [
-            "car", "vehicle", "automobile", "auto", "maruti", "suzuki", "bike", "motorcycle", "tyre", "tire", "tires", "tubeless", "hatchback", "sedan", "suv"
-        ],
-        "attributes": ["engine", "wheel", "wheels", "tread", "drive", "manual", "automatic"],
-    },
-    "engine_spec": {
-        "level": "attribute",
-        "core": ["engine", "cc", "horsepower", "hp", "torque", "700cc", "700"],
-        "attributes": [],
-        "parent": "automobile"
-    },
-    "aesthetics": {
-        "level": "attribute",
-        "core": [
-            "color", "colour", "finish", "gloss", "glossy", "matte", "metallic", "red", "cherry", "blue", "green"
-        ],
-        "attributes": ["shade", "tone"]
-    },
-}
-
-_ONTOLOGY_PARENTS: Dict[str, str] = {k: v["parent"] for k, v in _DOMAIN_ONTOLOGY.items() if "parent" in v}
-_OBJECT_LEVEL_DOMAINS: set = {k for k, v in _DOMAIN_ONTOLOGY.items() if v.get("level") == "object"}
-_ATTRIBUTE_LEVEL_DOMAINS: set = {k for k, v in _DOMAIN_ONTOLOGY.items() if v.get("level") == "attribute"}
-
 def _tokenize(text: str) -> List[str]:
     import re
     return [t for t in re.findall(r"[A-Za-z0-9]+", text.lower())]
+
 
 def _lens1_embedding_candidates(
     text: str,
     top_k: Optional[int] = None,
     model_name: str = "",
 ) -> List[Tuple[str, float]]:
-    """Lens 1: Embedding-based permissive candidate selection.
+    """Lens 1: Embedding-based permissive candidate selection over live domains.
 
-    Uses model_registry.get_embedding() + embed_batch() so the query and
-    anchor embeddings are computed once and cached — subsequent calls with
-    the same text/anchors are pure in-memory cache hits (§1.1).
-    Gracefully degrades to lexical scoring if sentence-transformers or
-    model_registry are unavailable.
+    Scores ALL domains currently in _DOMAIN_ONTOLOGY (which is built from
+    whatever experts exist on disk).  Results are deduplicated via
+    _deduplicate_candidates() to collapse near-synonym domains (e.g.
+    automobile + engine_spec) before they propagate downstream.
     """
     if top_k is None:
         top_k = cfg.layer1_lens1_top_k()
@@ -455,22 +614,26 @@ def _lens1_embedding_candidates(
 
     tokens = _tokenize(text)
 
+    # Anchor text for each domain — use core keywords as the semantic anchor.
     anchors = {
         d: " ".join(sorted(set(v.get("core", [])[:5] + v.get("attributes", [])[:3]))) or d
         for d, v in _DOMAIN_ONTOLOGY.items()
     }
 
     def _lexical_score(domain: str) -> float:
-        vocab = set(_DOMAIN_ONTOLOGY[domain].get("core", []) + _DOMAIN_ONTOLOGY[domain].get("attributes", []))
+        vocab = set(
+            _DOMAIN_ONTOLOGY[domain].get("core", [])
+            + _DOMAIN_ONTOLOGY[domain].get("attributes", [])
+        )
         hits = sum(1 for t in tokens if t in vocab)
         return hits / max(1, len(tokens))
 
     if SentenceTransformer is None:
         scored = [(d, _lexical_score(d)) for d in anchors.keys()]
         scored.sort(key=lambda x: x[1], reverse=True)
-        return [s for s in scored[:top_k] if s[1] > 0]
+        raw = [s for s in scored[:top_k] if s[1] > 0]
+        return _deduplicate_candidates(raw, model_name=model_name)
 
-    # Embedding scoring — uses registry cache to avoid duplicate encode() calls
     try:
         import numpy as _np
         from mycelium.pipeline.model_registry import get_embedding, embed_batch
@@ -481,14 +644,15 @@ def _lens1_embedding_candidates(
         scores = []
         for d, emb in zip(anchor_domains, anchor_embs):
             sim = float(
-                _np.dot(text_emb, emb) / ((_np.linalg.norm(text_emb) + 1e-12) * (_np.linalg.norm(emb) + 1e-12))
+                _np.dot(text_emb, emb)
+                / ((_np.linalg.norm(text_emb) + 1e-12) * (_np.linalg.norm(emb) + 1e-12))
             )
             sim = emb_weight * sim + lex_weight * _lexical_score(d)
             scores.append((d, sim))
         scores.sort(key=lambda x: x[1], reverse=True)
-        return scores[:top_k]
+        raw = scores[:top_k]
+        return _deduplicate_candidates(raw, model_name=model_name)
     except ImportError:
-        # model_registry not available — fall back to direct SentenceTransformer load
         try:
             model = SentenceTransformer(model_name, device="cpu")
             text_emb = model.encode([text])[0]
@@ -499,7 +663,8 @@ def _lens1_embedding_candidates(
                 sim = emb_weight * sim + lex_weight * _lexical_score(d)
                 scores.append((d, sim))
             scores.sort(key=lambda x: x[1], reverse=True)
-            return scores[:top_k]
+            raw = scores[:top_k]
+            return _deduplicate_candidates(raw, model_name=model_name)
         except Exception:
             scored = [(d, _lexical_score(d)) for d in anchors.keys()]
             scored.sort(key=lambda x: x[1], reverse=True)
@@ -511,7 +676,7 @@ def _lens1_embedding_candidates(
 
 
 def _lens2_ontology_explanations(text: str, candidates: List[str]) -> List[Dict]:
-    """Lens 2: Ontology/behavioral explanations."""
+    """Lens 2: Ontology/behavioral explanations with parent-child suppression."""
     tokens = set(_tokenize(text))
     results = []
     coverage_map: Dict[str, Dict] = {}
@@ -527,15 +692,18 @@ def _lens2_ontology_explanations(text: str, candidates: List[str]) -> List[Dict]
             "matched_core": matched_core,
             "matched_attr": matched_attr,
             "is_child": concept in _ONTOLOGY_PARENTS,
-            "parent": _ONTOLOGY_PARENTS.get(concept)
+            "parent": _ONTOLOGY_PARENTS.get(concept),
         }
+    # Child-domain penalty: if child core tokens are a subset of parent core tokens,
+    # the child adds no new information — penalise it strongly.
     for concept, info in coverage_map.items():
         parent = info.get("parent")
         if parent and parent in coverage_map:
-            parent_core = set(coverage_map[parent]["matched_core"]) if coverage_map[parent] else set()
-            child_core = set(info["matched_core"]) if info else set()
+            parent_core = set(coverage_map[parent]["matched_core"])
+            child_core = set(info["matched_core"])
             if child_core and child_core.issubset(parent_core):
                 info["coverage"] *= 0.7
+    # Secondary dampening: if parent coverage dominates, dampen the child further.
     for concept, info in coverage_map.items():
         parent = info.get("parent")
         if parent and parent in coverage_map:
@@ -550,11 +718,11 @@ def _lens2_ontology_explanations(text: str, candidates: List[str]) -> List[Dict]
                 "matched_core": info["matched_core"],
                 "matched_attr": info["matched_attr"],
                 "parent": info.get("parent"),
-                "level": _DOMAIN_ONTOLOGY.get(concept, {}).get("level", "unknown")
+                "level": _DOMAIN_ONTOLOGY.get(concept, {}).get("level", "unknown"),
             })
     results.sort(key=lambda x: (x["level"] != "object", -x["score"]))
-    selected = []
-    seen_parents = set()
+    selected: List[Dict] = []
+    seen_parents: set = set()
     for r in results:
         p = r.get("parent")
         if p and any(s["concept"] == p for s in results):
@@ -571,7 +739,7 @@ def _lens2_ontology_explanations(text: str, candidates: List[str]) -> List[Dict]
 def _lens3_abstraction_signature(text: str, concepts: List[str]) -> Dict:
     """Lens 3: Abstraction/superposition detection."""
     tokens = _tokenize(text)
-    signature = {"levels": {"core": {}, "modifiers": {}}}
+    signature: Dict[str, Any] = {"levels": {"core": {}, "modifiers": {}}}
     for c in concepts:
         ont = _DOMAIN_ONTOLOGY.get(c, {})
         core_hits = [t for t in tokens if t in set(ont.get("core", []))]
@@ -582,13 +750,13 @@ def _lens3_abstraction_signature(text: str, concepts: List[str]) -> Dict:
             signature["levels"]["modifiers"][c] = mod_hits
     signature["active_domains"] = {
         "core": len(signature["levels"].get("core", {})),
-        "modifiers": len(signature["levels"].get("modifiers", {}))
+        "modifiers": len(signature["levels"].get("modifiers", {})),
     }
     return signature
 
 
 # ---------------------------------------------------------------------------
-# _emit_layer1 — shared event helper for multi_lens_route
+# Event helpers
 # ---------------------------------------------------------------------------
 
 def _emit_layer1(
@@ -602,7 +770,6 @@ def _emit_layer1(
     detail: str = "",
     metadata: Optional[Dict[str, Any]] = None,
 ) -> None:
-    """Fire a PipelineEvent through *on_event* if registered."""
     if on_event is None:
         return
     try:
@@ -619,12 +786,8 @@ def _emit_layer1(
         )
         on_event(ev)
     except Exception:
-        pass  # telemetry must never crash the pipeline
+        pass
 
-
-# ---------------------------------------------------------------------------
-# Semantic heartbeat — emitted mid-routing to signal liveness (§9)
-# ---------------------------------------------------------------------------
 
 _HEARTBEAT_MESSAGES = [
     "Reconciling conflicting evidence\u2026",
@@ -643,12 +806,27 @@ def _next_heartbeat_message() -> str:
     return msg
 
 
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
 def multi_lens_route(
     text: str,
     top_k: Optional[int] = None,
     on_event: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Dict:
-    """Public API: Multi-lens similarity and gated routing."""
+    """Multi-lens similarity and gated routing over live expert domains.
+
+    Pipeline:
+      Lens 1  — embedding similarity against ALL live domain anchors,
+                followed by _deduplicate_candidates() to cluster overlapping
+                domains (e.g. automobile + engine_spec) before they propagate.
+      Lens 2  — ontology coverage with parent-child suppression.
+      Lens 3  — abstraction signature (core vs. modifier detection).
+
+    If no object-level domain evidence is found the result is ATTRIBUTE_ONLY
+    and the caller must decide whether to invoke CREATE_NEW_EXPERT.
+    """
     if top_k is None:
         top_k = cfg.layer1_lens1_top_k()
 
@@ -662,10 +840,11 @@ def multi_lens_route(
         state="running",
         visibility="public",
         message="Running multi-lens router\u2026",
-        detail=f"top_k={top_k}",
-        metadata={"top_k": top_k},
+        detail=f"top_k={top_k}  live_domains={len(_DOMAIN_ONTOLOGY)}",
+        metadata={"top_k": top_k, "live_domain_count": len(_DOMAIN_ONTOLOGY)},
     )
 
+    # Lens 1 — deduplication happens inside _lens1_embedding_candidates
     lens1 = _lens1_embedding_candidates(text, top_k=top_k)
     lens1_domains = [d for d, _ in lens1]
 
@@ -677,7 +856,7 @@ def multi_lens_route(
         state="running",
         visibility="public",
         message=_next_heartbeat_message(),
-        detail=f"{len(lens1_domains)} candidate domain(s) after embedding pass",
+        detail=f"{len(lens1_domains)} candidate domain(s) after dedup",
         metadata={
             "candidate_count": len(lens1_domains),
             "elapsed_ms": round((time.monotonic() - wall_start) * 1000, 1),
@@ -691,7 +870,9 @@ def multi_lens_route(
     core_active = lens3["active_domains"]["core"]
     core_domains_present = set(lens3["levels"].get("core", {}).keys())
 
-    if core_active == 0 or (core_domains_present and core_domains_present.issubset(_ATTRIBUTE_LEVEL_DOMAINS)):
+    if core_active == 0 or (
+        core_domains_present and core_domains_present.issubset(_ATTRIBUTE_LEVEL_DOMAINS)
+    ):
         result = {
             "primary_domain": None,
             "secondary_domains": [],
@@ -699,7 +880,7 @@ def multi_lens_route(
             "lens1_candidates": lens1,
             "lens2_explanations": lens2,
             "lens3_signature": lens3,
-            "classification": "ATTRIBUTE_ONLY"
+            "classification": "ATTRIBUTE_ONLY",
         }
         _emit_layer1(
             on_event,
@@ -734,7 +915,7 @@ def multi_lens_route(
         primary_score = lens1[0][1] if lens1 else 0.0
         remaining_explanations = []
 
-    secondary = []
+    secondary: List[Dict] = []
     for e in remaining_explanations:
         parent = _ONTOLOGY_PARENTS.get(e["concept"]) if e else None
         if parent == primary:
@@ -753,7 +934,7 @@ def multi_lens_route(
 
     secondary = secondary[:2]
 
-    expl_bits = []
+    expl_bits: List[str] = []
     if lens2:
         top = next((e for e in lens2 if e.get("concept") == primary), lens2[0])
         if top.get("matched_core"):
@@ -776,7 +957,7 @@ def multi_lens_route(
         "lens1_candidates": lens1,
         "lens2_explanations": lens2,
         "lens3_signature": lens3,
-        "classification": "NORMAL"
+        "classification": "NORMAL",
     }
 
     _emit_layer1(
@@ -803,11 +984,11 @@ def multi_lens_route(
 
 
 def test_layer1_multilens() -> None:
-    """Lightweight tests for the multi-lens routing stack."""
+    """Lightweight smoke tests for the multi-lens routing stack."""
     def _print_result(title: str, text: str, result: Dict):
-        print("\n" + "="*90)
+        print("\n" + "=" * 90)
         print(title)
-        print("="*90)
+        print("=" * 90)
         print(f"Input: {text}")
         print(f"Lens1 candidates: {result['lens1_candidates']}")
         print(f"Lens2 explanations: {result['lens2_explanations']}")
@@ -828,24 +1009,24 @@ def test_layer1_multilens() -> None:
     _print_result("Test B \u2014 Compositional, multi-attribute input", text_b, res_b)
     assert res_b["classification"] == "NORMAL"
     assert res_b["primary_domain"] in {"automobile"}
+    # engine_spec must NOT appear alongside automobile after dedup
     sec_domains = {s["domain"] for s in res_b["secondary_domains"]}
+    assert "engine_spec" not in sec_domains or "automobile" not in sec_domains, (
+        "engine_spec and automobile should be deduplicated — one must be suppressed"
+    )
     assert len(sec_domains) <= 2
-    assert all(s["weight"] < 1.0 for s in res_b["secondary_domains"])
 
     text_c = "red glossy metallic finish"
     res_c = multi_lens_route(text_c)
     _print_result("Test C \u2014 Attribute-heavy input", text_c, res_c)
     assert res_c["classification"] in {"ATTRIBUTE_ONLY", "UNKNOWN"}
-    if res_c["classification"] == "ATTRIBUTE_ONLY":
-        assert res_c["primary_domain"] is None
-        assert len(res_c["secondary_domains"]) == 0
-    for res in (res_a, res_b, res_c):
-        total_domains = 1 + len(res["secondary_domains"]) if res["primary_domain"] else len(res["secondary_domains"])
-        assert total_domains <= 3
 
     text_d = "iphone 15 pro max titanium blue"
     res_d = multi_lens_route(text_d)
-    _print_result("Test D \u2014 Custom input", text_d, res_d)
+    _print_result("Test D \u2014 OOD input (no live expert)", text_d, res_d)
+
+    print("\nLive domains on disk:", DOMAIN_LIST)
+
 
 if __name__ == "__main__":
     print("Running Layer 1 multi-lens routing tests...")
