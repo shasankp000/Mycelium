@@ -277,12 +277,23 @@ def _train_trm(
                         if not line:
                             continue
                         rec = _json.loads(line)
+                        # Derive spectral fallback for legacy records that
+                        # predate the halt_label field in the trace writer.
+                        target_idx = rec["target_domain"]
+                        spectral_vec = rec["spectral_vec"]
+                        halt_label_fallback = float(
+                            spectral_vec[target_idx] > 0.50
+                        )
                         self._records.append({
                             "token_ids":            _t.tensor(rec["token_ids"],            dtype=_t.long),
-                            "spectral_vec":         _t.tensor(rec["spectral_vec"],         dtype=_t.float32),
+                            "spectral_vec":         _t.tensor(spectral_vec,                dtype=_t.float32),
                             "predicate_family_id":  _t.tensor(rec["predicate_family_id"],  dtype=_t.long),
                             "initial_domain_probs": _t.tensor(rec["initial_domain_probs"], dtype=_t.float32),
-                            "target_domain":        _t.tensor(rec["target_domain"],        dtype=_t.long),
+                            "target_domain":        _t.tensor(target_idx,                  dtype=_t.long),
+                            "halt_label":           _t.tensor(
+                                rec.get("halt_label", halt_label_fallback),
+                                dtype=_t.float32,
+                            ),
                         })
 
             def __len__(self) -> int:
