@@ -6,54 +6,52 @@ from run_mycelium_workflow() and serialises them into the exact schema
 expected by TRMTrainer.
 
 Written to:
-    training_data/routing_traces.jsonl       (80 % — training split)
-    evaluation_data/routing_ground_truth.jsonl (20 % — eval split)
+    training_data/routing_traces.jsonl          (80 % — training split)
+    evaluation_data/routing_ground_truth.jsonl  (20 % — eval split)
 
 Schema of each record (matches TRMTrainer dataset format exactly)
 -----------------------------------------------------------------
 ::
 
     {
-        "token_ids":             list[int],  # length == context_len (64)
-        "spectral_vec":          list[float],# length == n_domains   (8)
-        "predicate_family_id":   int,        # routing_classification → index
-        "initial_domain_probs":  list[float],# length == n_domains   (8)
-        "target_domain":         int,        # selected_domain → domain index
-        "halt_label":            float,      # 1.0 = halt (confident),
-                                             # 0.0 = continue (ambiguous)
+        "token_ids":             list[int],   # length == CONTEXT_LEN (64)
+        "spectral_vec":          list[float], # length == N_DOMAINS (dynamic)
+        "predicate_family_id":   int,         # routing_classification → index
+        "initial_domain_probs":  list[float], # length == N_DOMAINS
+        "target_domain":         int,         # selected_domain → domain index
+        "halt_label":            float,       # 1.0=halt (confident), 0.0=continue
     }
 
 halt_label derivation
 ---------------------
-The halt signal encodes whether the model should commit to its current
-domain prediction or continue reasoning:
+halt=1.0  Top-1 spectral score > HALT_CONFIDENT_THRESHOLD (0.50) AND
+          TRM agreed (or no TRM checkpoint exists yet).
+halt=0.0  Routing was uncertain or TRM was overruled.
 
-    halt=1.0   The routing was confident and unambiguous:
-               - Top-1 spectral score > HALT_CONFIDENT_THRESHOLD (0.50), AND
-               - TRM (if active) agreed: primary_domain == target_domain.
-
-    halt=0.0   The routing was uncertain or multi-domain:
-               - Top-1 spectral score <= HALT_CONFIDENT_THRESHOLD, OR
-               - TRM was overruled (primary_domain != target_domain).
-
-This gives the halt head a real binary supervision signal tied to routing
-confidence rather than the model's own domain accuracy at training time
-(which would be near-zero early in training and cause the halt head to
-always predict "don't halt").
-
-Confidence gating (long-term robustness — §A)
----------------------------------------------
+Confidence gating (§A)
+-----------------------
 Only samples where TRM was uncertain (halt_confidence < GATE_THRESHOLD)
-OR where TRM was overruled (primary_domain_idx != target_domain) are
-written.  This prevents the training set being dominated by easy cases
-the model already handles correctly and avoids feedback-loop degradation.
+OR TRM was overruled are written.  When TRM has no checkpoint
+(trm_primary_idx == -1) gating is bypassed so cold-start training sets
+are still populated.  Set GATE_THRESHOLD=1.0 to write every sample.
 
-When TRM has no active checkpoint (primary_domain_idx == -1 for every
-query), gating is bypassed entirely so the cold-start training set is
-still populated.  This is the expected behaviour during initial runs
-before any TRM weights exist.
+Domain list (dynamic)
+---------------------
+DOMAIN_LIST is now built at import time by calling
+_discover_live_domains() from layer1_router, which reads whatever expert
+subdirectories exist on disk.  This means the writer automatically
+numbers any new expert domain correctly instead of silently returning -1
+and discarding the training sample.
 
-Set GATE_THRESHOLD = 1.0 to disable gating and write every sample.
+Spectral scores source
+-----------------------
+RoutingResult stores the raw per-domain spectral scores in
+    routing_context.metadata["lens_scores"]["spectral"]
+not in a .spectral_scores attribute.  The writer now reads from that
+path with two fallbacks:
+  1. metadata["lens_scores"]["spectral"]  (primary)
+  2. routing_context.fusion_scores         (secondary — fused dict)
+  3. routing_context.spectral_scores       (legacy attribute)
 """
 
 from __future__ import annotations
@@ -62,7 +60,6 @@ import hashlib
 import json
 import os
 import random
-import sys
 import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -71,49 +68,66 @@ from typing import Any, Dict, List, Optional
 # Constants matching TRMConfig defaults                               #
 # ------------------------------------------------------------------ #
 
-N_DOMAINS: int = 8
 CONTEXT_LEN: int = 64
-VOCAB_SIZE: int = 8192
+VOCAB_SIZE:  int = 8192
 GATE_THRESHOLD: float = float(os.getenv("TRM_GATE_THRESHOLD", "1.0"))
-EVAL_FRACTION: float = 0.20  # 20 % of samples go to eval split
+EVAL_FRACTION:  float = 0.20
 
-# Top-1 spectral score above this threshold → halt=1 (routing is confident).
 HALT_CONFIDENT_THRESHOLD: float = float(
     os.getenv("TRM_HALT_CONFIDENT_THRESHOLD", "0.50")
 )
 
-# Fixed domain list — must match initialize_unified_experts() order.
-# Indices 4-7 are reserved for future expert domains.
-DOMAIN_LIST: List[str] = [
-    "music",       # 0
-    "physics",     # 1
-    "chemistry",   # 2
-    "medical",     # 3
-    "__reserved4", # 4
-    "__reserved5", # 5
-    "__reserved6", # 6
-    "__reserved7", # 7
-]
+
+# ------------------------------------------------------------------ #
+# Dynamic domain discovery                                            #
+# ------------------------------------------------------------------ #
+
+def _build_domain_list() -> List[str]:
+    """
+    Build DOMAIN_LIST from whatever expert subdirectories exist on disk.
+
+    Delegates to layer1_router._discover_live_domains() so the indexing
+    is always consistent with the router’s own ontology.  Falls back to
+    a minimal hard-coded list if the import fails.
+    """
+    try:
+        from mycelium.pipeline.layer1_router import _discover_live_domains
+        live = _discover_live_domains()
+        if live:
+            return live
+    except Exception:
+        pass
+    # Hard fallback — covers the four domains present in the original writer.
+    return ["music", "physics", "chemistry", "medical"]
+
+
+# Built once at import; call reload_domain_list() after adding a new expert.
+DOMAIN_LIST: List[str] = _build_domain_list()
+N_DOMAINS:   int       = len(DOMAIN_LIST)
+
+
+def reload_domain_list() -> None:
+    """Refresh DOMAIN_LIST and N_DOMAINS from disk (no process restart needed)."""
+    global DOMAIN_LIST, N_DOMAINS
+    DOMAIN_LIST = _build_domain_list()
+    N_DOMAINS   = len(DOMAIN_LIST)
+
 
 # routing_classification → predicate_family_id int
 PREDICATE_FAMILY_MAP: Dict[str, int] = {
-    "ATTRIBUTE_ONLY":       0,
-    "CAUSAL":               1,
-    "TEMPORAL":             2,
-    "COMPARATIVE":          3,
-    "DEFINITIONAL":         4,
-    "PROCEDURAL":           5,
-    "FACTUAL":              6,
-    "HYPOTHETICAL":         7,
-    "NEGATION":             8,
-    "RELATIONAL":           9,
-    "UNKNOWN":              10,
-    # catch-all for any future classifications
+    "ATTRIBUTE_ONLY": 0,
+    "CAUSAL":         1,
+    "TEMPORAL":       2,
+    "COMPARATIVE":    3,
+    "DEFINITIONAL":   4,
+    "PROCEDURAL":     5,
+    "FACTUAL":        6,
+    "HYPOTHETICAL":   7,
+    "NEGATION":       8,
+    "RELATIONAL":     9,
+    "UNKNOWN":        10,
 }
 _DEFAULT_PREDICATE_FAMILY: int = 10  # UNKNOWN
-
-# One-shot debug flag: print spectral_scores details on the first record() call.
-_SPECTRAL_DEBUG_DONE: bool = False
 
 
 # ------------------------------------------------------------------ #
@@ -132,7 +146,6 @@ def _encode_query(text: str) -> List[int]:
         int(hashlib.sha256(w.encode()).hexdigest(), 16) % VOCAB_SIZE
         for w in words
     ]
-    # Pad with 0 (pad_token_id) to CONTEXT_LEN
     ids += [0] * (CONTEXT_LEN - len(ids))
     return ids
 
@@ -159,6 +172,47 @@ def _is_numeric(v: Any) -> bool:
         return False
 
 
+# ------------------------------------------------------------------ #
+# Spectral score extraction                                            #
+# ------------------------------------------------------------------ #
+
+def _extract_spectral_scores(routing_context: Any) -> Any:
+    """
+    Extract the raw per-domain spectral score dict from a RoutingResult.
+
+    Priority order
+    --------------
+    1. routing_context.metadata["lens_scores"]["spectral"]
+       The canonical location — written by MultiLensRouter.route().
+    2. routing_context.fusion_scores
+       The fused score dict; still per-domain floats, used as fallback.
+    3. routing_context.spectral_scores
+       Legacy attribute path (kept for backwards compatibility).
+    """
+    # Path 1 — preferred
+    try:
+        meta = routing_context.metadata  # type: ignore[union-attr]
+        if isinstance(meta, dict):
+            lens = meta.get("lens_scores", {})
+            if isinstance(lens, dict):
+                spectral = lens.get("spectral")
+                if spectral:
+                    return spectral
+    except Exception:
+        pass
+
+    # Path 2 — fused scores dict
+    try:
+        fs = routing_context.fusion_scores  # type: ignore[union-attr]
+        if fs:
+            return fs
+    except Exception:
+        pass
+
+    # Path 3 — legacy
+    return getattr(routing_context, "spectral_scores", None)
+
+
 def _spectral_vec_to_tensor(
     spectral_scores: Any,
     selected_domains: List[str],
@@ -168,8 +222,7 @@ def _spectral_vec_to_tensor(
 
     Tries to read a dict / list / object from spectral_scores.
     Falls back to a soft one-hot over selected_domains if unavailable
-    or if the list contains non-numeric values (e.g. np.str_ domain names
-    instead of scores).
+    or if the list contains non-numeric values.
     Always normalises to sum == 1.0.
     """
     vec = [0.0] * N_DOMAINS
@@ -181,10 +234,7 @@ def _spectral_vec_to_tensor(
             if 0 <= idx < N_DOMAINS:
                 vec[idx] = float(score)
 
-    # Case 2: list/tuple of length N_DOMAINS whose elements are numeric.
-    # Guard: if any element is non-numeric (e.g. np.str_ domain name strings
-    # passed instead of float scores) skip this branch entirely and fall
-    # through to the soft one-hot fallback below.
+    # Case 2: numeric list/tuple of exactly N_DOMAINS elements
     elif (
         isinstance(spectral_scores, (list, tuple))
         and len(spectral_scores) == N_DOMAINS
@@ -192,7 +242,7 @@ def _spectral_vec_to_tensor(
     ):
         vec = [float(v) for v in spectral_scores]
 
-    # Case 3: object with .scores / .domain_scores attribute
+    # Case 3: object with .scores attribute
     elif hasattr(spectral_scores, "scores"):
         scores = spectral_scores.scores
         if isinstance(scores, dict):
@@ -240,22 +290,13 @@ def _derive_halt_label(
     """
     Derive a ground-truth halt label from routing confidence.
 
-    halt=1.0  The routing is confident and unambiguous:
-              - The top spectral score exceeds HALT_CONFIDENT_THRESHOLD, AND
-              - Either TRM is not active (trm_primary_idx == -1) or TRM
-                agreed with the selected domain.
-
-    halt=0.0  The routing is uncertain or TRM was overruled.
-
-    Using spectral confidence (not the model's own domain accuracy) means
-    the halt head always receives a real supervision signal, even at the
-    start of training when domain accuracy is near-chance.
+    halt=1.0  Top-1 spectral score > HALT_CONFIDENT_THRESHOLD AND
+              TRM agreed (or has no checkpoint yet).
+    halt=0.0  Routing uncertain or TRM overruled.
     """
     top_score = max(spectral_vec) if spectral_vec else 0.0
     spectral_confident = top_score > HALT_CONFIDENT_THRESHOLD
-
     trm_agreed = (trm_primary_idx < 0) or (trm_primary_idx == target_idx)
-
     return 1.0 if (spectral_confident and trm_agreed) else 0.0
 
 
@@ -277,32 +318,20 @@ class TRMRoutingTraceWriter:
             selected_domain=selected_domain,
             trm_lookup_result=trm_lookup_result,  # optional, for gating
         )
-
-    Parameters
-    ----------
-    train_path : str
-        Path to training JSONL file.
-    eval_path : str
-        Path to evaluation JSONL file.
-    gate_threshold : float
-        Only write samples where halt_confidence < gate_threshold OR
-        TRM was overruled.  Default 1.0 = write everything.
-    eval_fraction : float
-        Fraction of accepted samples routed to eval file.  Default 0.20.
     """
 
     def __init__(
         self,
         train_path: str = "training_data/routing_traces.jsonl",
-        eval_path: str = "evaluation_data/routing_ground_truth.jsonl",
+        eval_path:  str = "evaluation_data/routing_ground_truth.jsonl",
         gate_threshold: float = GATE_THRESHOLD,
-        eval_fraction: float = EVAL_FRACTION,
+        eval_fraction:  float = EVAL_FRACTION,
     ) -> None:
-        self._train_path = Path(train_path)
-        self._eval_path  = Path(eval_path)
+        self._train_path     = Path(train_path)
+        self._eval_path      = Path(eval_path)
         self._gate_threshold = gate_threshold
         self._eval_fraction  = eval_fraction
-        self._lock = threading.Lock()
+        self._lock           = threading.Lock()
         self._train_path.parent.mkdir(parents=True, exist_ok=True)
         self._eval_path.parent.mkdir(parents=True, exist_ok=True)
         self._train_count = 0
@@ -324,14 +353,7 @@ class TRMRoutingTraceWriter:
         Build and (conditionally) write a TRMTrainer sample.
 
         Returns True if the sample was written, False if gated out.
-
-        Gating is bypassed entirely when TRM has no active checkpoint
-        (trm_primary_idx == -1), i.e. during cold-start runs before any
-        weights exist.  This ensures the training set is populated on
-        first runs so that TRMTrainer can actually bootstrap.
         """
-        global _SPECTRAL_DEBUG_DONE
-
         # 1. Resolve target domain index
         target_idx = _domain_to_idx(selected_domain)
         if target_idx < 0:
@@ -344,41 +366,24 @@ class TRMRoutingTraceWriter:
         if trm_lookup_result:
             _raw_halt = trm_lookup_result.get("halt_confidence")
             halt_conf = float(_raw_halt) if _raw_halt is not None else 1.0
-            _raw_idx = trm_lookup_result.get("trm_primary_domain_idx")
+            _raw_idx  = trm_lookup_result.get("trm_primary_domain_idx")
             trm_primary_idx = int(_raw_idx) if _raw_idx is not None else -1
 
-        # When TRM has no checkpoint, primary_domain_idx is always -1.
-        # Bypass gating completely so cold-start runs still produce samples.
         trm_active = trm_primary_idx >= 0
         if trm_active:
             overruled = trm_primary_idx != target_idx
             uncertain = halt_conf < self._gate_threshold
             if not (uncertain or overruled):
-                return False  # TRM was confident and correct — skip
-        # else: TRM not active → always write
+                return False  # TRM confident and correct — skip
 
         # 3. Build token_ids
         token_ids = _encode_query(text)
 
-        # 4. Build spectral_vec
-        spectral_scores = getattr(routing_context, "spectral_scores", None)
+        # 4. Build spectral_vec — read from the correct attribute path
+        spectral_scores = _extract_spectral_scores(routing_context)
         selected_domains: List[str] = list(
             getattr(routing_context, "selected_domains", []) or []
         )
-
-        # ------------------------------------------------------------------ #
-        # ONE-SHOT DIAGNOSTIC — remove after spectral_scores structure is     #
-        # confirmed and the spectral_vec parsing is fixed.                    #
-        # ------------------------------------------------------------------ #
-        if not _SPECTRAL_DEBUG_DONE:
-            _SPECTRAL_DEBUG_DONE = True
-            print("[TRM-SPECTRAL-DEBUG] spectral_scores type  :", type(spectral_scores), file=sys.stderr)
-            print("[TRM-SPECTRAL-DEBUG] spectral_scores value :", repr(spectral_scores)[:300], file=sys.stderr)
-            print("[TRM-SPECTRAL-DEBUG] spectral_scores attrs :", [a for a in dir(spectral_scores) if not a.startswith("__")], file=sys.stderr)
-            print("[TRM-SPECTRAL-DEBUG] selected_domains      :", selected_domains, file=sys.stderr)
-            print("[TRM-SPECTRAL-DEBUG] routing_context attrs :", [a for a in dir(routing_context) if not a.startswith("__")][:30], file=sys.stderr)
-        # ------------------------------------------------------------------ #
-
         spectral_vec = _spectral_vec_to_tensor(spectral_scores, selected_domains)
 
         # 5. predicate_family_id
@@ -390,10 +395,10 @@ class TRMRoutingTraceWriter:
         # 6. initial_domain_probs
         init_probs = _initial_domain_probs(spectral_vec)
 
-        # 7. halt_label — derived from spectral routing confidence, not model accuracy
+        # 7. halt_label
         halt_label = _derive_halt_label(spectral_vec, target_idx, trm_primary_idx)
 
-        record: Dict[str, Any] = {
+        rec: Dict[str, Any] = {
             "token_ids":            token_ids,
             "spectral_vec":         spectral_vec,
             "predicate_family_id":  pred_family_id,
@@ -408,7 +413,7 @@ class TRMRoutingTraceWriter:
 
         with self._lock:
             with path.open("a", encoding="utf-8") as fh:
-                fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+                fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
             if is_eval:
                 self._eval_count += 1
             else:
