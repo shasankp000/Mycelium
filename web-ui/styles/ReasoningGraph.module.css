@@ -5,7 +5,7 @@
    Phase 4: tooltip, stabilising badge, node/edge count chip,
             canvas loading state, contradiction pulse states.
    Phase 5: diff panel, diff rows, summary bar, snapshot compare controls,
-            tab strip + diff dot.
+            tab strip + diff dot, keyboard hint bar, mobile cap indicator.
    --------------------------------------------------------------------------- */
 
 /* ---- Overlay ---- */
@@ -119,6 +119,52 @@
 .closeBtn:hover {
   background: rgba(255,255,255,0.07);
   color: rgba(255,255,255,0.9);
+}
+
+/* ---- Phase 5: Keyboard hint bar ---- */
+
+.keyHintBar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 5px 16px;
+  background: rgba(255,255,255,0.02);
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  font-size: 10.5px;
+  color: rgba(255,255,255,0.22);
+  flex-shrink: 0;
+  line-height: 1.6;
+  user-select: none;
+}
+
+.keyHintBar kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.05);
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 10px;
+  color: rgba(255,255,255,0.38);
+  line-height: 1.4;
+  letter-spacing: 0;
+}
+
+/* Safety net: hide on mobile even if isMobile check fires late */
+@media (max-width: 768px) {
+  .keyHintBar { display: none; }
+}
+
+/* ---- Phase 5: Mobile node cap indicator ---- */
+
+.mobileCap {
+  color: rgba(251,191,36,0.5);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---- Tab strip (Phase 5) ---- */
@@ -779,4 +825,5 @@
   .nodeTooltip { display: none; }
   .diffPanel   { max-height: 60%; }
   .tabBtn      { font-size: 11px; padding: 7px 9px; }
+  .keyHintBar  { display: none; }
 }
