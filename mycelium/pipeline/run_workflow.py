@@ -18,6 +18,7 @@ from mycelium.pipeline.layer1_router import (
     TemporalLocalityLayer,
     analyze_spatial_locality,
     assign_domain_patch,
+    reload_domain_ontology,
 )
 from mycelium.pipeline.multi_lens_router import MultiLensRouter
 from mycelium.pipeline.phase2.pipeline import Phase2Pipeline
@@ -106,8 +107,6 @@ _GRAPH_STORE_DIR: str = _cfg.graph_store_persistence_dir()
 _GRAPH_STORE_DECAY_ON_LOAD: bool = _cfg.graph_store_run_decay_on_load()
 _os.makedirs(_GRAPH_STORE_DIR, exist_ok=True)
 
-# Canonical checkpoint path — mirrors trm_training_sim._CHECKPOINT_PATH.
-# This file lives at mycelium/pipeline/run_workflow.py so parents[1] == mycelium/
 _TRM_CHECKPOINT_PATH: str = str(
     _Path(__file__).resolve().parents[1] / "trm" / "trm_checkpoints" / "trm_latest.pt"
 )
@@ -260,8 +259,6 @@ def _get_trm_reasoner() -> Optional[Any]:
     try:
         assert TRMConfig is not None and TRMReasoner is not None and _torch is not None
         cfg = cast(Any, TRMConfig)()
-        # Point cfg at the canonical checkpoint so the load branch is reached.
-        # TRMConfig.model_path defaults to "" which always misses the file check.
         cfg.model_path = _TRM_CHECKPOINT_PATH
         reasoner = cast(Any, TRMReasoner)(cfg)
         if _os.path.isfile(cfg.model_path):
@@ -295,18 +292,8 @@ def _get_trm_reasoner() -> Optional[Any]:
 
 
 def _sanitize_spectral_scores(spectral_scores: Any) -> Any:
-    """
-    Ensure spectral_scores is safe to pass to _trm_spectral_vec.
-
-    If spectral_scores is a list/array whose elements are non-numeric
-    (e.g. np.str_ domain name strings instead of float scores), return
-    None so the caller falls back to the soft one-hot path.
-    If it is a dict, validate that its values are numeric; strip any
-    entries that are not.
-    """
     if spectral_scores is None:
         return None
-
     if isinstance(spectral_scores, dict):
         cleaned = {}
         for k, v in spectral_scores.items():
@@ -315,7 +302,6 @@ def _sanitize_spectral_scores(spectral_scores: Any) -> Any:
             except (TypeError, ValueError):
                 pass
         return cleaned if cleaned else None
-
     if isinstance(spectral_scores, (list, tuple, np.ndarray)):
         for v in spectral_scores:
             try:
@@ -323,7 +309,6 @@ def _sanitize_spectral_scores(spectral_scores: Any) -> Any:
             except (TypeError, ValueError):
                 return None
         return spectral_scores
-
     return spectral_scores
 
 
@@ -398,6 +383,34 @@ def _run_trm_reasoner(
     except Exception as _re:
         print(f"\u26a0\ufe0f  TRMReasoner forward pass failed: {_re}")
         return None
+
+
+# ---------------------------------------------------------------------------
+# Shadow signal extraction helper
+# ---------------------------------------------------------------------------
+
+def _extract_shadow_signal(routing_context: Any) -> Optional[Dict[str, Any]]:
+    """
+    Pull shadow_signal out of routing_context regardless of whether it is a
+    dataclass/object with attributes or a plain dict (MultiLensRouter wraps
+    layer1_router results in a RoutingContext dataclass, but the dict path is
+    also guarded for safety).
+
+    Returns the as_dict() payload if a signal is present, else None.
+    """
+    # Attribute path (dataclass / object)
+    sig = getattr(routing_context, "shadow_signal", None)
+    if sig is None and isinstance(routing_context, dict):
+        sig = routing_context.get("shadow_signal")
+    if sig is None:
+        return None
+    # sig may already be a dict (MultiLensRouter serialises it) or a
+    # ShadowDomainSignal dataclass — normalise to dict.
+    if isinstance(sig, dict):
+        return sig
+    if hasattr(sig, "as_dict"):
+        return sig.as_dict()
+    return None
 
 
 def run_mycelium_workflow(
@@ -641,6 +654,7 @@ def run_mycelium_workflow(
                     "expert_flag": "refused",
                     "selected_domain": "unknown",
                     "decision_confidence": 0.0,
+                    "shadow_signal": None,
                 }
             )
             continue
@@ -655,6 +669,47 @@ def run_mycelium_workflow(
 
         routing_context = router.route(text)
         routing_context = trm_lens.refine(routing_context)
+
+        # ----------------------------------------------------------------
+        # Shadow domain handling
+        # ----------------------------------------------------------------
+        shadow_signal_dict = _extract_shadow_signal(routing_context)
+        if shadow_signal_dict is not None:
+            _shadow_status = shadow_signal_dict.get("status", "")
+            _shadow_id     = shadow_signal_dict.get("shadow_id", "?")
+            _shadow_evid   = shadow_signal_dict.get("evidence", 0)
+            _shadow_tokens = shadow_signal_dict.get("top_tokens", [])
+
+            if _shadow_status == "PROMOTE_TO_EXPERT":
+                print(
+                    f"\U0001f7e1 ShadowDomain PROMOTE_TO_EXPERT: "
+                    f"{_shadow_id} — evidence={_shadow_evid} "
+                    f"top_tokens={_shadow_tokens[:6]}"
+                )
+                emitter.emit(
+                    phase_name="promote_shadow_domain",
+                    message=f"Shadow domain ready for promotion: {_shadow_id}",
+                    detail=(
+                        f"evidence={_shadow_evid}  "
+                        f"top_tokens={_shadow_tokens[:6]}"
+                    ),
+                    state="done",
+                    metadata=shadow_signal_dict,
+                )
+                # Refresh domain ontology so the new shadow domain is
+                # reachable by name on the very next query in this batch.
+                try:
+                    reload_domain_ontology()
+                except Exception as _rdo_err:
+                    print(f"\u26a0\ufe0f  reload_domain_ontology failed: {_rdo_err}")
+            else:
+                # ACCUMULATING — just log at debug level
+                print(
+                    f"\U0001f7e4 ShadowDomain accumulating: "
+                    f"{_shadow_id} evidence={_shadow_evid} "
+                    f"tokens={_shadow_tokens[:4]}"
+                )
+        # ----------------------------------------------------------------
 
         classification = getattr(routing_context, "classification", None)
         if classification:
@@ -753,12 +808,9 @@ def run_mycelium_workflow(
                         }
 
         tag_vectors = embed_tags_transformer(normalized_tags)
-        # cluster_tags_transformer(tags, embeddings) — tags first, vectors second
         tag_clusters = cluster_tags_transformer(normalized_tags, tag_vectors)
-        # analyze_spatial_locality(recent_statements, clusters) — list[dict] + cluster dict
         recent_statements = temporal_layer.get_recent_statements()
         spatial_analysis = analyze_spatial_locality(recent_statements, tag_clusters)
-        # assign_domain_patch(spatial_analysis) — takes the analysis dict, not raw text/domains
         domain_patch = assign_domain_patch(spatial_analysis)
 
         pre_filter_result = expert_filter.filter_experts_by_tags(
@@ -867,6 +919,7 @@ def run_mycelium_workflow(
                 "expert_flag": decision_type,
                 "selected_domain": selected_domain,
                 "decision_confidence": decision_confidence,
+                "shadow_signal": shadow_signal_dict,
                 "trm_reasoner_result": _to_jsonable(
                     {
                         k: v

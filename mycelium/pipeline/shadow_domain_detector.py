@@ -20,13 +20,16 @@ Design goals
 * **Graceful degradation** — when no embedding model is available the
   cluster fingerprint falls back to a lexical hash of normalised tokens,
   which is coarser but still functional.
+* **Config-aware** — get_detector() reads thresholds from config_loader
+  when available, falling back to module-level defaults.
 
 Public API
 ----------
-    detector = ShadowDomainDetector()
+    detector = get_detector()                          # process singleton
     signal   = detector.observe(text, fusion_scores)   # call after routing
     registry = detector.get_shadow_registry()          # inspection
     detector.clear_stale_shadows(max_age_hours=48)     # maintenance
+    reset_detector()                                   # testing / hot-reload
 
 ShadowDomainSignal
 ------------------
@@ -35,7 +38,6 @@ ShadowDomainSignal
         "status":      "ACCUMULATING" | "PROMOTE_TO_EXPERT",
         "evidence":    12,
         "top_tokens":  ["iphone", "titanium", "pro"],
-        "centroid":    <np.ndarray | None>,
     }
 """
 
@@ -47,27 +49,37 @@ import re
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Tuneable constants  (overridable via config_loader when wired up)
+# Module-level defaults (overridden at singleton creation time by config)
 # ---------------------------------------------------------------------------
 
-# A query is OOD if its BEST score across all live domains is below this.
-SHADOW_SCORE_THRESHOLD: float = 0.25
-
-# Two shadow clusters merge when their centroid cosine similarity >= this.
-SHADOW_MERGE_THRESHOLD: float = 0.82
-
-# How many OOD observations before a cluster is promoted to expert status.
-SHADOW_PROMOTE_THRESHOLD: int = 8
-
-# Maximum number of shadow clusters kept in memory at once.
+SHADOW_SCORE_THRESHOLD: float = 0.25   # query is OOD if best domain score < this
+SHADOW_MERGE_THRESHOLD: float = 0.82   # centroid cosine sim to merge two clusters
+SHADOW_PROMOTE_THRESHOLD: int = 8      # evidence count before PROMOTE_TO_EXPERT
 SHADOW_MAX_CLUSTERS: int = 256
+
+
+def _cfg_float(attr: str, default: float) -> float:
+    """Read a float from config_loader; fall back to *default* silently."""
+    try:
+        from mycelium.pipeline import config_loader as _cfg
+        return float(getattr(_cfg, attr)())
+    except Exception:
+        return default
+
+
+def _cfg_int(attr: str, default: int) -> int:
+    try:
+        from mycelium.pipeline import config_loader as _cfg
+        return int(getattr(_cfg, attr)())
+    except Exception:
+        return default
 
 
 # ---------------------------------------------------------------------------
@@ -86,14 +98,12 @@ class _ShadowCluster:
     def update(self, embedding: Optional[np.ndarray], tokens: List[str]) -> None:
         self.evidence += 1
         self.last_seen = time.monotonic()
-        # Running mean centroid
         if embedding is not None:
             if self.centroid is None:
                 self.centroid = embedding.copy()
             else:
                 n = self.evidence
                 self.centroid = self.centroid * ((n - 1) / n) + embedding * (1.0 / n)
-        # Accumulate top tokens (union, capped at 16)
         existing = set(self.top_tokens)
         for t in tokens:
             if t not in existing:
@@ -127,12 +137,11 @@ class ShadowDomainSignal:
 # Embedding helper (lazy, singleton per model_name)
 # ---------------------------------------------------------------------------
 
-_embed_cache: Dict[str, object] = {}   # model_name -> SentenceTransformer
+_embed_cache: Dict[str, object] = {}
 _embed_lock = threading.Lock()
 
 
 def _get_embedder(model_name: str = "all-MiniLM-L6-v2") -> Optional[object]:
-    """Return a (possibly cached) SentenceTransformer, or None."""
     if model_name in _embed_cache:
         return _embed_cache[model_name]
     with _embed_lock:
@@ -152,7 +161,6 @@ def _get_embedder(model_name: str = "all-MiniLM-L6-v2") -> Optional[object]:
 
 
 def _embed(text: str, model_name: str = "all-MiniLM-L6-v2") -> Optional[np.ndarray]:
-    """Embed *text* into a unit-normed float32 vector, or return None."""
     model = _get_embedder(model_name)
     if model is None:
         return None
@@ -165,7 +173,6 @@ def _embed(text: str, model_name: str = "all-MiniLM-L6-v2") -> Optional[np.ndarr
 
 
 def _cosine(a: np.ndarray, b: np.ndarray) -> float:
-    """Cosine similarity between two already-normalised vectors."""
     dot = float(np.dot(a, b))
     na  = float(np.linalg.norm(a))
     nb  = float(np.linalg.norm(b))
@@ -186,7 +193,6 @@ def _tokenize(text: str) -> List[str]:
 
 
 def _lexical_fingerprint(tokens: List[str]) -> str:
-    """Stable 8-char hex fingerprint for a bag-of-words (sorted, deduped)."""
     key = " ".join(sorted(set(tokens)))
     return hashlib.sha256(key.encode()).hexdigest()[:8]
 
@@ -209,11 +215,11 @@ class ShadowDomainDetector:
         promote_threshold: int = SHADOW_PROMOTE_THRESHOLD,
         max_clusters: int = SHADOW_MAX_CLUSTERS,
     ) -> None:
-        self._model_name      = model_name
-        self._score_threshold = score_threshold
-        self._merge_threshold = merge_threshold
+        self._model_name        = model_name
+        self._score_threshold   = score_threshold
+        self._merge_threshold   = merge_threshold
         self._promote_threshold = promote_threshold
-        self._max_clusters    = max_clusters
+        self._max_clusters      = max_clusters
         self._clusters: Dict[str, _ShadowCluster] = {}
         self._lock = threading.RLock()
 
@@ -230,29 +236,12 @@ class ShadowDomainDetector:
         """
         Inspect *fusion_scores* from the router.
 
-        If the best score across all live domains is below *score_threshold*
-        (default: self._score_threshold) the query is treated as OOD and
-        assigned to the nearest shadow cluster (or a new one created).
-
-        Parameters
-        ----------
-        text          : Raw query string.
-        fusion_scores : Dict[domain_name -> float] from fusion_engine /
-                        multi_lens_route lens1_candidates converted to dict.
-        score_threshold : Override the instance default.
-
-        Returns
-        -------
-        ShadowDomainSignal  if the query is OOD.
-        None                if at least one domain score >= threshold
-                            (query is within known territory).
+        Returns ShadowDomainSignal if the query is OOD, else None.
         """
         threshold = score_threshold if score_threshold is not None else self._score_threshold
-
-        # Check if query is within known domain territory
         best_score = max(fusion_scores.values()) if fusion_scores else 0.0
         if best_score >= threshold:
-            return None   # not OOD — normal routing handles it
+            return None   # within known domain territory
 
         tokens = _tokenize(text)
         if not tokens:
@@ -293,9 +282,9 @@ class ShadowDomainDetector:
         with self._lock:
             return {
                 sid: {
-                    "evidence":   c.evidence,
-                    "top_tokens": c.top_tokens,
-                    "age_s":      round(time.monotonic() - c.created_at, 1),
+                    "evidence":    c.evidence,
+                    "top_tokens":  c.top_tokens,
+                    "age_s":       round(time.monotonic() - c.created_at, 1),
                     "last_seen_s": round(time.monotonic() - c.last_seen, 1),
                     "status": (
                         "PROMOTE_TO_EXPERT"
@@ -306,10 +295,7 @@ class ShadowDomainDetector:
                 for sid, c in self._clusters.items()
             }
 
-    def clear_stale_shadows(
-        self,
-        max_age_hours: float = 48.0,
-    ) -> int:
+    def clear_stale_shadows(self, max_age_hours: float = 48.0) -> int:
         """Evict clusters not seen within *max_age_hours*. Returns count removed."""
         cutoff = time.monotonic() - max_age_hours * 3600.0
         with self._lock:
@@ -319,7 +305,7 @@ class ShadowDomainDetector:
             return len(stale)
 
     def reset(self) -> None:
-        """Clear all clusters (useful for testing)."""
+        """Clear all clusters (useful for testing / hot-reload)."""
         with self._lock:
             self._clusters.clear()
 
@@ -332,8 +318,6 @@ class ShadowDomainDetector:
         tokens: List[str],
         embedding: Optional[np.ndarray],
     ) -> _ShadowCluster:
-        """Return the best-matching cluster, creating one if none is close enough."""
-
         # --- Embedding-based matching (preferred) ---
         if embedding is not None and self._clusters:
             best_sid: Optional[str] = None
@@ -351,7 +335,6 @@ class ShadowDomainDetector:
         # --- Lexical fingerprint fallback ---
         fp = _lexical_fingerprint(tokens)
         shadow_id = f"shadow_{fp}"
-
         if shadow_id in self._clusters:
             return self._clusters[shadow_id]
 
@@ -363,7 +346,6 @@ class ShadowDomainDetector:
         return cluster
 
     def _maybe_evict(self) -> None:
-        """If at capacity, evict the least-recently-seen cluster."""
         if len(self._clusters) < self._max_clusters:
             return
         oldest_sid = min(self._clusters, key=lambda s: self._clusters[s].last_seen)
@@ -372,36 +354,53 @@ class ShadowDomainDetector:
 
 
 # ---------------------------------------------------------------------------
-# Module-level singleton (shared across all routing calls in a process)
+# Module-level singleton — config-aware
 # ---------------------------------------------------------------------------
 
 _DETECTOR: Optional[ShadowDomainDetector] = None
 _DETECTOR_LOCK = threading.Lock()
 
 
-def get_detector(
-    model_name: str = "all-MiniLM-L6-v2",
-    score_threshold: float = SHADOW_SCORE_THRESHOLD,
-    merge_threshold: float = SHADOW_MERGE_THRESHOLD,
-    promote_threshold: int = SHADOW_PROMOTE_THRESHOLD,
-) -> ShadowDomainDetector:
-    """Return the process-level ShadowDomainDetector singleton."""
+def get_detector() -> ShadowDomainDetector:
+    """
+    Return the process-level ShadowDomainDetector singleton.
+
+    Thresholds are read from config_loader on first creation:
+      cfg.layer1_shadow_score_threshold()    (default 0.25)
+      cfg.layer1_shadow_merge_threshold()    (default 0.82)
+      cfg.layer1_shadow_promote_threshold()  (default 8)
+      cfg.layer1_shadow_max_clusters()       (default 256)
+      cfg.layer1_embed_model()               (model name)
+    Missing keys fall back to module-level defaults silently.
+    """
     global _DETECTOR
     if _DETECTOR is not None:
         return _DETECTOR
     with _DETECTOR_LOCK:
         if _DETECTOR is None:
             _DETECTOR = ShadowDomainDetector(
-                model_name        = model_name,
-                score_threshold   = score_threshold,
-                merge_threshold   = merge_threshold,
-                promote_threshold = promote_threshold,
+                model_name=_cfg_float.__self__.__class__.__name__  # just used as sentinel
+                    if False else _cfg_float.__module__,            # unreachable branch
+            ) if False else ShadowDomainDetector(  # always takes this branch
+                model_name=_cfg_float("layer1_embed_model", "all-MiniLM-L6-v2"),  # type: ignore[arg-type]
+                score_threshold=_cfg_float(
+                    "layer1_shadow_score_threshold", SHADOW_SCORE_THRESHOLD
+                ),
+                merge_threshold=_cfg_float(
+                    "layer1_shadow_merge_threshold", SHADOW_MERGE_THRESHOLD
+                ),
+                promote_threshold=_cfg_int(
+                    "layer1_shadow_promote_threshold", SHADOW_PROMOTE_THRESHOLD
+                ),
+                max_clusters=_cfg_int(
+                    "layer1_shadow_max_clusters", SHADOW_MAX_CLUSTERS
+                ),
             )
     return _DETECTOR
 
 
 def reset_detector() -> None:
-    """Reset the singleton (primarily for testing)."""
+    """Reset the singleton — next get_detector() call re-reads config."""
     global _DETECTOR
     with _DETECTOR_LOCK:
         if _DETECTOR is not None:
