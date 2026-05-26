@@ -1,9 +1,8 @@
 // ---------------------------------------------------------------------------
-// pages/index.tsx — Phase 4 update
-// Adds: useGraphBuilder + useGraphStabilization wiring;
-//       ReasoningGraph overlay mount;
-//       live onGraphOpen in ChatBubble;
-//       graph reset on new query.
+// pages/index.tsx — Phase 5 update
+// Gap 1: mode + onModeChange threaded into HomeScreen.
+// Gap 3: live graph toggle button added to header; visible from first SSE
+//         event, with a pulsing LIVE dot while loading.
 // ---------------------------------------------------------------------------
 
 import Head from 'next/head';
@@ -350,16 +349,13 @@ export default function Home() {
   const [backendDown, setBackendDown]                     = useState(false);
   const [healthBannerDismissed, setHealthBannerDismissed] = useState(false);
 
-  // ── Phase 4: Graph state ──────────────────────────────────────────
+  // ── Graph state ──────────────────────────────────────────────────
   const [graphOpen, setGraphOpen] = useState(false);
   const graphRef = useRef<unknown>(null);
 
   const graphBuilder = useGraphBuilder(mode, typeof window !== 'undefined' && window.innerWidth < 768);
 
   const handleFreezeReady = useCallback(() => {
-    // Read live node positions from ForceGraph2D engine and freeze them
-    // The graph engine stores positions on the node objects mutably;
-    // we collect them and pass to graphBuilder.freeze()
     const positions = new Map<string, { x: number; y: number }>();
     graphBuilder.displayNodes.forEach((n) => {
       const fgNode = n as typeof n & { x?: number; y?: number };
@@ -375,7 +371,7 @@ export default function Home() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const { elapsedMs, start: startTick, stop: stopTick, dispose: disposeTick } = useElapsedTick();
 
-  // ── Health check ───────────────────────────────────────────────────
+  // ── Health check ─────────────────────────────────────────────────
   useEffect(() => {
     async function checkHealth() {
       try {
@@ -407,7 +403,7 @@ export default function Home() {
     setMessages((prev) => prev.map((m, i) => (i === idx ? { ...m, traceOpen: !m.traceOpen } : m)));
   }
 
-  // ── Thinking event handler ────────────────────────────────────────────
+  // ── Thinking event handler ────────────────────────────────────────
   function handleThinkingEvent(event: SseEvent) {
     const kind  = (event.phase_name ?? event.phase) as ThinkingEventKind;
     const state = event.state ?? (event.phase === 'done' ? 'done' : 'running');
@@ -442,7 +438,7 @@ export default function Home() {
     });
   }
 
-  // ── Sandbox event handler ─────────────────────────────────────────────
+  // ── Sandbox event handler ───────────────────────────────────────
   function handleSandboxEvent(phase: string, detail: string, elapsedMsVal: number) {
     if (phase === 'sandbox_plan') {
       const parts = detail.split(' | ');
@@ -472,7 +468,7 @@ export default function Home() {
     }
   }
 
-  // ── Finish helpers ──────────────────────────────────────────────────────
+  // ── Finish helpers ─────────────────────────────────────────────────────
   function finishWithResponse(data: ChatApiResponse) {
     const answer  = data.answer ?? 'Mycelium returned no answer text. Check the pipeline trace below.';
     const trace   = extractTrace(data);
@@ -486,7 +482,7 @@ export default function Home() {
     stopTick();
     sseStream.close();
     loadHistory();
-    // Phase 4: finalise the graph snapshot
+    // Finalise graph snapshot
     graphBuilder.finalise({
       traceId:      trace.trace_id,
       queryText:    messages[messages.length - 1]?.content,
@@ -503,18 +499,18 @@ export default function Home() {
     setLoading(false);
     stopTick();
     sseStream.close();
-    // Phase 4: also finalise + mark done on error so graph freezes cleanly
+    // Finalise + freeze graph cleanly even on error
     graphBuilder.finalise({ totalElapsedMs: elapsedMs });
     stabilization.markDone();
   }
 
-  // ── Graph event handler (Phase 4) ────────────────────────────────────
+  // ── Graph event handler ──────────────────────────────────────────────
   const handleGraphEvent = useCallback((event: SseEvent) => {
     graphBuilder.ingestSseEvent(event);
     stabilization.notifyNodeArrival();
   }, [graphBuilder, stabilization]);
 
-  // ── SSE stream hook ──────────────────────────────────────────────────
+  // ── SSE stream hook ────────────────────────────────────────────────
   const sseStream = useSseStream({
     mode,
     onThinkingEvent: handleThinkingEvent,
@@ -525,10 +521,10 @@ export default function Home() {
     },
     onDone:       finishWithResponse,
     onError:      finishWithError,
-    onGraphEvent: handleGraphEvent,   // Phase 4 wiring
+    onGraphEvent: handleGraphEvent,
   });
 
-  // ── Send handler ───────────────────────────────────────────────────────
+  // ── Send handler ───────────────────────────────────────────────────
   async function handleSend(overrideText?: string) {
     const text = (typeof overrideText === 'string' ? overrideText : input).trim();
     if (!text || loading) return;
@@ -543,7 +539,6 @@ export default function Home() {
     setCurrentPhase('routing');
     setCurrentDetail('Connecting to Mycelium…');
     startTick();
-    // Phase 4: reset graph state for new query
     graphBuilder.reset();
     stabilization.reset();
     sseStream.open(text);
@@ -564,7 +559,11 @@ export default function Home() {
   const atCharLimit        = input.length >= MAX_INPUT_CHARS;
   const charCounterVisible = input.length > MAX_INPUT_CHARS * 0.8;
 
-  // ── Render: calibration gate ────────────────────────────────────────
+  // Gap 3: graph button appears as soon as the first node arrives.
+  // While loading, a pulsing dot signals the graph is actively building.
+  const graphHasNodes = graphBuilder.rawNodes.length > 0;
+
+  // ── Render: calibration gate ──────────────────────────────────────
   if (!calibrationDone) {
     return (
       <>
@@ -577,7 +576,7 @@ export default function Home() {
     );
   }
 
-  // ── Render: home screen ──────────────────────────────────────────
+  // ── Render: home screen ─────────────────────────────────────────
   if (!hasStarted) {
     return (
       <>
@@ -585,18 +584,21 @@ export default function Home() {
           <title>Mycelium</title>
           <meta name="viewport" content="width=device-width, initial-scale=1" />
         </Head>
+        {/* Gap 1: mode + onModeChange now threaded into HomeScreen */}
         <HomeScreen
           input={input}
           onInputChange={setInput}
           onSend={handleSend}
           onKeyDown={handleKeyDown}
           loading={loading}
+          mode={mode}
+          onModeChange={setMode}
         />
       </>
     );
   }
 
-  // ── Render: chat UI ─────────────────────────────────────────────
+  // ── Render: chat UI ──────────────────────────────────────────
   return (
     <div className={`${styles.shell} ${styles.shellVisible}`}>
       <Head>
@@ -616,7 +618,7 @@ export default function Home() {
         />
       )}
 
-      {/* Phase 4: ReasoningGraph overlay — full-screen, above everything */}
+      {/* ReasoningGraph overlay — full-screen, above everything */}
       {graphOpen && (
         <ReasoningGraph
           graphState={graphBuilder}
@@ -669,6 +671,27 @@ export default function Home() {
             Layer 0 · Routing · Experts · Validation · Sandbox · Synthesis
           </span>
         </div>
+
+        {/* Gap 3: live graph toggle — appears from the first SSE node onward */}
+        {graphHasNodes && (
+          <button
+            className={`${styles.graphToggleBtn} ${graphOpen ? styles.graphToggleBtnActive : ''}`}
+            onClick={() => setGraphOpen((v) => !v)}
+            aria-label={graphOpen ? 'Close reasoning graph' : 'Open reasoning graph'}
+            aria-pressed={graphOpen}
+          >
+            <svg width="13" height="13" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+              <circle cx="14" cy="14" r="3" fill="currentColor" opacity="0.9" />
+              <line x1="14" y1="14" x2="4"  y2="6"  stroke="currentColor" strokeWidth="1.5" opacity="0.7" />
+              <line x1="14" y1="14" x2="24" y2="6"  stroke="currentColor" strokeWidth="1.5" opacity="0.7" />
+              <line x1="14" y1="14" x2="4"  y2="22" stroke="currentColor" strokeWidth="1.5" opacity="0.7" />
+              <line x1="14" y1="14" x2="24" y2="22" stroke="currentColor" strokeWidth="1.5" opacity="0.7" />
+            </svg>
+            Graph
+            {/* Pulsing amber dot while query is still in-flight */}
+            {loading && <span className={styles.graphBtnLiveDot} aria-hidden="true" />}
+          </button>
+        )}
       </header>
 
       <div className={styles.body}>
@@ -725,7 +748,6 @@ export default function Home() {
                   </div>
                 );
               }
-              // Assistant bubble — onGraphOpen now live (§4.4)
               return (
                 <div key={idx} className={styles.assistantBubbleWrap}>
                   <ChatBubble
