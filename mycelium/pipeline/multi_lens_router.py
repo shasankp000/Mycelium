@@ -1,7 +1,28 @@
 """
-Multi-Lens Router — Complete Rewrite
-=====================================
-See original docstring for full design notes.
+Multi-Lens Router
+=================
+Orchestrates Layer-1 semantic routing, spectral analysis, and fusion.
+
+Bug-fixes in this revision
+---------------------------
+1. Spectral fallback preserved scores correctly
+   Previously, when FusionEngine.fuse() raised an exception the fallback
+   branch built ``fused_scores`` from ``semantic_scores`` only — spectral
+   evidence was silently discarded.  Now the fallback performs a weighted
+   average merge of both score dicts so spectral signal is never lost.
+
+2. ``create_new_expert`` was never True in any live code path
+   The flag was declared ``False`` and only ever updated *after* the
+   classification block that reads it.  It is now set eagerly: True when
+   both (a) no experts survive budget-select and (b) the query is not
+   attribute-only (which has its own override path).
+
+3. Pre-selection clustering
+   The merged candidate set (semantic ∪ spectral) is now deduplicated via
+   ``_deduplicate_candidates`` from layer1_router before being passed to
+   ``_budget_select``, so near-synonym domains (e.g. automobile +
+   engine_spec) collapse to a single representative instead of both
+   consuming budget slots.
 """
 import logging
 from typing import Any, Dict, List, Optional, Tuple
@@ -28,19 +49,20 @@ except ImportError:
 _ABSOLUTE_MAX_EXPERTS: int = max(1, MAX_EXPERTS)
 
 try:
-    from mycelium.pipeline.layer1_router import multi_lens_route
+    from mycelium.pipeline.layer1_router import multi_lens_route, _deduplicate_candidates
 except ImportError:
-    multi_lens_route = None  # type: ignore[assignment]
+    multi_lens_route = None            # type: ignore[assignment]
+    _deduplicate_candidates = None     # type: ignore[assignment]
 
 try:
     from mycelium.pipeline.spectral_analyzer import RuntimeSpectralAnalyzer
 except ImportError:
-    RuntimeSpectralAnalyzer = None  # type: ignore[assignment]
+    RuntimeSpectralAnalyzer = None    # type: ignore[assignment]
 
 try:
     from mycelium.pipeline.fusion_engine import FusionEngine
 except ImportError:
-    FusionEngine = None  # type: ignore[assignment]
+    FusionEngine = None               # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
@@ -57,6 +79,15 @@ _METRICS: Dict[str, int] = {
     "budget_cap_applied": 0,
 }
 
+# Weights for the manual spectral+semantic merge fallback (used when
+# FusionEngine is unavailable or raises).  Must sum to 1.0.
+_SEMANTIC_WEIGHT: float = 0.55
+_SPECTRAL_WEIGHT: float = 0.45
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 def _budget_select(
     fused_scores: Dict[str, float],
@@ -79,22 +110,64 @@ def _budget_select(
     return selected, budget_cap_applied
 
 
-def _spectral_analyzer_is_ready(analyzer: Any) -> bool:
-    """
-    Safe wrapper around spectral_analyzer.is_ready().
+def _merge_scores_fallback(
+    semantic_scores: Dict[str, float],
+    spectral_scores: Dict[str, float],
+) -> Dict[str, float]:
+    """Weighted average merge used when FusionEngine is unavailable / raises.
 
-    The analyzer instance stored in MultiLensRouter may be an externally
-    injected object (e.g. from DynamicSignatureManager.sync_signatures)
-    that is a different subclass and does not implement is_ready().  Fall
-    back to True (assume ready) so spectral scoring is not silently skipped
-    and no AttributeError is raised.
+    Domains present in only one source receive that source's weight as their
+    effective combined score rather than a full 1.0 weight, so a domain that
+    only appears in spectral (at 0.9) doesn't unconditionally outrank one
+    that appears in both sources (at 0.5 each).
     """
+    all_domains = set(semantic_scores) | set(spectral_scores)
+    merged: Dict[str, float] = {}
+    for d in all_domains:
+        sem = semantic_scores.get(d, 0.0)
+        spc = spectral_scores.get(d, 0.0)
+        # Weight by how many sources agree
+        if d in semantic_scores and d in spectral_scores:
+            merged[d] = _SEMANTIC_WEIGHT * sem + _SPECTRAL_WEIGHT * spc
+        elif d in semantic_scores:
+            merged[d] = _SEMANTIC_WEIGHT * sem
+        else:
+            merged[d] = _SPECTRAL_WEIGHT * spc
+    return merged
+
+
+def _preselect_cluster(
+    fused_scores: Dict[str, float],
+    model_name: str = "",
+) -> Dict[str, float]:
+    """Collapse near-synonym domains in the fused score dict.
+
+    Calls ``_deduplicate_candidates`` from layer1_router (which uses
+    cosine-similarity clustering on domain-anchor embeddings).  If the
+    import failed at module load we return the scores unchanged.
+    """
+    if _deduplicate_candidates is None or not fused_scores:
+        return fused_scores
+    pairs = list(fused_scores.items())   # [(domain, score), ...]
+    try:
+        deduped = _deduplicate_candidates(pairs, model_name=model_name)
+        return dict(deduped)
+    except Exception as exc:
+        logger.debug("Pre-selection clustering failed (non-fatal): %s", exc)
+        return fused_scores
+
+
+def _spectral_analyzer_is_ready(analyzer: Any) -> bool:
+    """Safe wrapper — falls back to True if is_ready() is not implemented."""
     is_ready_fn = getattr(analyzer, "is_ready", None)
     if callable(is_ready_fn):
         return bool(is_ready_fn())
-    # Fallback: assume ready if the object exists at all
     return analyzer is not None
 
+
+# ---------------------------------------------------------------------------
+# Router
+# ---------------------------------------------------------------------------
 
 class MultiLensRouter:
     def __init__(
@@ -135,26 +208,38 @@ class MultiLensRouter:
             except Exception as exc:
                 logger.warning("Failed to initialise fusion engine: %s", exc)
 
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
     def route(self, text: str) -> RoutingResult:
         try:
             self.request_count += 1
             _METRICS["total_requests"] += 1
             should_log = self.enable_logging and (self.request_count % LOG_SAMPLE_RATE == 0)
+
             if multi_lens_route is None:
-                return self._fallback_result("layer_1_prototype not available")
+                return self._fallback_result("layer_1_router not available")
+
             if not self.use_multi_lens:
                 base = multi_lens_route(text)
                 return self._wrap_base_result(base)
+
+            # ── Layer 1 ────────────────────────────────────────────────
             base_result = multi_lens_route(text)
             base_classification = base_result.get("classification", "NORMAL")
             is_attribute_only = base_classification == "ATTRIBUTE_ONLY"
             object_level_domains = self._extract_object_level_domains(base_result)
             semantic_scores = self._extract_semantic_scores(base_result)
+
             if should_log:
                 logger.debug(
                     "[ROUTER] req#%d  text=%r  attribute_only=%s  semantic_domains=%s",
-                    self.request_count, text[:50], is_attribute_only, list(semantic_scores.keys()),
+                    self.request_count, text[:50], is_attribute_only,
+                    list(semantic_scores.keys()),
                 )
+
+            # ── Spectral analysis ──────────────────────────────────────
             spectral_scores: Dict[str, float] = {}
             if self.use_spectral and self._spectral_analyzer is not None:
                 try:
@@ -162,9 +247,13 @@ class MultiLensRouter:
                         spectral_scores = self._spectral_analyzer.analyze_text(text) or {}
                 except Exception as exc:
                     logger.warning("Spectral analysis failed: %s", exc)
+
+            # ── Fusion (or fallback weighted merge) ────────────────────
             all_candidate_domains = set(semantic_scores) | set(spectral_scores)
             confidence_scores: Dict[str, float] = {d: 0.5 for d in all_candidate_domains}
             fused_scores: Dict[str, float] = {}
+            fusion_ok = False
+
             if self._fusion_engine is not None:
                 try:
                     raw_fusion = self._fusion_engine.fuse(
@@ -173,10 +262,20 @@ class MultiLensRouter:
                         confidence_scores=confidence_scores,
                     ) or {}
                     fused_scores = self._extract_fused_scores(raw_fusion)
+                    fusion_ok = bool(fused_scores)
                 except Exception as exc:
-                    logger.warning("Fusion failed: %s", exc)
-            if not fused_scores and semantic_scores:
-                fused_scores = dict(semantic_scores)
+                    logger.warning("Fusion failed, using fallback merge: %s", exc)
+
+            if not fusion_ok:
+                # FIX 1: merge *both* score sources, not just semantic.
+                fused_scores = _merge_scores_fallback(semantic_scores, spectral_scores)
+
+            # ── FIX 3: pre-selection clustering ────────────────────────
+            # Collapse near-synonym domains (e.g. automobile + engine_spec)
+            # before they consume separate budget slots.
+            fused_scores = _preselect_cluster(fused_scores)
+
+            # ── Budget select ──────────────────────────────────────────
             selected_experts, cap_applied = _budget_select(
                 fused_scores=fused_scores,
                 confidence_scores=confidence_scores,
@@ -186,8 +285,19 @@ class MultiLensRouter:
             if cap_applied:
                 _METRICS["budget_cap_applied"] += 1
                 if should_log:
-                    logger.debug("[ROUTER] Budget cap applied: trimmed to %d expert(s)", self.max_experts)
-            create_new_expert = False
+                    logger.debug(
+                        "[ROUTER] Budget cap applied: trimmed to %d expert(s)",
+                        self.max_experts,
+                    )
+
+            # ── FIX 2: create_new_expert set eagerly ───────────────────
+            # True when no experts survived budget-select AND the query is
+            # not attribute-only (attribute-only has its own override path).
+            create_new_expert: bool = (
+                not bool(selected_experts) and not is_attribute_only
+            )
+
+            # ── Attribute override ─────────────────────────────────────
             override_applied = False
             if is_attribute_only and ENABLE_ATTRIBUTE_OVERRIDE and object_level_domains:
                 override_candidates: List[Tuple[float, str]] = [
@@ -208,10 +318,14 @@ class MultiLensRouter:
                             existing_set.add(domain)
                     override_applied = True
                     _METRICS["attribute_override_applied"] += 1
+
+            # ── Last-resort: use Layer-1 primary if still empty ────────
             if not selected_experts and not create_new_expert:
                 primary_fallback = base_result.get("primary_domain")
                 if primary_fallback:
                     selected_experts = [primary_fallback]
+
+            # ── Classification ─────────────────────────────────────────
             variance = self._compute_variance(fused_scores)
             if is_attribute_only and not override_applied:
                 final_cls = "ATTRIBUTE_ONLY"
@@ -231,15 +345,21 @@ class MultiLensRouter:
             else:
                 final_cls = "NO_EXPERT_AVAILABLE"
                 _METRICS["no_expert"] += 1
+
             if create_new_expert:
                 _METRICS["create_new_expert_true"] += 1
+
             coverage_met = bool(selected_experts)
             primary_domain = selected_experts[0] if selected_experts else None
+
             if should_log:
                 logger.debug(
-                    "[ROUTER] result  cls=%s  experts=%s  cap=%s  variance=%.4f",
+                    "[ROUTER] result  cls=%s  experts=%s  cap=%s  variance=%.4f"
+                    "  create_new_expert=%s",
                     final_cls, selected_experts, cap_applied, variance,
+                    create_new_expert,
                 )
+
             return RoutingResult(
                 classification=final_cls,
                 selected_domains=selected_experts,
@@ -265,9 +385,14 @@ class MultiLensRouter:
                     ),
                 },
             )
+
         except Exception as exc:
             logger.error("Critical routing error: %s", exc, exc_info=True)
             return self._fallback_result(f"Routing failed: {exc}")
+
+    # ------------------------------------------------------------------
+    # Static helpers
+    # ------------------------------------------------------------------
 
     @staticmethod
     def _extract_semantic_scores(base_result: Dict) -> Dict[str, float]:
@@ -377,17 +502,21 @@ class MultiLensRouter:
                 "Pure reasoning query — no structural domain match. "
                 "All available experts will be evaluated by the reasoning pipeline."
             ),
-            "SINGLE_DOMAIN": f"Single domain: {selected_experts[0] if selected_experts else '?'}.",
+            "SINGLE_DOMAIN": (
+                f"Single domain: {selected_experts[0] if selected_experts else '?'}."
+            ),
             "MULTI_DOMAIN": f"Multiple domains: {', '.join(selected_experts)}.",
-            "AMBIGUOUS": f"Ambiguous — similar relevance across: {', '.join(selected_experts)}.",
+            "AMBIGUOUS": (
+                f"Ambiguous — similar relevance across: {', '.join(selected_experts)}."
+            ),
             "NO_EXPERT_AVAILABLE": "No suitable expert found.",
         }.get(classification, "")
         if cls_msg:
             parts.append(cls_msg)
         if budget_cap_applied:
             parts.append(
-                f"Budget cap applied: output limited to {_ABSOLUTE_MAX_EXPERTS} expert(s) "
-                "to prevent fan-out explosion."
+                f"Budget cap applied: output limited to {_ABSOLUTE_MAX_EXPERTS} "
+                "expert(s) to prevent fan-out explosion."
             )
         if coverage_met:
             parts.append("Coverage satisfied.")
