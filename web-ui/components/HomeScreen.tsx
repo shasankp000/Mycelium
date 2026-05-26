@@ -1,9 +1,12 @@
 // ---------------------------------------------------------------------------
 // HomeScreen — extracted from pages/index.tsx (Phase 1 refactor)
-// The landing screen shown before the first message is sent.
+// Phase 5: mode + onModeChange props added so ModeSelector is available
+//           before the first message is sent (Gap 1 fix).
 // ---------------------------------------------------------------------------
 
 import styles from '../styles/Home.module.css';
+import { ModeSelector } from './ModeSelector';
+import type { ReasoningMode } from '../types/pipeline';
 
 const MAX_INPUT_CHARS = 2000;
 
@@ -86,12 +89,16 @@ export function HomeScreen({
   onSend,
   onKeyDown,
   loading,
+  mode,
+  onModeChange,
 }: {
   input: string;
   onInputChange: (v: string) => void;
   onSend: () => void;
   onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   loading: boolean;
+  mode: ReasoningMode;
+  onModeChange: (m: ReasoningMode) => void;
 }) {
   const typed   = useTypewriter(TYPEWRITER_TEXTS);
   const atLimit = input.length >= MAX_INPUT_CHARS;
@@ -121,6 +128,10 @@ export function HomeScreen({
           <span className={styles.homeTyped}>{typed}</span>
           <span className={styles.homeCursor} aria-hidden="true" />
         </div>
+
+        {/* Mode selector — above the input so the user sets intent before typing */}
+        <ModeSelector mode={mode} onChange={onModeChange} disabled={loading} />
+
         <div className={styles.homeInputWrap}>
           <input
             className={styles.homeInput}
