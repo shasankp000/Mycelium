@@ -1,6 +1,7 @@
 // ---------------------------------------------------------------------------
 // ReasoningGraph/index.tsx — Phase 5 polish
-// Adds: keyboard shortcuts, mobile constraints, simulation disposal on unmount.
+// Adds: keyboard shortcuts, mobile constraints, simulation disposal on unmount,
+//       large-graph performance guard (500+ nodes).
 // All Phase 4 + Phase 5 diff/snapshot features retained.
 // ---------------------------------------------------------------------------
 
@@ -32,6 +33,21 @@ const ForceGraph2D = dynamic(
   () => import('react-force-graph-2d').then((m) => m.default),
   { ssr: false, loading: () => <div className={styles.canvasLoading}>Initialising graph renderer…</div> },
 );
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/** Nodes above this threshold trigger the large-graph performance guard. */
+const LARGE_GRAPH_THRESHOLD = 500;
+
+/**
+ * Spatial grid resolution for the cluster pre-pass.
+ * Nodes in the same GRID_CELL × GRID_CELL bucket that exceed
+ * CLUSTER_MIN_SIZE are collapsed into a synthetic cluster node.
+ */
+const GRID_CELL     = 8;   // grid cells (each axis)
+const CLUSTER_MIN_SIZE = 4; // min members before a cell collapses
 
 // ---------------------------------------------------------------------------
 // Mobile detection helper (runs once per render, safe for SSR)
@@ -79,6 +95,7 @@ function drawNode(
   selectedId: string | null,
   frozenPositions: Map<string, { x: number; y: number }> | null,
   isMobile: boolean,
+  isLargeGraph: boolean,
 ) {
   const x = node.x ?? 0;
   const y = node.y ?? 0;
@@ -92,8 +109,8 @@ function drawNode(
   ctx.save();
   ctx.globalAlpha = opacity;
 
-  // Contradiction pulse ring
-  if (node.kind === 'contradiction_node') {
+  // Contradiction pulse ring — skip in large-graph mode (expensive per-frame arc)
+  if (!isLargeGraph && node.kind === 'contradiction_node') {
     ctx.beginPath();
     ctx.arc(x, y, r + 3, 0, 2 * Math.PI);
     ctx.strokeStyle = contraColor();
@@ -177,6 +194,92 @@ function drawEdge(
 }
 
 // ---------------------------------------------------------------------------
+// Large-graph cluster pre-pass
+// ---------------------------------------------------------------------------
+
+/**
+ * Buckets nodes into an NxN spatial grid by normalised position
+ * (using layerDepth + confidence as proxy coords when x/y aren't set yet).
+ * Cells with >= CLUSTER_MIN_SIZE members collapse into a synthetic cluster
+ * node and a stub edge to each member's representative.
+ * Returns { nodes, edges } safe to pass to ForceGraph2D.
+ */
+function clusterLargeGraph(
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+): { nodes: GraphNode[]; edges: GraphEdge[] } {
+  // Use layerDepth (0-based) and confidence (0-1) as grid coordinates.
+  // This produces sensible spatial groupings even before physics runs.
+  const cellOf = (n: GraphNode): string => {
+    const cx = Math.floor((n.layerDepth % GRID_CELL));
+    const cy = Math.floor(((n.confidence ?? 0.5) * (GRID_CELL - 1)));
+    return `${cx}:${cy}`;
+  };
+
+  const buckets = new Map<string, GraphNode[]>();
+  for (const n of nodes) {
+    const key = cellOf(n);
+    const bucket = buckets.get(key) ?? [];
+    bucket.push(n);
+    buckets.set(key, bucket);
+  }
+
+  const outNodes: GraphNode[] = [];
+  const outEdges: GraphEdge[] = [...edges]; // keep all original edges initially
+  const collapsedIds = new Set<string>(); // node IDs absorbed into a cluster
+
+  buckets.forEach((members, key) => {
+    if (members.length < CLUSTER_MIN_SIZE) {
+      // Small bucket — keep members as-is
+      outNodes.push(...members);
+      return;
+    }
+
+    // Build synthetic cluster node
+    const avgConf = members.reduce((s, m) => s + (m.confidence ?? 0.5), 0) / members.length;
+    const clusterId = `__cluster_${key}`;
+    const syntheticCluster: GraphNode = {
+      id:          clusterId,
+      label:       `×${members.length}`,
+      kind:        'cluster',
+      zone:        members[0].zone,
+      state:       'done',
+      layerDepth:  members[0].layerDepth,
+      confidence:  avgConf,
+      size:        14,
+      opacity:     0.9,
+      isCluster:   true,
+      color:       'rgba(165,180,252,0.6)',
+      timestamp:   Date.now(),
+    };
+    outNodes.push(syntheticCluster);
+
+    // Add stub edges: cluster → first member (representative)
+    outEdges.push({
+      id:        `${clusterId}_stub`,
+      source:    clusterId,
+      target:    members[0].id,
+      kind:      'cluster_edge',
+      thickness: 0.5,
+      opacity:   0.2,
+    });
+
+    for (const m of members) collapsedIds.add(m.id);
+  });
+
+  // Remove edges whose both endpoints were absorbed into a different cluster
+  const filteredEdges = outEdges.filter((e) => {
+    const src = String(e.source);
+    const tgt = String(e.target);
+    // keep if at least one endpoint survived (or is a synthetic cluster)
+    return !collapsedIds.has(src) || !collapsedIds.has(tgt) ||
+           src.startsWith('__cluster_') || tgt.startsWith('__cluster_');
+  });
+
+  return { nodes: outNodes, edges: filteredEdges };
+}
+
+// ---------------------------------------------------------------------------
 // Subgraph zone cycle order for keyboard nav
 // ---------------------------------------------------------------------------
 
@@ -217,6 +320,9 @@ export function ReasoningGraph({
   const [tooltip, setTooltip]                   = useState<{ node: GraphNode; x: number; y: number } | null>(null);
   const [zoneFilter, setZoneFilter]             = useState<ZoneFilter>('all');
 
+  // Phase 5: large-graph bypass toggle
+  const [bypassLargeGuard, setBypassLargeGuard] = useState(false);
+
   // Phase 5: diff state
   const [activeDiff, setActiveDiff]   = useState<GraphDiff | null>(null);
   const [diffSnapA, setDiffSnapA]     = useState<GraphSnapshot | null>(null);
@@ -226,6 +332,13 @@ export function ReasoningGraph({
   const isStabilising = lifecycle === 'stabilising';
   const isFrozen      = lifecycle === 'frozen' || lifecycle === 'resumed';
   const isEmpty       = displayNodes.length === 0;
+
+  // Auto-reset bypass when graph shrinks back below threshold (new query)
+  useEffect(() => {
+    if (displayNodes.length <= LARGE_GRAPH_THRESHOLD) {
+      setBypassLargeGuard(false);
+    }
+  }, [displayNodes.length]);
 
   // Mobile node cap — slice to mobileMaxNodes, preferring high-confidence nodes
   const visibleNodes = React.useMemo(() => {
@@ -251,6 +364,14 @@ export function ReasoningGraph({
     ),
     [edges, visibleNodeIds],
   );
+
+  // Large-graph guard — engage when node count exceeds threshold and user hasn't bypassed
+  const isLargeGraph = !bypassLargeGuard && visibleNodes.length > LARGE_GRAPH_THRESHOLD;
+
+  const { nodes: renderNodes, edges: renderEdges } = React.useMemo(() => {
+    if (!isLargeGraph) return { nodes: visibleNodes, edges: visibleEdges };
+    return clusterLargeGraph(visibleNodes, visibleEdges);
+  }, [isLargeGraph, visibleNodes, visibleEdges]);
 
   // Freeze: collect positions from engine
   useEffect(() => {
@@ -319,7 +440,6 @@ export function ReasoningGraph({
   // ── Phase 5: Keyboard shortcuts ────────────────────────────────────────
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      // Don't fire when user is typing in an input / textarea
       const tag = (e.target as HTMLElement).tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
@@ -340,7 +460,7 @@ export function ReasoningGraph({
           onLayoutChange('force');
           break;
         case ' ':
-          e.preventDefault(); // stop page scroll
+          e.preventDefault();
           if (isFrozen) stabilization.resumeSimulation();
           break;
         case 'ArrowLeft': {
@@ -404,14 +524,13 @@ export function ReasoningGraph({
   }, []);
 
   const graphData = React.useMemo(() => ({
-    nodes: visibleNodes as (GraphNode & object)[],
-    links: visibleEdges as (GraphEdge & object)[],
-  }), [visibleNodes, visibleEdges]);
+    nodes: renderNodes as (GraphNode & object)[],
+    links: renderEdges as (GraphEdge & object)[],
+  }), [renderNodes, renderEdges]);
 
-  // Mobile: halve cooldown ticks so physics settles sooner
-  const cooldownTicks = isFrozen ? 0 : (isMobile ? 75 : 150);
+  // cooldownTicks: 30 in large-graph mode, 75 on mobile, 150 default
+  const cooldownTicks = isFrozen ? 0 : isLargeGraph ? 30 : isMobile ? 75 : 150;
 
-  // Canvas dimensions
   const canvasWidth  = typeof window !== 'undefined' ? window.innerWidth  : 800;
   const canvasHeight = typeof window !== 'undefined'
     ? window.innerHeight - (isMobile ? 160 : 100)
@@ -428,11 +547,11 @@ export function ReasoningGraph({
       <div className={styles.overlayHeader}>
         <div className={styles.overlayTitle}>
           Reasoning Graph
-          {isLive        && <span className={styles.liveBadge}       aria-label="Streaming live">LIVE</span>}
+          {isLive        && <span className={styles.liveBadge}        aria-label="Streaming live">LIVE</span>}
           {isStabilising && <span className={styles.stabilisingBadge} aria-label="Stabilising">⋅⋅⋅</span>}
-          {isFrozen      && <span className={styles.frozenBadge}     aria-label="Physics frozen">▣ frozen</span>}
+          {isFrozen      && <span className={styles.frozenBadge}      aria-label="Physics frozen">▣ frozen</span>}
           <span className={styles.nodeCount}>
-            {visibleNodes.length}n / {visibleEdges.length}e
+            {renderNodes.length}n / {renderEdges.length}e
             {isMobile && displayNodes.length > CLUSTER_THRESHOLDS.mobileMaxNodes && (
               <span className={styles.mobileCap} title="Mobile node cap active">
                 {' '}(of {displayNodes.length})
@@ -470,7 +589,7 @@ export function ReasoningGraph({
         </div>
       </div>
 
-      {/* Keyboard hint bar — desktop only, shown once until dismissed */}
+      {/* Keyboard hint bar — desktop only */}
       {!isMobile && (
         <div className={styles.keyHintBar} aria-hidden="true">
           <kbd>H</kbd> hierarchy &nbsp;·&nbsp;
@@ -479,6 +598,20 @@ export function ReasoningGraph({
           <kbd>Space</kbd> resume &nbsp;·&nbsp;
           <kbd>←</kbd><kbd>→</kbd> zone &nbsp;·&nbsp;
           <kbd>Esc</kbd> close
+        </div>
+      )}
+
+      {/* Large-graph warning banner */}
+      {isLargeGraph && (
+        <div className={styles.largeGraphBanner} role="status" aria-live="polite">
+          ⚡ {visibleNodes.length.toLocaleString()} nodes — rendering {renderNodes.length.toLocaleString()} clustered.
+          {' '}
+          <button
+            className={styles.largeGraphBypassBtn}
+            onClick={() => setBypassLargeGuard(true)}
+          >
+            Show all
+          </button>
         </div>
       )}
 
@@ -500,7 +633,6 @@ export function ReasoningGraph({
 
       {/* Main content */}
       <div className={styles.canvasWrap}>
-        {/* Snapshots tab */}
         {activeTab === 'snapshots' && (
           <div className={styles.snapshotPanel}>
             <GraphSnapshotLoader
@@ -510,7 +642,6 @@ export function ReasoningGraph({
           </div>
         )}
 
-        {/* Graph tab */}
         {activeTab === 'graph' && (
           <>
             {isEmpty ? (
@@ -538,6 +669,7 @@ export function ReasoningGraph({
                     selectedNode?.id ?? null,
                     frozenPositions,
                     isMobile,
+                    isLargeGraph,
                   )
                 }
                 linkCanvasObject={(link, ctx) =>
@@ -558,7 +690,6 @@ export function ReasoningGraph({
               />
             )}
 
-            {/* Tooltip */}
             {tooltip && (
               <div
                 className={styles.nodeTooltip}
@@ -580,7 +711,6 @@ export function ReasoningGraph({
               </div>
             )}
 
-            {/* Phase 5: GraphDiffView panel */}
             {activeDiff && (
               <GraphDiffView
                 diff={activeDiff}
@@ -590,7 +720,6 @@ export function ReasoningGraph({
               />
             )}
 
-            {/* Node detail drawer */}
             {selectedNode && (
               <NodeDetailDrawer
                 node={selectedNode}
