@@ -10,6 +10,11 @@ Milestone 1: Formalize MyceliumRunSummary and ChatResponse so that
 Phase 6: Add ReasoningMode enum and wire it through ChatRequest →
   MyceliumRunSummary so that the graph UI can label each trace with the
   depth that produced it.
+
+Wiring update: modes renamed to fast / smart / researcher to match the
+  frontend ModeSelector.  trm_threshold added to every depth config so
+  run_workflow can apply per-mode TRM confidence thresholds without
+  hardcoding values outside this file.
 """
 
 from __future__ import annotations
@@ -22,21 +27,61 @@ from pydantic import BaseModel, Field, ConfigDict
 
 
 # ---------------------------------------------------------------------------
-# Reasoning mode  (Phase 6)
+# Reasoning mode  (Phase 6 — wiring update)
 # ---------------------------------------------------------------------------
 
-ReasoningMode = Literal["fast", "balanced", "deep"]
+ReasoningMode = Literal["fast", "smart", "researcher"]
 
-DEPTH_CONFIGS: Dict[str, Dict[str, int]] = {
-    "fast":     {"dfs_max_depth": 1, "expert_top_k": 1, "phase3_passes": 1},
-    "balanced": {"dfs_max_depth": 2, "expert_top_k": 2, "phase3_passes": 2},
-    "deep":     {"dfs_max_depth": 4, "expert_top_k": 3, "phase3_passes": 3},
+# ── Per-mode depth + TRM threshold contract ─────────────────────────────────
+#
+#   dfs_max_depth   — ceiling on how many DFS layers the pipeline may climb.
+#   expert_top_k    — how many experts Phase-2 consults per query.
+#   phase3_passes   — number of Phase-3 validation passes.
+#   trm_threshold   — TRM halt_confidence must EXCEED this value for the
+#                     pipeline to short-circuit without escalating.
+#                     Lowering the threshold (researcher) makes TRM escalate
+#                     even on moderately confident queries so the full DAG runs.
+#
+# These values are the contract between TRM checkpoint training targets and
+# the runtime.  Adjust here only — run_workflow reads them via get_depth_config.
+# ---------------------------------------------------------------------------
+
+DEPTH_CONFIGS: Dict[str, Dict[str, Any]] = {
+    "fast": {
+        "dfs_max_depth": 1,
+        "expert_top_k": 1,
+        "phase3_passes": 1,
+        "trm_threshold": 0.85,   # strict — escalate only when clearly uncertain
+    },
+    "smart": {
+        "dfs_max_depth": 3,
+        "expert_top_k": 2,
+        "phase3_passes": 2,
+        "trm_threshold": 0.70,   # default — normal TRM behaviour
+    },
+    "researcher": {
+        "dfs_max_depth": 5,
+        "expert_top_k": 3,
+        "phase3_passes": 3,
+        "trm_threshold": 0.55,   # loose — escalate eagerly, run full DAG
+    },
+}
+
+# Backward-compat alias: old "balanced" / "deep" strings map to smart / researcher.
+_MODE_ALIASES: Dict[str, str] = {
+    "balanced": "smart",
+    "deep": "researcher",
 }
 
 
-def get_depth_config(mode: ReasoningMode) -> Dict[str, int]:
-    """Return the depth-config dict for *mode*, defaulting to 'balanced'."""
-    return DEPTH_CONFIGS.get(mode, DEPTH_CONFIGS["balanced"])
+def get_depth_config(mode: ReasoningMode) -> Dict[str, Any]:
+    """Return the depth-config dict for *mode*, defaulting to 'smart'.
+
+    Also accepts legacy aliases ('balanced' → 'smart', 'deep' → 'researcher')
+    so that any existing traces or callers don't break.
+    """
+    resolved = _MODE_ALIASES.get(mode, mode)  # type: ignore[arg-type]
+    return DEPTH_CONFIGS.get(resolved, DEPTH_CONFIGS["smart"])
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +218,7 @@ class MyceliumRunSummary(BaseModel):
     sentence: Optional[str] = None                     # original user query
 
     # Phase 6 — reasoning mode used for this run
-    reasoning_mode: ReasoningMode = "balanced"
+    reasoning_mode: ReasoningMode = "smart"
 
     # Pipeline stages
     layer0: Optional[Layer0Summary] = None
@@ -225,7 +270,7 @@ class ChatRequest(BaseModel):
     text: str
     session_id: Optional[str] = None
     # Phase 6 — reasoning depth selected by the user in the UI
-    reasoning_mode: ReasoningMode = "balanced"
+    reasoning_mode: ReasoningMode = "smart"
 
 
 class ChatResponse(BaseModel):
