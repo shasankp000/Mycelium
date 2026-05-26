@@ -62,6 +62,7 @@ import hashlib
 import json
 import os
 import random
+import sys
 import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -110,6 +111,9 @@ PREDICATE_FAMILY_MAP: Dict[str, int] = {
     # catch-all for any future classifications
 }
 _DEFAULT_PREDICATE_FAMILY: int = 10  # UNKNOWN
+
+# One-shot debug flag: print spectral_scores details on the first record() call.
+_SPECTRAL_DEBUG_DONE: bool = False
 
 
 # ------------------------------------------------------------------ #
@@ -326,6 +330,8 @@ class TRMRoutingTraceWriter:
         weights exist.  This ensures the training set is populated on
         first runs so that TRMTrainer can actually bootstrap.
         """
+        global _SPECTRAL_DEBUG_DONE
+
         # 1. Resolve target domain index
         target_idx = _domain_to_idx(selected_domain)
         if target_idx < 0:
@@ -359,6 +365,20 @@ class TRMRoutingTraceWriter:
         selected_domains: List[str] = list(
             getattr(routing_context, "selected_domains", []) or []
         )
+
+        # ------------------------------------------------------------------ #
+        # ONE-SHOT DIAGNOSTIC — remove after spectral_scores structure is     #
+        # confirmed and the spectral_vec parsing is fixed.                    #
+        # ------------------------------------------------------------------ #
+        if not _SPECTRAL_DEBUG_DONE:
+            _SPECTRAL_DEBUG_DONE = True
+            print("[TRM-SPECTRAL-DEBUG] spectral_scores type  :", type(spectral_scores), file=sys.stderr)
+            print("[TRM-SPECTRAL-DEBUG] spectral_scores value :", repr(spectral_scores)[:300], file=sys.stderr)
+            print("[TRM-SPECTRAL-DEBUG] spectral_scores attrs :", [a for a in dir(spectral_scores) if not a.startswith("__")], file=sys.stderr)
+            print("[TRM-SPECTRAL-DEBUG] selected_domains      :", selected_domains, file=sys.stderr)
+            print("[TRM-SPECTRAL-DEBUG] routing_context attrs :", [a for a in dir(routing_context) if not a.startswith("__")][:30], file=sys.stderr)
+        # ------------------------------------------------------------------ #
+
         spectral_vec = _spectral_vec_to_tensor(spectral_scores, selected_domains)
 
         # 5. predicate_family_id
