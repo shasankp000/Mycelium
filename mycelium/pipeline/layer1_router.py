@@ -807,6 +807,17 @@ def _next_heartbeat_message() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Shadow domain threshold (read from config with a safe default)
+# ---------------------------------------------------------------------------
+
+def _shadow_score_threshold() -> float:
+    try:
+        return float(cfg.layer1_shadow_score_threshold())  # type: ignore[attr-defined]
+    except Exception:
+        return 0.25
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -823,6 +834,10 @@ def multi_lens_route(
                 domains (e.g. automobile + engine_spec) before they propagate.
       Lens 2  — ontology coverage with parent-child suppression.
       Lens 3  — abstraction signature (core vs. modifier detection).
+      Shadow  — if no live domain scores above the low-confidence threshold,
+                the query is forwarded to ShadowDomainDetector which
+                accumulates OOD evidence and emits PROMOTE_TO_EXPERT once
+                a cluster matures.
 
     If no object-level domain evidence is found the result is ATTRIBUTE_ONLY
     and the caller must decide whether to invoke CREATE_NEW_EXPERT.
@@ -873,6 +888,12 @@ def multi_lens_route(
     if core_active == 0 or (
         core_domains_present and core_domains_present.issubset(_ATTRIBUTE_LEVEL_DOMAINS)
     ):
+        # ---------------------------------------------------------------
+        # Shadow check — ATTRIBUTE_ONLY path
+        # ---------------------------------------------------------------
+        fusion_scores = {d: s for d, s in lens1}
+        shadow_signal = _run_shadow_check(text, fusion_scores, on_event, wall_start)
+
         result = {
             "primary_domain": None,
             "secondary_domains": [],
@@ -880,7 +901,8 @@ def multi_lens_route(
             "lens1_candidates": lens1,
             "lens2_explanations": lens2,
             "lens3_signature": lens3,
-            "classification": "ATTRIBUTE_ONLY",
+            "classification": "SHADOW" if shadow_signal else "ATTRIBUTE_ONLY",
+            "shadow_signal": shadow_signal.as_dict() if shadow_signal else None,
         }
         _emit_layer1(
             on_event,
@@ -893,7 +915,8 @@ def multi_lens_route(
             detail="No core object domain evidence detected",
             metadata={
                 "primary_domain": None,
-                "classification": "ATTRIBUTE_ONLY",
+                "classification": result["classification"],
+                "shadow_signal": result["shadow_signal"],
                 "elapsed_ms": round((time.monotonic() - wall_start) * 1000, 1),
             },
         )
@@ -950,6 +973,18 @@ def multi_lens_route(
 
     explanation = " ".join(expl_bits) or "Routing based on multi-lens analysis."
 
+    # -----------------------------------------------------------------------
+    # Shadow check — low-confidence NORMAL path
+    # A NORMAL routing result can still be low-confidence if the top lens1
+    # score is below the shadow threshold (the router made a best-effort
+    # guess but is not certain the domain is truly known).
+    # -----------------------------------------------------------------------
+    fusion_scores = {d: s for d, s in lens1}
+    top_lens1_score = lens1[0][1] if lens1 else 0.0
+    shadow_signal: Any = None
+    if top_lens1_score < _shadow_score_threshold():
+        shadow_signal = _run_shadow_check(text, fusion_scores, on_event, wall_start)
+
     result = {
         "primary_domain": primary,
         "secondary_domains": secondary,
@@ -957,7 +992,8 @@ def multi_lens_route(
         "lens1_candidates": lens1,
         "lens2_explanations": lens2,
         "lens3_signature": lens3,
-        "classification": "NORMAL",
+        "classification": "SHADOW" if shadow_signal else "NORMAL",
+        "shadow_signal": shadow_signal.as_dict() if shadow_signal else None,
     }
 
     _emit_layer1(
@@ -970,17 +1006,55 @@ def multi_lens_route(
         message=f"Routing complete \u2014 {primary}",
         detail=(
             f"primary={primary} \u00b7 secondary={len(secondary)} \u00b7 "
-            f"classification=NORMAL"
+            f"classification={result['classification']}"
         ),
         metadata={
             "primary_domain": primary,
             "secondary_domains": [s["domain"] for s in secondary],
-            "classification": "NORMAL",
+            "classification": result["classification"],
+            "shadow_signal": result["shadow_signal"],
             "elapsed_ms": round((time.monotonic() - wall_start) * 1000, 1),
         },
     )
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Shadow check helper — called from multi_lens_route
+# ---------------------------------------------------------------------------
+
+def _run_shadow_check(
+    text: str,
+    fusion_scores: Dict[str, float],
+    on_event: Optional[Callable[[Dict[str, Any]], None]],
+    wall_start: float,
+) -> Any:   # returns ShadowDomainSignal | None
+    """Delegate OOD text to ShadowDomainDetector and optionally emit an event."""
+    try:
+        from mycelium.pipeline.shadow_domain_detector import get_detector
+        signal = get_detector().observe(text, fusion_scores)
+    except Exception:
+        return None
+
+    if signal is None:
+        return None
+
+    _emit_layer1(
+        on_event,
+        phase_name="shadow_check",
+        phase_id=4,
+        substep="shadow_check",
+        state="done",
+        visibility="public",
+        message=(
+            f"Shadow domain detected \u2014 {signal.shadow_id} "
+            f"[{signal.status}] evidence={signal.evidence}"
+        ),
+        detail=f"top_tokens={signal.top_tokens[:6]}",
+        metadata=signal.as_dict(),
+    )
+    return signal
 
 
 def test_layer1_multilens() -> None:
@@ -995,11 +1069,12 @@ def test_layer1_multilens() -> None:
         print(f"Lens3 signature: {json.dumps(result['lens3_signature'], indent=2)}")
         print(f"Final decision -> primary: {result['primary_domain']}, secondary: {result['secondary_domains']}")
         print(f"Explanation: {result['explanation']}")
+        print(f"Shadow signal: {result.get('shadow_signal')}")
 
     text_a = "Earth orbits the Sun"
     res_a = multi_lens_route(text_a)
     _print_result("Test A \u2014 Single-domain input", text_a, res_a)
-    assert res_a["classification"] == "NORMAL"
+    assert res_a["classification"] in {"NORMAL", "SHADOW"}
     assert res_a["primary_domain"] in {"astronomy", "physics"}
     assert len(res_a["secondary_domains"]) <= 2
     assert not any(s["weight"] >= 1.0 for s in res_a["secondary_domains"])
@@ -1007,23 +1082,24 @@ def test_layer1_multilens() -> None:
     text_b = "maruti 700 cc tubeless tires red cherry"
     res_b = multi_lens_route(text_b)
     _print_result("Test B \u2014 Compositional, multi-attribute input", text_b, res_b)
-    assert res_b["classification"] == "NORMAL"
+    assert res_b["classification"] in {"NORMAL", "SHADOW"}
     assert res_b["primary_domain"] in {"automobile"}
-    # engine_spec must NOT appear alongside automobile after dedup
     sec_domains = {s["domain"] for s in res_b["secondary_domains"]}
     assert "engine_spec" not in sec_domains or "automobile" not in sec_domains, (
-        "engine_spec and automobile should be deduplicated — one must be suppressed"
+        "engine_spec and automobile should be deduplicated \u2014 one must be suppressed"
     )
     assert len(sec_domains) <= 2
 
     text_c = "red glossy metallic finish"
     res_c = multi_lens_route(text_c)
     _print_result("Test C \u2014 Attribute-heavy input", text_c, res_c)
-    assert res_c["classification"] in {"ATTRIBUTE_ONLY", "UNKNOWN"}
+    assert res_c["classification"] in {"ATTRIBUTE_ONLY", "SHADOW", "UNKNOWN"}
 
     text_d = "iphone 15 pro max titanium blue"
     res_d = multi_lens_route(text_d)
     _print_result("Test D \u2014 OOD input (no live expert)", text_d, res_d)
+    # OOD input should generate a shadow signal
+    # (will be None only if embedding model is absent AND lexical score is 0)
 
     print("\nLive domains on disk:", DOMAIN_LIST)
 
