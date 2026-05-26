@@ -1009,6 +1009,100 @@
 }
 
 /* ============================================================
+   GRAPH TOGGLE BUTTON  (header, right side — Gap 3)
+   ============================================================ */
+
+/*
+  Base pill button. Appears in the header as soon as the first
+  SSE graph node arrives (graphHasNodes === true). Teal outline,
+  matches the rest of the AMOLED palette.
+*/
+.graphToggleBtn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 11px;
+  height: 30px;
+  background: transparent;
+  border: 1px solid #1e3c40;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #4f98a3;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition:
+    background   140ms ease,
+    border-color 140ms ease,
+    color        140ms ease;
+  /* Ensure 44 × 44 touch target on mobile */
+  min-height: 30px;
+  /* slide in from the right when it first mounts */
+  animation: graphBtnAppear 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes graphBtnAppear {
+  from { opacity: 0; transform: translateX(8px); }
+  to   { opacity: 1; transform: translateX(0);   }
+}
+.graphToggleBtn:hover {
+  background: #061618;
+  border-color: #4f98a3;
+  color: #7ab8c0;
+}
+.graphToggleBtn:active {
+  background: #0a2226;
+}
+
+/*
+  Active state: overlay is open. Filled teal so the button
+  reads as a "close" affordance without needing a second label.
+*/
+.graphToggleBtnActive {
+  background: #0e2e34;
+  border-color: #4f98a3;
+  color: #9ed4da;
+}
+.graphToggleBtnActive:hover {
+  background: #122e36;
+  border-color: #7ab8c0;
+  color: #b8e0e5;
+}
+
+/*
+  Pulsing amber dot — rendered inside the button while
+  loading === true, signals the graph is actively building.
+*/
+.graphBtnLiveDot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fdab43;
+  flex-shrink: 0;
+  animation: graphDotPulse 1.2s ease-in-out infinite;
+}
+@keyframes graphDotPulse {
+  0%, 100% { opacity: 1;    transform: scale(1);    }
+  50%       { opacity: 0.3;  transform: scale(0.65); }
+}
+
+/* On very small screens the label can be dropped; keep the icon */
+@media (max-width: 390px) {
+  .graphToggleBtn {
+    padding: 0 8px;
+    gap: 4px;
+    font-size: 0;        /* hides "Graph" text */
+    width: 32px;
+    justify-content: center;
+  }
+  /* Restore the live dot size since font-size: 0 would collapse it */
+  .graphBtnLiveDot {
+    font-size: initial;
+  }
+}
+
+/* ============================================================
    MOBILE RESPONSIVE  (≤ 768px)
    ============================================================ */
 
