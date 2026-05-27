@@ -1,7 +1,7 @@
 # Mycelium — Architecture Diagram
 
 > **WIP — updated in stages.** See `.diagram_wip.md` for expansion plan.  
-> Stage 3: `multi_lens_router.py` internals expanded (spectral analysis, fusion engine, budget-select, classification).
+> Stage 4: `unified_expert_system.py` internals expanded (expert initialization, LRU cache, unified scoring, recommendation logic).
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -120,7 +120,7 @@
 │  │       emit graph:tool_start / graph:tool_done                                                   │
 │  │       └─ returns phase3_result (validation + action_result + phase_latencies)                   │
 │  │                                                                                                 │
-│  ├── 10. UNIFIED EXPERT DECISION  [unified_expert_system.py]                                       │
+│  ├── 10. UNIFIED EXPERT DECISION  [unified_expert_system.py]  ←── see detail block below          │
 │  │        emit graph:synthesis_start                                                               │
 │  │        UnifiedExpertSystem.unified_decision_analysis(                                           │
 │  │            text, routing_context, filtered_experts, depth_cfg)                                 │
@@ -142,135 +142,110 @@
                               ↑ step 1 + step 6 expand here ↓
 ┌────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │  LAYER 1 ROUTER  (layer1_router.py)                                                                │
-│                                                                                                    │
-│  ┌─ DOMAIN ONTOLOGY ────────────────────────────────────────────────────────────────────────────┐  │
-│  │  _BASE_ONTOLOGY — statically defined per-domain core+attribute vocabularies                  │  │
-│  │  _build_domain_ontology()                                                                    │  │
-│  │  └─ _discover_live_domains()  →  cfg.discover_live_domains()                                 │  │
-│  │       ├─ scans [experts].dir for subdirs containing *.pt / *.bin / *.safetensors              │  │
-│  │       ├─ strips _bert / _model / _expert suffixes                                             │  │
-│  │       ├─ writes result back → config.toml [layer1.domain_list]  (non-fatal on failure)       │  │
-│  │       └─ falls back to static [layer1.domain_list] if disk scan finds nothing                 │  │
-│  │  Unknown live domains → minimal scaffold {core:[name], attributes:[]}                        │  │
-│  └──────────────────────────────────────────────────────────────────────────────────────────────┘  │
-│                                                                                                    │
-│  ┌─ TAG EXTRACTION ────────────────────────────────────────────────────────────────────────────┐  │
-│  │  extract_tags_llama(text)   →  ollama.generate(model, prompt)                               │  │
-│  │  extract_tags_openai(text)  →  requests.post(endpoint, ...)  (OpenAI-compat)                │  │
-│  │  _tag_cache (LRU, maxlen=2048, TTL=3600s)  ←─ sha256 key                                    │  │
-│  │  normalize_tags(tags)  →  fuzzywuzzy.process.extractOne()  (threshold from cfg)             │  │
-│  └──────────────────────────────────────────────────────────────────────────────────────────────┘  │
-│                                                                                                    │
-│  ┌─ EMBEDDING & CLUSTERING ───────────────────────────────────────────────────────────────────┐  │
-│  │  embed_tags_transformer(tags)                                                               │  │
-│  │  └─ model_registry.embed_batch(tags, model_name)  →  np.array of vectors                   │  │
-│  │  cluster_tags_transformer(tags, embeddings)  →  cosine-similarity greedy merge             │  │
-│  │  cluster_tags(tags, embeddings)  →  AgglomerativeClustering(cosine, average)               │  │
-│  │  └─ distance_threshold from cfg (layer1.tag_cluster_distance_threshold)                    │  │
-│  └──────────────────────────────────────────────────────────────────────────────────────────────┘  │
-│                                                                                                    │
-│  ┌─ TEMPORAL LOCALITY LAYER ──────────────────────────────────────────────────────────────────┐  │
-│  │  TemporalLocalityLayer(max_size, time_window_hours)                                         │  │
-│  │  ├─ add_statement(sentence, tags, timestamp)  →  deque + tag_frequency counter              │  │
-│  │  ├─ get_recent_statements(time_limit_hours)  →  entries within cutoff window                │  │
-│  │  ├─ get_temporal_similarity(input_tags)  →  Jaccard(input ∩ recent / input ∪ recent)        │  │
-│  │  └─ get_frequent_tags(min_frequency)  →  {tag: freq}                                       │  │
-│  └──────────────────────────────────────────────────────────────────────────────────────────────┘  │
-│                                                                                                    │
-│  ┌─ SPATIAL LOCALITY & DOMAIN PATCH ─────────────────────────────────────────────────────────┐  │
-│  │  analyze_spatial_locality(recent_statements, clusters)                                     │  │
-│  │  └─ cluster_counts  →  dominant_clusters[], cluster_distribution                           │  │
-│  │  assign_domain_patch(spatial_analysis)                                                     │  │
-│  │  ├─ dominance > threshold   →  use_existing_patch   (cluster_id)                          │  │
-│  │  ├─ moderate dominance      →  create_hybrid_patch  (primary_cluster)                     │  │
-│  │  └─ no dominance            →  create_new_patch                                           │  │
-│  └──────────────────────────────────────────────────────────────────────────────────────────────┘  │
-│                                                                                                    │
-│  ┌─ MULTI-LENS ROUTE (called by MultiLensRouter) ────────────────────────────────────────────┐  │
-│  │  Lens 1  _lens1_embedding_candidates(text, top_k)                                          │  │
-│  │          embed_weight*cosine_sim + lex_weight*token_overlap per domain anchor               │  │
-│  │          _deduplicate_candidates()  →  cosine cluster, keep best scorer                    │  │
-│  │  Lens 2  _lens2_ontology_explanations(text, candidates)                                    │  │
-│  │          token overlap vs core+0.5×attr vocab; child/parent suppression                    │  │
-│  │  Lens 3  _lens3_abstraction_signature(text, concepts)                                      │  │
-│  │          {core:{domain:[hits]}, modifiers:{domain:[hits]}}                                  │  │
-│  │          active_domains.core == 0  →  ATTRIBUTE_ONLY path                                  │  │
-│  │  Shadow  _run_shadow_check(text, fusion_scores)                                            │  │
-│  │          ShadowDomainDetector.observe()                                                    │  │
-│  │          PROMOTE_TO_EXPERT → reload_domain_ontology() + emit promote_shadow_domain         │  │
-│  └──────────────────────────────────────────────────────────────────────────────────────────────┘  │
+│  ... unchanged from Stage 3 ...                                                                    │
 └────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
 
                               ↑ step 3 expands here ↓
 ┌────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │  MULTI-LENS ROUTER  (multi_lens_router.py :: MultiLensRouter.route)                                │
+│  ... unchanged from Stage 3 ...                                                                    │
+└────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+                              ↑ step 10 expands here ↓
+┌────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│  UNIFIED EXPERT SYSTEM  (unified_expert_system.py)                                                 │
 │                                                                                                    │
-│  ┌─ CONSTRUCTION ───────────────────────────────────────────────────────────────────────────────┐  │
-│  │  MultiLensRouter(spectral_analyzer=<synced analyzer from DynamicSignatureManager>)           │  │
-│  │  ├─ _spectral_analyzer = RuntimeSpectralAnalyzer(sig_dir, model=all-MiniLM-L6-v2)           │  │
-│  │  │   (or injected from run_workflow's DynamicSignatureManager.sync_signatures())             │  │
-│  │  └─ _fusion_engine     = FusionEngine()                                                     │  │
-│  └──────────────────────────────────────────────────────────────────────────────────────────────┘  │
+│  get_unified_expert_system()                                                                       │
+│  └─ singleton _unified_system : UnifiedExpertSystem                                                │
 │                                                                                                    │
-│  route(text) — full pipeline                                                                       │
-│  │                                                                                                 │
-│  ├─ A. multi_lens_route(text)  [layer1_router.py]                                                  │
-│  │       → base_result { classification, lens1_candidates, lens2_explanations,                     │
-│  │                        lens3_signature, primary_domain, shadow_signal }                         │
-│  │       is_attribute_only = classification == "ATTRIBUTE_ONLY"                                    │
-│  │       semantic_scores   = lens1_candidates  →  {domain: score}                                  │
-│  │       object_level_domains = lens3.core hits + lens2 "object" level matches                     │
-│  │                                                                                                 │
-│  ├─ B. SPECTRAL ANALYSIS  [spectral_analyzer.py]                                                   │
-│  │       RuntimeSpectralAnalyzer.analyze_text(text)  →  spectral_scores {domain: score}            │
-│  │       (skipped silently if analyzer not ready)                                                  │
-│  │                                                                                                 │
-│  ├─ C. FUSION  [fusion_engine.py]                                                                  │
-│  │       FusionEngine.fuse(semantic_scores, spectral_scores, confidence_scores)                    │
-│  │       → fused_scores {domain: fused_score}                                                      │
-│  │       FALLBACK if FusionEngine unavailable or raises:                                           │
-│  │         _merge_scores_fallback()                                                                │
-│  │         domain in both sources:  0.55×sem + 0.45×spc                                           │
-│  │         domain in semantic only: 0.55×sem                                                       │
-│  │         domain in spectral only: 0.45×spc                                                       │
-│  │                                                                                                 │
-│  ├─ D. PRE-SELECTION CLUSTERING                                                                    │
-│  │       _preselect_cluster(fused_scores)                                                          │
-│  │       └─ _deduplicate_candidates()  →  collapse near-synonym domains before budget-select       │
-│  │                                                                                                 │
-│  ├─ E. BUDGET SELECT                                                                               │
-│  │       _budget_select(fused_scores, confidence_scores,                                           │
-│  │                      min_score=DOMAIN_SCORE_THRESHOLD, max_experts=MAX_EXPERTS)                 │
-│  │       sort by (fused_score DESC, confidence DESC, domain ASC)                                   │
-│  │       → selected_experts[], budget_cap_applied                                                  │
-│  │       create_new_expert = True when selected_experts=[] AND NOT attribute_only                  │
-│  │                                                                                                 │
-│  ├─ F. ATTRIBUTE OVERRIDE  (if ATTRIBUTE_ONLY and ENABLE_ATTRIBUTE_OVERRIDE)                       │
-│  │       promote object_level_domains scoring ≥ threshold into selected_experts                   │
-│  │       (respects max_experts budget cap)                                                         │
-│  │                                                                                                 │
-│  ├─ G. LAST-RESORT FALLBACK                                                                        │
-│  │       if still empty → use base_result.primary_domain                                          │
-│  │                                                                                                 │
-│  └─ H. CLASSIFICATION                                                                              │
-│         variance = var(fused_scores.values())                                                      │
-│         ATTRIBUTE_ONLY        no override applied, is_attribute_only=True                          │
-│         SINGLE_DOMAIN         len(selected)==1                                                     │
-│         MULTI_DOMAIN          len(selected)>1  AND  variance >= 0.1                                │
-│         AMBIGUOUS             len(selected)>1  AND  variance < 0.1                                 │
-│         NO_EXPERT_AVAILABLE   selected empty after all fallbacks                                   │
+│  UnifiedExpertSystem.__init__()                                                                    │
+│  ├─ reads max_resident_experts from config_loader (fallback=8)                                    │
+│  ├─ _initialize_all_experts()                                                                      │
+│  │   └─ initialize_unified_experts(enable_calibration, enable_ood_detection)                      │
+│  └─ wraps _raw_experts in _ExpertLRUCache(max_k=max_resident)                                     │
 │                                                                                                    │
-│  Returns: RoutingResult {                                                                          │
-│    classification, selected_domains, primary_domain, fusion_scores,                                │
-│    coverage, create_new_expert,                                                                    │
-│    metadata { lens_scores:{semantic,spectral,confidence},                                          │
-│               fused_scores, variance, explanation }                                                │
-│  }                                                                                                 │
+│  _ExpertLRUCache                                                                                   │
+│  ├─ resident experts kept in OrderedDict _loaded                                                  │
+│  ├─ overflow experts pickled to lru_cache/<domain>.pkl                                            │
+│  ├─ __getitem__ reloads evicted expert on demand and re-applies LRU eviction                      │
+│  └─ keys()/items()/values()/__contains__ include resident + evicted domains                       │
 │                                                                                                    │
-│  Metrics tracked (in-process): total_requests, attribute_only, single_domain,                     │
-│  multi_domain, ambiguous, no_expert, create_new_expert_true,                                       │
-│  attribute_override_applied, budget_cap_applied                                                    │
+│  initialize_unified_experts()                                                                      │
+│  ├─ hardcoded SVM configs: music → experts/Music                                                  │
+│  │   └─ create_unified_expert_from_domain_folder()                                                │
+│  │       ├─ finds svm_model_*.pkl                                                                  │
+│  │       ├─ finds *vectorizer*.pkl                                                                 │
+│  │       └─ finds *.csv dataset                                                                    │
+│  ├─ hardcoded BERT configs: physics / chemistry / medical                                         │
+│  │   └─ UnifiedBERTExpert(domain, model_path=domain_folder, dataset_path=resolved CSV)           │
+│  └─ returns {domain: expert}                                                                       │
+│                                                                                                    │
+│  UnifiedExpert (SVM-backed expert)                                                                 │
+│  ├─ _load_trained_model()      → pickle.load(model_path)                                          │
+│  ├─ _load_vectorizer()         → explicit vectorizer_path OR auto-discover *vectorizer*.pkl      │
+│  ├─ _setup_k_medoids_system()                                                                    │
+│  │   ├─ load existing centroid_*.pkl if present                                                   │
+│  │   └─ else _calculate_centroid() + _save_centroid()                                             │
+│  ├─ _setup_calibration_system()                                                                   │
+│  │   ├─ reads dataset CSV + label column                                                          │
+│  │   ├─ train_test_split(stratified)                                                              │
+│  │   ├─ CalibratedClassifierCV(method="isotonic")                                                │
+│  │   └─ calibration_score = 1 - brier_score_loss()                                                │
+│  ├─ _setup_ood_detection_system()                                                                 │
+│  │   ├─ vectorizer.transform(training_texts)                                                      │
+│  │   ├─ SentenceTransformer(all-MiniLM-L6-v2) embeddings                                          │
+│  │   ├─ IsolationForest(contamination=0.1, n_estimators=50)                                       │
+│  │   └─ NearestNeighbors(n_neighbors=3, metric="cosine")                                         │
+│  └─ system_stats.initialization_status records success/disabled flags                             │
+│                                                                                                    │
+│  K-Medoids path                                                                                    │
+│  ├─ _calculate_centroid()                                                                         │
+│  │   ├─ embed dataset texts with model_registry SentenceTransformer                                │
+│  │   ├─ _pure_python_k_medoids(embeddings, k=10)                                                  │
+│  │   ├─ stores self.medoids, self.medoid, self.centroid                                           │
+│  │   └─ self.medoid_text = representative text                                                     │
+│  ├─ _pure_python_k_medoids()                                                                      │
+│  │   ├─ initialize random medoid_indices                                                          │
+│  │   ├─ assign by cosine_similarity to medoids                                                    │
+│  │   ├─ recompute cluster medoid by minimum total cosine distance                                 │
+│  │   └─ iterate until convergence or 10 iterations                                                │
+│  └─ calculate_similarity_to_centroid(text) → max cosine(text_embedding, each medoid)             │
+│                                                                                                    │
+│  UnifiedExpert.unified_decision_analysis(text)                                                    │
+│  ├─ systems_analysis.k_medoids     → similarity_score, num_medoids, medoid_text                  │
+│  ├─ systems_analysis.calibration   → prediction, confidence_score, calibration_quality            │
+│  ├─ systems_analysis.ood_detection → is_ood, ood_confidence, ood_scores, reason                  │
+│  ├─ _calculate_unified_scores()                                                                   │
+│  │   composite = 0.45*adj_similarity + 0.45*adj_confidence + 0.1*(1-ood_penalty)                 │
+│  │   quality_score from enabled systems + calibration quality                                     │
+│  └─ _make_unified_recommendation()                                                                 │
+│      ├─ high composite + low OOD     → use_existing_expert                                        │
+│      ├─ medium composite + tolerable OOD → create_new_patch                                       │
+│      └─ otherwise                     → create_new_expert                                         │
+│                                                                                                    │
+│  OOD path                                                                                          │
+│  ├─ svm_distance = abs(model.decision_function(tfidf))                                            │
+│  ├─ nn_distance  = mean cosine distance to 3 nearest training embeddings                          │
+│  ├─ isolation_score = IsolationForest.decision_function(embedding)                                │
+│  ├─ ood_flags = [svm_distance<0.3, nn_distance>0.65, isolation_score<-0.05]                      │
+│  └─ is_ood = at least 2 of 3 methods flag OOD                                                     │
+│                                                                                                    │
+│  make_unified_expert_decision(input_text, experts, depth_config)                                  │
+│  ├─ if depth_config.expert_top_k > 0: cheap pre-rank all experts by centroid similarity          │
+│  ├─ run full unified_decision_analysis() only on top-k experts                                   │
+│  ├─ weighted_score = composite_score * quality_score                                              │
+│  └─ choose best expert, returning unified_decision {selected_domain, recommendation, quality}     │
+│                                                                                                    │
+│  UnifiedExpertSystem.unified_decision_analysis(...)                                               │
+│  ├─ experts = filtered_experts or self.experts                                                    │
+│  ├─ decision_result = make_unified_expert_decision(...)                                           │
+│  ├─ recommendation.decision normalized to:                                                        │
+│  │   USE_EXISTING_EXPERT | CREATE_NEW_PATCH | CREATE_NEW_EXPERT                                   │
+│  └─ returns ExpertDecisionResult(                                                                  │
+│        decision_type, selected_experts, expert_confidence, metadata=decision_result               │
+│      )                                                                                             │
 └────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
 
@@ -346,7 +321,7 @@
 
 ---
 
-> **Stage 3 complete.** `multi_lens_router.py` expanded: full route() pipeline (A→H),
-> spectral analysis, FusionEngine + fallback merge weights, pre-selection clustering,
-> budget-select, attribute override, last-resort fallback, classification logic, metrics.
-> Next: `unified_expert_system.py`, `phase2/pipeline.py`, `phase3/pipeline.py`, `layer0/router.py`, TRM internals, web-ui.
+> **Stage 4 complete.** `unified_expert_system.py` expanded: singleton system init, resident/evicted expert cache,
+> SVM/BERT expert bootstrapping, K-medoids centroiding, isotonic calibration, 3-signal OOD detection,
+> top-k pre-ranking by centroid similarity, unified score composition, and ExpertDecisionResult normalization.
+> Next: `phase2/pipeline.py`, `phase3/pipeline.py`, `layer0/router.py`, TRM internals, web-ui.
