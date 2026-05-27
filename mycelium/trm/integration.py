@@ -31,6 +31,18 @@ missing or torch is unavailable, TRMLens gracefully passes through the
 raw MultiLensRouter scores unchanged.  This ensures the system continues
 to function during development before the TRM checkpoint is trained.
 
+Pre-TRM pipeline fallback
+-------------------------
+When the TRM checkpoint has not yet been trained, call
+    trm_lens.run_pre_trm_pipeline(query, routing_context, ood_fallback)
+to run the full L1-L6 reasoning chain (CanonicalizeAndHash → DAGDecomposer
+→ Predicate/Evidence/Hypothesis/Synthesizer → MultiLensRouter) unconditionally.
+This does NOT require a TRMOutput — the absence of the checkpoint is itself
+treated as the OOD trigger.  The call returns an OODFallbackResult (or None
+on hard failure) and is idempotent with the trained path: once the checkpoint
+is available, the normal trm_reasoner → TRMOODFallback.should_trigger() path
+takes over and run_pre_trm_pipeline() is no longer called.
+
 Token encoding
 --------------
 By default TRMLens uses a simple whitespace-tokeniser with a fixed
@@ -175,6 +187,101 @@ class TRMLens:
             return self._fallback(semantic_router_output)
 
     # ------------------------------------------------------------------ #
+    # Pre-TRM pipeline fallback  (no checkpoint required)                 #
+    # ------------------------------------------------------------------ #
+
+    def run_pre_trm_pipeline(
+        self,
+        query: str,
+        routing_context: Any,
+        ood_fallback: Any,
+        domain: str = "unknown",
+        expert_metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Any]:
+        """
+        Run the full L1-L6 reasoning chain unconditionally via
+        TRMOODFallback, without requiring a trained TRM checkpoint or
+        a TRMOutput object.
+
+        This is the pre-TRM wiring path: the absence of a checkpoint is
+        treated as a guaranteed OOD signal, so we skip
+        TRMOODFallback.should_trigger() entirely and call .route()
+        directly at LEVEL_2 (or the highest level the injected components
+        support).
+
+        The method is a no-op (returns None) if ood_fallback is None,
+        so callers don't need to guard against a missing TRMOODFallback.
+
+        Parameters
+        ----------
+        query : str
+            Raw query text for this turn.
+        routing_context : RoutingResult
+            Output of MultiLensRouter.route() already refined by
+            TRMLens.refine() (which is a passthrough here).
+        ood_fallback : TRMOODFallback
+            A fully constructed TRMOODFallback instance (canonicalizer,
+            dag_decomposer, and router must be injected for L1+ to fire).
+            Pass None to skip silently.
+        domain : str
+            Hint domain from the router's primary_domain or classification.
+        expert_metadata : dict, optional
+            Any extra metadata to pass through to the fallback chain.
+
+        Returns
+        -------
+        OODFallbackResult | None
+            The result of the fallback chain, or None if ood_fallback is
+            None or a hard exception occurs.
+        """
+        if ood_fallback is None:
+            logger.debug(
+                "TRMLens.run_pre_trm_pipeline: ood_fallback is None — skipping."
+            )
+            return None
+
+        # Derive best domain hint from routing context if not supplied
+        if domain == "unknown":
+            domain = (
+                getattr(routing_context, "primary_domain", None)
+                or getattr(routing_context, "classification", None)
+                or "unknown"
+            )
+
+        try:
+            logger.info(
+                "TRMLens.run_pre_trm_pipeline: invoking L1-L6 chain "
+                "(pre-TRM mode, no checkpoint) for query=%r domain=%s",
+                query[:80],
+                domain,
+            )
+            # Bypass should_trigger(): call route() directly.
+            # TRMOODFallback.route() internally calls should_trigger()
+            # which needs a real TRMOutput, so we use the internal
+            # _run_layers_1_2 / _run_layers_3_6 / _call_router path
+            # by constructing a minimal forced-trigger invocation.
+            result = _run_ood_chain_no_trm(
+                ood_fallback=ood_fallback,
+                query=query,
+                domain=str(domain),
+                expert_metadata=expert_metadata or {},
+            )
+            logger.info(
+                "TRMLens.run_pre_trm_pipeline: completed — "
+                "level=%s selected_domain=%s",
+                result.fallback_level if result is not None else "N/A",
+                result.selected_domain if result is not None else "N/A",
+            )
+            return result
+        except Exception as exc:
+            logger.warning(
+                "TRMLens.run_pre_trm_pipeline: chain failed (%s) — "
+                "returning None (pipeline continues via router scores).",
+                exc,
+            )
+            return None
+
+    # ------------------------------------------------------------------ #
     # Internal: TRM inference path                                         #
     # ------------------------------------------------------------------ #
 
@@ -271,3 +378,91 @@ class TRMLens:
         except Exception:
             pass
         return router_out
+
+
+# --------------------------------------------------------------------------- #
+# Module-level helper: run the OOD chain without a TRMOutput               #
+# --------------------------------------------------------------------------- #
+
+def _run_ood_chain_no_trm(
+    ood_fallback: Any,
+    query: str,
+    domain: str,
+    expert_metadata: Dict[str, Any],
+) -> Any:
+    """
+    Execute TRMOODFallback's internal L1-L6 chain directly, bypassing
+    the should_trigger() heuristic that requires a live TRMOutput.
+
+    Escalation level is chosen by what components are wired into
+    ood_fallback:
+        - canonicalizer AND dag_decomposer present  → LEVEL_2 attempted
+        - only canonicalizer present                → LEVEL_1
+        - neither                                   → LEVEL_0 (router only)
+
+    Always returns an OODFallbackResult dataclass.  Never raises.
+    """
+    try:
+        from .trm_ood_fallback import FallbackLevel, OODFallbackResult
+    except ImportError as exc:
+        logger.error("_run_ood_chain_no_trm: cannot import fallback types (%s)", exc)
+        return None
+
+    # Determine achievable level
+    has_canon = getattr(ood_fallback, "canonicalizer", None) is not None
+    has_dag   = getattr(ood_fallback, "dag_decomposer", None) is not None
+    has_l3    = getattr(ood_fallback, "_l3", None) is not None
+    has_l4    = getattr(ood_fallback, "_l4", None) is not None
+    has_l5    = getattr(ood_fallback, "_l5", None) is not None
+    has_l6    = getattr(ood_fallback, "_l6", None) is not None
+    has_full_chain = has_l3 or has_l4 or has_l5 or has_l6
+
+    if has_canon and has_dag:
+        level = FallbackLevel.LEVEL_2 if has_full_chain else FallbackLevel.LEVEL_1
+    elif has_canon:
+        level = FallbackLevel.LEVEL_1
+    else:
+        level = FallbackLevel.LEVEL_0
+
+    ir_graph:         Any               = None
+    dag_ctx:          Optional[Dict]    = None
+    reasoning_trace:  Optional[Dict]    = None
+
+    # Layer 1-2
+    if level >= FallbackLevel.LEVEL_1:
+        ir_graph, dag_ctx, level = ood_fallback._run_layers_1_2(
+            query, domain, expert_metadata, level
+        )
+
+    # Layers 3-6
+    if level >= FallbackLevel.LEVEL_2 and dag_ctx is not None:
+        reasoning_trace = ood_fallback._run_layers_3_6(query, domain, dag_ctx)
+
+    # Terminal: MultiLensRouter
+    router_result   = ood_fallback._call_router(query, dag_ctx)
+    selected_domain = _extract_domain_idx(router_result)
+
+    return OODFallbackResult(
+        triggered=True,
+        fallback_level=level,
+        ood_head_confidence=0.0,   # no OOD head without TRMOutput
+        selected_domain=selected_domain,
+        router_result=router_result,
+        ir_graph=ir_graph,
+        dag_context=dag_ctx,
+        reasoning_trace=reasoning_trace,
+        reason="pre-trm-mode: checkpoint not yet trained",
+    )
+
+
+def _extract_domain_idx(router_result: Any) -> int:
+    """Pull a domain index from whatever the router returned; default 0."""
+    for attr in ("selected_domain", "domain_idx", "domain_index"):
+        val = getattr(router_result, attr, None)
+        if val is not None:
+            return int(val)
+    if isinstance(router_result, dict):
+        for key in ("selected_domain", "domain_idx", "domain_index"):
+            if key in router_result:
+                return int(router_result[key])
+    return 0

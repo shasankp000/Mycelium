@@ -558,6 +558,9 @@ def run_mycelium_workflow(
     router = MultiLensRouter(spectral_analyzer=spectral_analyzer)
 
     if trm_reasoner is not None and TRMOODFallback is not None:
+        # ----------------------------------------------------------------
+        # Trained path: build OOD fallback with live TRMReasoner
+        # ----------------------------------------------------------------
         try:
             if TRMConfig is None or TRMOODHead is None:
                 raise RuntimeError("TRMConfig/TRMOODHead unavailable")
@@ -578,6 +581,35 @@ def run_mycelium_workflow(
         except Exception as _oodf_err:
             print(
                 f"\u26a0\ufe0f  TRMOODFallback init failed: {_oodf_err} \u2014 OOD fallback disabled"
+            )
+            _ood_fallback = None
+    elif TRMOODFallback is not None:
+        # ----------------------------------------------------------------
+        # Pre-TRM path: no checkpoint yet — build OOD fallback anyway so
+        # the L0-L6 reasoning chain fires unconditionally for every query.
+        # TRMOODHead is omitted (no TRMOutput to feed it).
+        # ----------------------------------------------------------------
+        try:
+            if TRMConfig is None:
+                raise RuntimeError("TRMConfig unavailable")
+            _trm_cfg_pre = cast(Any, TRMConfig)()
+            _ood_fallback = TRMOODFallback(
+                cfg=_trm_cfg_pre,
+                ood_head=None,          # no trained head without checkpoint
+                multi_lens_router=router,
+                canonicalizer=_canonicalizer,
+                dag_decomposer=dag_decomposer,
+                contradiction_classifier=contradiction_classifier,
+            )
+            print(
+                "\U0001f7e1 Pre-TRM mode: TRMOODFallback constructed without OODHead "
+                "\u2014 L0-L6 pipeline will run unconditionally via "
+                "TRMLens.run_pre_trm_pipeline()"
+            )
+        except Exception as _pre_trm_err:
+            print(
+                f"\u26a0\ufe0f  Pre-TRM TRMOODFallback init failed: {_pre_trm_err} "
+                "\u2014 L0-L6 pipeline disabled for this run"
             )
             _ood_fallback = None
 
@@ -784,6 +816,9 @@ def run_mycelium_workflow(
         should_escalate: bool = True
 
         if trm_reasoner is not None:
+            # ------------------------------------------------------------
+            # Trained path: run TRMReasoner → maybe trigger OOD fallback
+            # ------------------------------------------------------------
             trm_reasoner_result = _run_trm_reasoner(
                 trm_reasoner, text, routing_context, relevant_domains
             )
@@ -847,6 +882,78 @@ def run_mycelium_workflow(
                             "selected_domain": _ood_res.selected_domain,
                             "reason": _ood_res.reason,
                         }
+        else:
+            # ------------------------------------------------------------
+            # Pre-TRM path: no checkpoint yet — run L0-L6 pipeline
+            # unconditionally via TRMLens.run_pre_trm_pipeline().
+            # ------------------------------------------------------------
+            if _ood_fallback is not None:
+                _hint_domain = (
+                    getattr(routing_context, "primary_domain", None)
+                    or str(classification or "unknown")
+                )
+                emitter.emit(
+                    phase_name="graph_trm_decision",
+                    message="Pre-TRM pipeline (no checkpoint)",
+                    detail="Running L0-L6 reasoning chain unconditionally",
+                    state="running",
+                    metadata={
+                        "pre_trm_mode": True,
+                        "hint_domain": str(_hint_domain),
+                        "dfs_max_depth": dfs_max_depth,
+                        "reasoning_mode": reasoning_mode,
+                    },
+                )
+
+                _pre_trm_res = trm_lens.run_pre_trm_pipeline(
+                    query=text,
+                    routing_context=routing_context,
+                    ood_fallback=_ood_fallback,
+                    domain=str(_hint_domain),
+                )
+
+                if _pre_trm_res is not None:
+                    ood_fallback_result = {
+                        "triggered": True,
+                        "level": str(_pre_trm_res.fallback_level),
+                        "ood_confidence": _pre_trm_res.ood_head_confidence,
+                        "selected_domain": _pre_trm_res.selected_domain,
+                        "reason": _pre_trm_res.reason,
+                        "pre_trm_mode": True,
+                    }
+
+                    # Re-rank relevant_domains using the router result
+                    # that the fallback's terminal MultiLensRouter call
+                    # produced, if it returned any domain ordering.
+                    _fb_router = getattr(_pre_trm_res, "router_result", None)
+                    if _fb_router is not None:
+                        _fb_domains = (
+                            list(getattr(_fb_router, "selected_domains", []) or [])
+                        )
+                        if _fb_domains:
+                            # Prepend fallback-router domains; keep
+                            # original set as long-tail fallback.
+                            _reranked = [
+                                d for d in _fb_domains if d in registered_domains
+                            ]
+                            _reranked += [
+                                d for d in relevant_domains if d not in _reranked
+                            ]
+                            if _reranked:
+                                relevant_domains = _reranked
+                                if ENABLE_LOGGING and idx % LOG_SAMPLE_RATE == 0:
+                                    print(
+                                        f"\U0001f7e1 Pre-TRM: relevant_domains "
+                                        f"re-ranked via fallback router → "
+                                        f"{relevant_domains[:4]}"
+                                    )
+
+                    if ENABLE_LOGGING and idx % LOG_SAMPLE_RATE == 0:
+                        print(
+                            f"\U0001f7e1 Pre-TRM pipeline complete: "
+                            f"level={ood_fallback_result['level']} "
+                            f"selected_domain={_pre_trm_res.selected_domain}"
+                        )
 
         tag_vectors = embed_tags_transformer(normalized_tags)
         tag_clusters = cluster_tags_transformer(normalized_tags, tag_vectors)
