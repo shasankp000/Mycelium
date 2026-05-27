@@ -3,6 +3,10 @@
 // Gap 1: mode + onModeChange threaded into HomeScreen.
 // Gap 3: live graph toggle button added to header; visible from first SSE
 //         event, with a pulsing LIVE dot while loading.
+//
+// Second-opinion feature: fast/smart answers show a "Need a second opinion?"
+// chip. Clicking it opens a BRAND NEW researcher-mode session — the current
+// session and mode selector are left completely untouched.
 // ---------------------------------------------------------------------------
 
 import Head from 'next/head';
@@ -329,7 +333,8 @@ export default function Home() {
   const [loading, setLoading]                 = useState(false);
   const [activeSandbox, setActiveSandbox]     = useState<SandboxResult | null>(null);
 
-  // Mode selector
+  // Mode selector — persisted across the current session; NOT mutated by
+  // the second-opinion escalation (that opens a fresh session instead).
   const [mode, setMode] = useState<ReasoningMode>('smart');
   useEffect(() => { setMode(loadSavedMode()); }, []);
 
@@ -473,7 +478,16 @@ export default function Home() {
     const answer  = data.answer ?? 'Mycelium returned no answer text. Check the pipeline trace below.';
     const trace   = extractTrace(data);
     const sandbox = data.sandbox ?? null;
-    setMessages((prev) => [...prev, { role: 'assistant', content: answer, trace, traceOpen: false, sandbox }]);
+    // Stamp the message with the mode that ran it so ChatBubble can decide
+    // whether to show the second-opinion chip.
+    setMessages((prev) => [...prev, {
+      role: 'assistant',
+      content: answer,
+      trace,
+      traceOpen: false,
+      sandbox,
+      reasoningMode: mode,
+    }]);
     if (sandbox) setActiveSandbox(sandbox);
     setLiveToolEvents([]);
     setLivePlanDetail('');
@@ -542,6 +556,42 @@ export default function Home() {
     graphBuilder.reset();
     stabilization.reset();
     sseStream.open(text);
+  }
+
+  // ── Second-opinion handler ────────────────────────────────────────
+  // Opens a FRESH researcher-mode session. The current session state
+  // (messages, mode selector) is completely reset — the original mode
+  // is not mutated. The user lands in a clean chat running researcher.
+  function handleSecondOpinion(userQuery: string) {
+    // Close any open SSE stream from the current session
+    sseStream.close();
+    stopTick();
+
+    // Reset all session state to a clean slate
+    setMessages([]);
+    setInput('');
+    setLoading(false);
+    setActiveSandbox(null);
+    setLiveToolEvents([]);
+    setLivePlanDetail('');
+    setThinkingEvents([]);
+    setActiveHistoryId(null);
+    setGraphOpen(false);
+    graphBuilder.reset();
+    stabilization.reset();
+
+    // Switch the mode selector to researcher so the new session is labelled
+    // correctly and the SSE hook picks up the right depth.
+    setMode('researcher');
+
+    // Kick off the query immediately in the new session
+    setHasStarted(true);
+    setMessages([{ role: 'user', content: userQuery }]);
+    setLoading(true);
+    setCurrentPhase('routing');
+    setCurrentDetail('Connecting to Mycelium (Researcher mode)…');
+    startTick();
+    sseStream.open(userQuery);
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -748,14 +798,27 @@ export default function Home() {
                   </div>
                 );
               }
+              // Locate the user message that immediately preceded this answer
+              // so we can replay the same query in the researcher session.
+              const precedingUserMsg = messages[idx - 1];
+              const replayQuery =
+                precedingUserMsg?.role === 'user' ? precedingUserMsg.content : undefined;
+
               return (
                 <div key={idx} className={styles.assistantBubbleWrap}>
                   <ChatBubble
                     content={m.content}
                     trace={m.trace}
                     sandbox={m.sandbox}
+                    reasoningMode={m.reasoningMode}
                     onEvidenceOpen={() => setActiveSandbox(m.sandbox ?? null)}
                     onGraphOpen={() => setGraphOpen(true)}
+                    onSecondOpinion={
+                      replayQuery &&
+                      (m.reasoningMode === 'fast' || m.reasoningMode === 'smart')
+                        ? () => handleSecondOpinion(replayQuery)
+                        : undefined
+                    }
                   />
                   {m.trace && (
                     <>

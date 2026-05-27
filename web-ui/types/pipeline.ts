@@ -39,6 +39,8 @@ export interface Message {
   traceOpen?: boolean;
   sandbox?: SandboxResult;
   retryQuery?: string;
+  /** The ReasoningMode that produced this assistant message. */
+  reasoningMode?: ReasoningMode;
 }
 
 export interface MyceliumRunSummary {

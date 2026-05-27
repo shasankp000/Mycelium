@@ -3,6 +3,7 @@
 //
 // Zone 1: answer text rendered via react-markdown + remark-gfm
 // Zone 2: footer chips — Reasoning graph | Evidence | Elapsed time
+//          + "Need a second opinion?" chip shown only on fast/smart answers
 //
 // The "Reasoning graph" chip is wired up in Phase 4 when ReasoningGraph is
 // built. For now it calls onGraphOpen() which index.tsx will eventually
@@ -11,7 +12,7 @@
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { PipelineTrace, SandboxResult } from '../types/pipeline';
+import type { PipelineTrace, SandboxResult, ReasoningMode } from '../types/pipeline';
 import styles from '../styles/ChatBubble.module.css';
 
 // ---------------------------------------------------------------------------
@@ -43,6 +44,18 @@ interface ChatBubbleProps {
   onEvidenceOpen?: () => void;
   /** Whether the graph chip is in "active" (panel open) state */
   graphActive?: boolean;
+  /**
+   * The mode that produced this answer.
+   * When 'fast' or 'smart', a "Need a second opinion?" chip is rendered
+   * that escalates to the full researcher pipeline in a new session.
+   */
+  reasoningMode?: ReasoningMode;
+  /**
+   * Called when the user clicks "Need a second opinion?"
+   * The parent opens a fresh researcher-mode session with the same query.
+   * Only rendered when reasoningMode is 'fast' or 'smart'.
+   */
+  onSecondOpinion?: () => void;
 }
 
 export function ChatBubble({
@@ -52,8 +65,14 @@ export function ChatBubble({
   onGraphOpen,
   onEvidenceOpen,
   graphActive = false,
+  reasoningMode,
+  onSecondOpinion,
 }: ChatBubbleProps) {
   const elapsedMs = totalElapsedMs(trace);
+
+  // Show the escalation chip only for fast / smart answers that have a handler
+  const showSecondOpinion =
+    (reasoningMode === 'fast' || reasoningMode === 'smart') && !!onSecondOpinion;
 
   return (
     <div className={styles.bubble}>
@@ -94,6 +113,18 @@ export function ChatBubble({
           >
             <span className={styles.chipIcon} aria-hidden="true">📋</span>
             Evidence
+          </button>
+        )}
+
+        {/* Second opinion chip — only on fast/smart answers */}
+        {showSecondOpinion && (
+          <button
+            className={`${styles.chip} ${styles.chipSecondOpinion}`}
+            onClick={onSecondOpinion}
+            aria-label="Not satisfied? Re-run with the full Researcher pipeline in a new session"
+          >
+            <span className={styles.chipIcon} aria-hidden="true">🔄</span>
+            Need a second opinion?
           </button>
         )}
 

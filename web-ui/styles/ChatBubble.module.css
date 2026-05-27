@@ -3,6 +3,7 @@
 
    Zone 1: markdown-rendered answer text
    Zone 2: footer chips — Reasoning graph | Evidence | Elapsed time
+            + "Need a second opinion?" escalation chip (fast/smart only)
    --------------------------------------------------------------------------- */
 
 .bubble {
@@ -184,4 +185,17 @@
   background: transparent;
   color: rgba(255, 255, 255, 0.3);
   border-color: transparent;
+}
+
+/* ---- Second opinion chip (fast/smart answers only) ---- */
+/* Amber tint signals "escalation" without being alarming */
+.chipSecondOpinion {
+  color: #d97706;
+  background: rgba(217, 119, 6, 0.08);
+  border-color: rgba(217, 119, 6, 0.25);
+}
+.chipSecondOpinion:hover {
+  background: rgba(217, 119, 6, 0.18);
+  color: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.45);
 }
