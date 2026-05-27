@@ -35,6 +35,8 @@ Design constraints
   events).
 - _emit() is always wrapped in try/except so emitter errors never abort the
   reasoning pipeline.
+- Duplicate sequence_numbers are dropped silently (exact-once guarantee for
+  the reconnect replay path).
 """
 
 from __future__ import annotations
@@ -45,7 +47,7 @@ import time
 import uuid
 from collections import deque
 from dataclasses import dataclass, field, asdict
-from typing import Any, Callable, Deque, Dict, List, Optional
+from typing import Any, Callable, Deque, Dict, List, Optional, Set
 
 logger = logging.getLogger(__name__)
 
@@ -57,46 +59,62 @@ logger = logging.getLogger(__name__)
 #: phase_id must increase strictly along the happy-path lifecycle.
 PHASE_REGISTRY: Dict[str, tuple[int, str]] = {
     # ── Bootstrap ───────────────────────────────────────────────────────────
-    "setting_up":            (0,  "public"),
-    "environment_ready":     (1,  "public"),
-    # ── Graph init (new granular phases) ────────────────────────────────────
-    "graph_warmup":          (2,  "public"),
-    "graph_expert_init":     (3,  "public"),
-    "graph_spectral_sync":   (4,  "public"),
-    "graph_router_ready":    (5,  "public"),
+    "setting_up":              (0,  "public"),
+    "environment_ready":       (1,  "public"),
+    # ── Graph init ──────────────────────────────────────────────────────────
+    "graph_warmup":            (2,  "public"),
+    "graph_expert_init":       (3,  "public"),
+    "graph_spectral_sync":     (4,  "public"),
+    "graph_router_ready":      (5,  "public"),
     # ── Routing ─────────────────────────────────────────────────────────────
-    "routing":               (6,  "public"),
-    "graph_layer0":          (7,  "public"),
-    "graph_routing":         (8,  "public"),
+    "routing":                 (6,  "public"),
+    "graph_layer0":            (7,  "public"),
+    "graph_routing":           (8,  "public"),
     # ── Reasoning ───────────────────────────────────────────────────────────
-    "graph_phase2":          (9,  "public"),
-    "graph_reasoning_chain": (10, "internal"),   # per-step; coalesced before emit
+    "graph_phase2":            (9,  "public"),
+    "graph_reasoning_chain":   (10, "internal"),
     # ── Decision ────────────────────────────────────────────────────────────
-    "expert_decision":       (11, "public"),
-    "graph_unified_decision":(11, "public"),
+    "expert_decision":         (11, "public"),
+    "graph_unified_decision":  (11, "public"),
     # ── Validation ──────────────────────────────────────────────────────────
-    "graph_validation_check":(12, "internal"),
-    "graph_phase3":          (13, "public"),
+    "graph_validation_check":  (12, "internal"),
+    "graph_phase3":            (13, "public"),
     # ── Post-processing ─────────────────────────────────────────────────────
-    "graph_clustering":      (14, "public"),
+    "graph_clustering":        (14, "public"),
     # ── Sandbox ─────────────────────────────────────────────────────────────
-    "sandbox_plan":          (15, "public"),
-    # sandbox_tool/<n>, sandbox_tool/<n>_ok, sandbox_tool/<n>_err are dynamic
-    "sandbox_summary":       (20, "public"),
+    "sandbox_plan":            (15, "public"),
+    "sandbox_summary":         (20, "public"),
     # ── Answer generation ───────────────────────────────────────────────────
-    "conversation":          (21, "public"),
+    "conversation":            (21, "public"),
     # ── Terminal ────────────────────────────────────────────────────────────
-    "done":                  (22, "public"),
-    "error":                 (22, "public"),
+    "done":                    (22, "public"),
+    "error":                   (22, "public"),
+    # ── Phase D — predicate / evidence / DST / contradiction chain ──────────
+    # These phase_ids sit above the terminal phase (22) intentionally:
+    # they are per-sentence sub-steps that run *inside* the reasoning loop,
+    # not a new lifecycle position.  The frontend treats ids >= 23 as
+    # "augmentation" events and renders them in a separate evidence panel.
+    "predicate_extraction":       (23, "public"),
+    "evidence_retrieval":          (24, "public"),
+    "evidence_scoring":            (25, "public"),
+    "evidence_dst_fusion":         (26, "public"),
+    "contradiction_integration":   (27, "public"),
+    "promote_shadow_domain":        (28, "public"),
+    "graph_trm_decision":           (29, "public"),
+    # High-frequency per-step phases — coalesced before SSE emission
+    "graph:dfs_step":              (30, "internal"),
+    "graph:tool_start":            (31, "internal"),
+    "graph:tool_done":             (32, "internal"),
+    "graph:synthesis_start":       (33, "public"),
 }
 
-# Heartbeat and semantic heartbeat messages (public, no phase advancement)
+# Heartbeat messages (public, no phase advancement)
 _HEARTBEAT_MESSAGES: List[str] = [
-    "Reconciling conflicting evidence…",
-    "Stabilising reasoning graph…",
-    "Reviewing semantic dependencies…",
-    "Cross-checking source consistency…",
-    "Processing retrieved knowledge…",
+    "Reconciling conflicting evidence\u2026",
+    "Stabilising reasoning graph\u2026",
+    "Reviewing semantic dependencies\u2026",
+    "Cross-checking source consistency\u2026",
+    "Processing retrieved knowledge\u2026",
 ]
 
 
@@ -129,6 +147,13 @@ class PipelineEvent:
 
     All fields are required on construction; defaults are provided for
     optional metadata to make call-sites ergonomic.
+
+    Attributes
+    ----------
+    replay_safe : bool
+        True for all regular events — safe to re-send on reconnect replay.
+        False for heartbeats — frontend should skip on replay to avoid
+        spurious re-renders of transient loading states.
     """
 
     # Identity
@@ -156,25 +181,29 @@ class PipelineEvent:
     # Structured payload (optional)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
+    # Replay control
+    replay_safe: bool = True
+
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
     def to_sse_dict(self) -> Dict[str, Any]:
         """Subset safe for SSE emission (public fields only)."""
         return {
-            "event_id":       self.event_id,
-            "request_id":     self.request_id,
+            "event_id":        self.event_id,
+            "request_id":      self.request_id,
             "sequence_number": self.sequence_number,
-            "timestamp":      self.timestamp,
-            "phase_id":       self.phase_id,
-            "phase_name":     self.phase_name,
-            "substep":        self.substep,
-            "state":          self.state,
-            "visibility":     self.visibility,
-            "message":        self.message,
-            "detail":         self.detail,
-            "elapsed_ms":     self.elapsed_ms,
-            "metadata":       self.metadata,
+            "timestamp":       self.timestamp,
+            "phase_id":        self.phase_id,
+            "phase_name":      self.phase_name,
+            "substep":         self.substep,
+            "state":           self.state,
+            "visibility":      self.visibility,
+            "message":         self.message,
+            "detail":          self.detail,
+            "elapsed_ms":      self.elapsed_ms,
+            "metadata":        self.metadata,
+            "replay_safe":     self.replay_safe,
         }
 
 
@@ -187,6 +216,10 @@ class ReplayJournal:
 
     On reconnect the frontend sends ``Last-Event-ID: <sequence_number>``;
     the caller asks ``journal.replay_from(last_seen)`` to get missed events.
+
+    Events are always returned in ascending sequence_number order,
+    regardless of insertion order, so the frontend sees a deterministic
+    stream even if background threads emitted out of order.
     """
 
     def __init__(self, maxlen: int = 200) -> None:
@@ -198,9 +231,18 @@ class ReplayJournal:
             self._buf.append(ev)
 
     def replay_from(self, last_seen_sequence: int) -> List[PipelineEvent]:
-        """Return all events with sequence_number > last_seen_sequence."""
+        """Return all events with sequence_number > last_seen_sequence.
+
+        Results are sorted ascending by sequence_number so the frontend
+        receives a deterministic, ordered replay stream.
+        Only replay_safe=True events are included; heartbeats are excluded.
+        """
         with self._lock:
-            return [e for e in self._buf if e.sequence_number > last_seen_sequence]
+            candidates = [
+                e for e in self._buf
+                if e.sequence_number > last_seen_sequence and e.replay_safe
+            ]
+        return sorted(candidates, key=lambda e: e.sequence_number)
 
     def all_events(self) -> List[PipelineEvent]:
         with self._lock:
@@ -235,7 +277,6 @@ class CoalescingBuffer:
     def push(self, ev: PipelineEvent) -> None:
         """Accept an event; flush if interval has elapsed."""
         with self._lock:
-            # Keep only the latest event per phase_name (coalescing)
             self._pending[ev.phase_name] = ev
             now = time.monotonic()
             if now - self._last_flush >= self._interval:
@@ -249,7 +290,6 @@ class CoalescingBuffer:
         if not self._pending or self._downstream is None:
             self._last_flush = time.monotonic()
             return
-        # Emit in phase_id order for deterministic rendering
         events = sorted(self._pending.values(), key=lambda e: (e.phase_id, e.sequence_number))
         self._pending.clear()
         self._last_flush = time.monotonic()
@@ -270,17 +310,17 @@ class EventEmitter:
     Usage (in run_workflow.py)::
 
         emitter = EventEmitter(request_id=trace_id, wall_start=time.monotonic())
-        # wire emitter.on_public_event into the SSE queue
         ...
-        emitter.emit(phase_name="graph_warmup", message="Loading model weights…",
-                     detail=f"{n} models resident", metadata={"model_count": n})
+        emitter.emit(phase_name="predicate_extraction", message="Extracting frames…",
+                     detail=f"{n} predicates", metadata={"count": n})
 
     The emitter:
     1. Builds a full PipelineEvent (fills event_id, sequence_number, phase_id,
        visibility, elapsed_ms automatically).
-    2. Records the event in its ReplayJournal.
-    3. Logs internal events to the internal event logger.
-    4. Routes public events through the CoalescingBuffer to the SSE callback.
+    2. Drops duplicate sequence_numbers silently (exact-once replay guarantee).
+    3. Records the event in its ReplayJournal.
+    4. Logs internal events to the internal event logger.
+    5. Routes public events through the CoalescingBuffer to the SSE callback.
     """
 
     def __init__(
@@ -294,6 +334,9 @@ class EventEmitter:
         self._wall_start = wall_start or time.monotonic()
         self._seq = 0
         self._seq_lock = threading.Lock()
+        # Exact-once: track every sequence_number emitted this run
+        self._seen_sequences: Set[int] = set()
+        self._seen_lock = threading.Lock()
         self.journal = ReplayJournal()
         self._coalescer = CoalescingBuffer(
             max_hz=max_hz,
@@ -315,12 +358,22 @@ class EventEmitter:
         state: str = "running",
         metadata: Optional[Dict[str, Any]] = None,
         visibility: Optional[str] = None,
+        replay_safe: bool = True,
     ) -> None:
         """Build and dispatch a PipelineEvent. Never raises."""
         try:
             with self._seq_lock:
                 self._seq += 1
                 seq = self._seq
+
+            # Exact-once guard: silently drop duplicate sequence_numbers.
+            # This path is only reachable via manual _seq manipulation in
+            # tests or if two threads race on the same counter — the lock
+            # above prevents the latter in normal operation.
+            with self._seen_lock:
+                if seq in self._seen_sequences:
+                    return
+                self._seen_sequences.add(seq)
 
             ev = PipelineEvent(
                 request_id=self._request_id,
@@ -335,26 +388,29 @@ class EventEmitter:
                 detail=detail,
                 elapsed_ms=round((time.monotonic() - self._wall_start) * 1000, 1),
                 metadata=metadata or {},
+                replay_safe=replay_safe,
             )
 
             # Always record in journal (supports replay)
             self.journal.record(ev)
 
-            # Route by visibility
             if ev.visibility == "internal":
                 self._internal_logger.debug(
                     "[internal] request=%s seq=%d phase=%s detail=%s",
                     self._request_id, seq, phase_name, detail,
                 )
             else:
-                # Public events go through the coalescer → SSE
                 self._coalescer.push(ev)
 
         except Exception:
             logger.exception("EventEmitter.emit error for phase=%s", phase_name)
 
     def emit_heartbeat(self, idx: int = 0) -> None:
-        """Emit a semantic heartbeat (public, no phase advancement)."""
+        """Emit a semantic heartbeat (public, no phase advancement).
+
+        Heartbeats are marked replay_safe=False so the frontend does not
+        re-render transient loading states on reconnect.
+        """
         msg = _HEARTBEAT_MESSAGES[idx % len(_HEARTBEAT_MESSAGES)]
         self.emit(
             phase_name="heartbeat",
@@ -362,6 +418,7 @@ class EventEmitter:
             detail="",
             state="running",
             visibility="public",
+            replay_safe=False,
         )
 
     def flush(self) -> None:
