@@ -43,6 +43,32 @@ from mycelium.trm.trm_engine import TRMEngine
 from mycelium.trm.multi_worker_dfs import MultiWorkerDFSLookup
 from mycelium.reasoning.dag_decomposer import DAGDecomposer
 
+# ---------------------------------------------------------------------------
+# Stage 9 — Milestone B+C optional imports
+# All three are guarded so the pipeline degrades gracefully when the
+# predicate / evidence modules are not yet installed or fail to import.
+# ---------------------------------------------------------------------------
+try:
+    from mycelium.pipeline.predicates.predicate_pipeline import PredicatePipeline as _PredicatePipeline
+    _PREDICATE_PIPELINE_AVAILABLE = True
+except Exception as _pred_import_err:
+    _PredicatePipeline = None  # type: ignore[assignment,misc]
+    _PREDICATE_PIPELINE_AVAILABLE = False
+
+try:
+    from mycelium.pipeline.phase2.evidence_finder import get_evidence_finder as _get_evidence_finder
+    _EVIDENCE_FINDER_AVAILABLE = True
+except Exception as _ef_import_err:
+    _get_evidence_finder = None  # type: ignore[assignment]
+    _EVIDENCE_FINDER_AVAILABLE = False
+
+try:
+    from mycelium.pipeline.phase2.evidence_scorer import get_evidence_scorer as _get_evidence_scorer
+    _EVIDENCE_SCORER_AVAILABLE = True
+except Exception as _es_import_err:
+    _get_evidence_scorer = None  # type: ignore[assignment]
+    _EVIDENCE_SCORER_AVAILABLE = False
+
 try:
     import torch as _torch
     from mycelium.trm.reasoner import TRMReasoner
@@ -701,6 +727,10 @@ def run_mycelium_workflow(
                     "selected_domain": "unknown",
                     "decision_confidence": 0.0,
                     "shadow_signal": None,
+                    # Stage 9: not reached for L0-handled sentences
+                    "predicate_store": None,
+                    "evidence_result": None,
+                    "scored_evidence": None,
                 }
             )
             continue
@@ -942,7 +972,7 @@ def run_mycelium_workflow(
                                 if ENABLE_LOGGING and idx % LOG_SAMPLE_RATE == 0:
                                     print(
                                         f"\U0001f7e1 Pre-TRM: relevant_domains "
-                                        f"re-ranked via fallback router → "
+                                        f"re-ranked via fallback router \u2192 "
                                         f"{relevant_domains[:4]}"
                                     )
 
@@ -979,6 +1009,135 @@ def run_mycelium_workflow(
             if d in expert_system.experts
         }
 
+        # -------------------------------------------------------------------
+        # Stage 9A — Predicate extraction (Milestone B)
+        # Run BEFORE Phase 2 so scored_evidence.weighted_confidence can
+        # inform the depth_config passed to phase2_pipeline.run().
+        # Fully guarded: any failure leaves predicate_store_summary=None
+        # and does not affect any downstream step.
+        # -------------------------------------------------------------------
+        _predicate_store: Any = None
+        _predicate_store_summary: Optional[Dict[str, Any]] = None
+        _evidence_result_summary: Optional[Dict[str, Any]] = None
+        _scored_evidence_summary: Optional[Dict[str, Any]] = None
+        _evidence_confidence: float = 0.0  # injected into depth_cfg copy below
+
+        if _PREDICATE_PIPELINE_AVAILABLE and _PredicatePipeline is not None:
+            try:
+                emitter.emit(
+                    phase_name="predicate_extraction",
+                    message="Extracting predicate frames...",
+                    detail=f"text length: {len(text)} chars",
+                    state="running",
+                    metadata={"sentence_index": idx},
+                )
+                _pred_pipeline = _PredicatePipeline()
+                _predicate_store = _pred_pipeline.run(text)
+                _predicate_store_summary = _predicate_store.summary()
+                emitter.emit(
+                    phase_name="predicate_extraction",
+                    message="Predicate extraction complete",
+                    detail=(
+                        f"total={_predicate_store_summary.get('total', 0)} "
+                        f"falsifiable={_predicate_store_summary.get('falsifiable', 0)}"
+                    ),
+                    state="running",
+                    metadata=_predicate_store_summary,
+                )
+            except Exception as _pred_err:
+                print(f"\u26a0\ufe0f  PredicatePipeline failed: {_pred_err}")
+                _predicate_store = None
+                _predicate_store_summary = None
+
+        # -------------------------------------------------------------------
+        # Stage 9B — Evidence retrieval (Milestone C / Stage 7)
+        # -------------------------------------------------------------------
+        if (
+            _EVIDENCE_FINDER_AVAILABLE
+            and _get_evidence_finder is not None
+            and _predicate_store is not None
+        ):
+            try:
+                emitter.emit(
+                    phase_name="evidence_retrieval",
+                    message="Retrieving evidence for predicate frames...",
+                    detail=f"falsifiable frames: {_predicate_store_summary.get('falsifiable', 0)}",
+                    state="running",
+                    metadata={"sentence_index": idx},
+                )
+                _domain_hint: str = (
+                    relevant_domains[0] if relevant_domains else "general"
+                )
+                _evidence_result = _get_evidence_finder().find(
+                    _predicate_store, domain_hint=_domain_hint
+                )
+                _evidence_result_summary = _evidence_result.summary()
+                emitter.emit(
+                    phase_name="evidence_retrieval",
+                    message="Evidence retrieval complete",
+                    detail=(
+                        f"bundles={_evidence_result_summary.get('bundles', 0)} "
+                        f"items={_evidence_result_summary.get('total_items', 0)}"
+                    ),
+                    state="running",
+                    metadata=_evidence_result_summary,
+                )
+            except Exception as _ef_err:
+                print(f"\u26a0\ufe0f  EvidenceFinder failed: {_ef_err}")
+                _evidence_result = None  # type: ignore[assignment]
+                _evidence_result_summary = None
+        else:
+            _evidence_result = None  # type: ignore[assignment]
+
+        # -------------------------------------------------------------------
+        # Stage 9C — Evidence scoring (Milestone C / Stage 8)
+        # weighted_confidence is injected as a read-only hint into the
+        # depth_cfg copy used for this sentence's Phase 2 call only.
+        # -------------------------------------------------------------------
+        if (
+            _EVIDENCE_SCORER_AVAILABLE
+            and _get_evidence_scorer is not None
+            and _evidence_result is not None
+        ):
+            try:
+                emitter.emit(
+                    phase_name="evidence_scoring",
+                    message="Scoring evidence bundles...",
+                    detail="Applying epistemic burden weights",
+                    state="running",
+                    metadata={"sentence_index": idx},
+                )
+                _scored_evidence = _get_evidence_scorer().score(_evidence_result)
+                _evidence_confidence = _scored_evidence.weighted_confidence
+                _scored_evidence_summary = _scored_evidence.summary()
+                emitter.emit(
+                    phase_name="evidence_scoring",
+                    message="Evidence scoring complete",
+                    detail=(
+                        f"weighted_confidence={round(_evidence_confidence, 4)} "
+                        f"scored_bundles={_scored_evidence_summary.get('scored_bundles', 0)}"
+                    ),
+                    state="running",
+                    metadata=_scored_evidence_summary,
+                )
+            except Exception as _es_err:
+                print(f"\u26a0\ufe0f  EvidenceScorer failed: {_es_err}")
+                _scored_evidence_summary = None
+                _evidence_confidence = 0.0
+        else:
+            _scored_evidence_summary = None
+
+        # Build a per-sentence depth_cfg copy with the evidence confidence
+        # hint so Phase 2.5 CalibrationPipeline can read it if it chooses.
+        # We never mutate the shared depth_cfg dict.
+        _sentence_depth_cfg: Dict[str, Any] = dict(depth_cfg)
+        if _evidence_confidence > 0.0:
+            _sentence_depth_cfg["evidence_confidence"] = round(_evidence_confidence, 6)
+
+        # -------------------------------------------------------------------
+        # End Stage 9 — resume existing pipeline unchanged
+        # -------------------------------------------------------------------
+
         emitter.emit(
             phase_name="graph:tool_start",
             message="Starting Phase 2 validation",
@@ -996,7 +1155,7 @@ def run_mycelium_workflow(
             text=text,
             routing_context=routing_context,
             filtered_experts=filtered_experts or None,
-            depth_config=depth_cfg,
+            depth_config=_sentence_depth_cfg,
         )
         _prev_phase2_result = phase2_result
 
@@ -1144,6 +1303,10 @@ def run_mycelium_workflow(
                     }
                 ),
                 "ood_fallback_result": _to_jsonable(ood_fallback_result or {}),
+                # Stage 9 — Milestone B+C evidence chain
+                "predicate_store": _predicate_store_summary,
+                "evidence_result": _evidence_result_summary,
+                "scored_evidence": _scored_evidence_summary,
             }
         )
 
