@@ -1,7 +1,7 @@
 # Mycelium — Architecture Diagram
 
 > **WIP — updated in stages.** See `.diagram_wip.md` for expansion plan.  
-> Stage 5: `phase2/pipeline.py` internals expanded (6-phase orchestration, expert resolution, depth-cap).
+> Stage 6: `phase3/pipeline.py` internals expanded (validation gate, action execution, feedback loop, improvement cycle).
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -115,7 +115,7 @@
 │  │       emit graph:tool_start / graph:tool_done                                                   │
 │  │       └─ returns Phase2Result  →  _adapt_phase2_to_p3()  →  P3FinalDecisionResult               │
 │  │                                                                                                 │
-│  ├── 9. PHASE 3–5 PIPELINE  [phase3/pipeline.py]                                                   │
+│  ├── 9. PHASE 3–5 PIPELINE  [phase3/pipeline.py]  ←── see detail block below                      │
 │  │       Phase3To5Pipeline.run_complete_pipeline(final_decision_result)                            │
 │  │       emit graph:tool_start / graph:tool_done                                                   │
 │  │       └─ returns phase3_result (validation + action_result + phase_latencies)                   │
@@ -415,6 +415,87 @@
 └────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
 
+                              ↑ step 9 expands here ↓
+┌────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│  PHASE 3–5 PIPELINE  (phase3/pipeline.py :: Phase3To5Pipeline)                                     │
+│                                                                                                    │
+│  _original_input_from(FinalDecisionResult)                                                         │
+│  ├─ prefers metadata.original_query                                                                │
+│  ├─ fallback keys: original_text / input_text / query / sentence                                   │
+│  └─ last resort: final_decision_result.decision                                                    │
+│                                                                                                    │
+│  Phase3To5Pipeline.__init__(config=Phase3Config())                                                 │
+│  ├─ defines _phase2_rerun(text, skip_cache=False) → Phase2Pipeline().run(...)                    │
+│  ├─ ActionExecutionPipeline(config)                 phase_3_1_action_executor.py                  │
+│  ├─ ValidationOrchestrator(pipeline_fn=_phase2_rerun)   phase_3_validation.py                    │
+│  ├─ FeedbackCollectionPipeline(config)              phase_4_1_feedback_collector.py              │
+│  ├─ PerformanceAnalysisPipeline(config)             phase_4_2_performance_analyzer.py            │
+│  ├─ FeedbackIntegrationPipeline(config)             phase_5_1_feedback_integrator.py             │
+│  ├─ ContinuousImprovementPipeline(config)           phase_5_2_continuous_improvement.py          │
+│  ├─ _feedback_history: List[FeedbackData]                                                    │
+│  ├─ _execution_count: int                                                                       │
+│  └─ _last_metadata: Dict[str, Any]                                                               │
+│                                                                                                    │
+│  run_complete_pipeline(final_decision_result, ground_truth=None, user_rating=None)                │
+│  │                                                                                                 │
+│  ├─ resolve original_query = _original_input_from(final_decision_result)                           │
+│  │                                                                                                 │
+│  ├─ PHASE 3 VALIDATION GATE                                                                        │
+│  │   ValidationOrchestrator.validate(final_decision_result) → validation_decision                 │
+│  │   if result_class == complete_failure AND action == escalate:                                   │
+│  │     return SystemExecutionResult(success=False, action_result=None, feedback_data=None)        │
+│  │   if failure_info.original_decision exists: replace final_decision_result                      │
+│  │   _should_block_action(result_class) uses config.enforce_validation_gate                       │
+│  │   allowed result classes default to {all_pass} if config list empty                            │
+│  │                                                                                                 │
+│  ├─ PHASE 3.1 ACTION EXECUTION                                                                     │
+│  │   ActionExecutionPipeline.execute(final_decision_result) → ActionResult                         │
+│  │                                                                                                 │
+│  ├─ PHASE 4.1 FEEDBACK COLLECTION                                                                  │
+│  │   execution_results = {                                                                         │
+│  │     input_text: original_query,                                                                 │
+│  │     prediction: action_result.executed_action,                                                  │
+│  │     ground_truth, user_rating, total_latency_ms, phase_latencies,                              │
+│  │     expert_used: final_decision_result.expert_name,                                             │
+│  │     expert_confidence: final_decision_result.confidence                                         │
+│  │   }                                                                                             │
+│  │   FeedbackCollectionPipeline.collect(execution_results) → FeedbackData                          │
+│  │   append to _feedback_history ; increment _execution_count                                      │
+│  │                                                                                                 │
+│  ├─ CONDITIONAL IMPROVEMENT CYCLE                                                                  │
+│  │   should_trigger_improvement_cycle()                                                            │
+│  │   ├─ len(_feedback_history) >= min_samples_for_analysis                                         │
+│  │   └─ _execution_count > 0                                                                       │
+│  │   if true → run_analysis_and_improvement()                                                      │
+│  │                                                                                                 │
+│  ├─ run_analysis_and_improvement()                                                                 │
+│  │   ├─ aggregate(_feedback_history)                     → AggregatedFeedback                      │
+│  │   ├─ PerformanceAnalysisPipeline.analyze(aggregated) → PerformanceAnalysis                     │
+│  │   ├─ FeedbackIntegrationPipeline.integrate(analysis, feedback_history)                         │
+│  │   │                                              → UpdatedSystemConfig                         │
+│  │   └─ ContinuousImprovementPipeline.run_improvement_cycle(analysis, updated_config)             │
+│  │                                                  → ImprovementPlan                             │
+│  │                                                                                                 │
+│  ├─ _last_metadata captures:                                                                       │
+│  │   phase_latencies, improvement_triggered, feedback_count, execution_count,                     │
+│  │   action_metadata, feedback_metadata, analysis_metadata, integration_metadata,                 │
+│  │   improvement_metadata                                                                          │
+│  │                                                                                                 │
+│  └─ returns SystemExecutionResult {                                                                │
+│        original_input, decision_result, action_result, feedback_data,                              │
+│        total_latency_ms, phase_latencies, success, error_message                                   │
+│      }                                                                                             │
+│                                                                                                    │
+│  get_pipeline_metrics()                                                                            │
+│  └─ returns execution_count, feedback_count, min_samples_for_analysis,                             │
+│     improvement_cycle_ready, per-subsystem metadata, last_run_metadata                             │
+│                                                                                                    │
+│  Errors                                                                                            │
+│  ├─ PipelineError for critical failures                                                            │
+│  └─ escalated validation failures return clean success=False results instead of crashing           │
+└────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
                          SSE EVENTS EMITTED (phase_name  →  frontend meaning)
                          ───────────────────────────────────────────────────────
                          setting_up              Model registry warming up
@@ -483,6 +564,25 @@
                                                                decision_confidence }
 
 
+                          PHASE 3–5 SUB-PHASES  (phase3/phases/)
+                          ─────────────────────────────────────────
+
+  phase_3_validation.py               ValidationOrchestrator
+                                      .validate(final_decision_result)  →  validation_decision
+  phase_3_1_action_executor.py        ActionExecutionPipeline
+                                      .execute(final_decision_result)  →  ActionResult
+  phase_4_1_feedback_collector.py     FeedbackCollectionPipeline
+                                      .collect(execution_results)  →  FeedbackData
+                                      .aggregate(history)  →  AggregatedFeedback
+  phase_4_2_performance_analyzer.py   PerformanceAnalysisPipeline
+                                      .analyze(aggregated)  →  PerformanceAnalysis
+  phase_5_1_feedback_integrator.py    FeedbackIntegrationPipeline
+                                      .integrate(analysis, feedback_data)  →  UpdatedSystemConfig
+  phase_5_2_continuous_improvement.py ContinuousImprovementPipeline
+                                      .run_improvement_cycle(analysis, updated_config)
+                                      →  ImprovementPlan
+
+
                                 TRM SUBSYSTEM  (mycelium/trm/)
                                 ───────────────────────────────
 
@@ -508,6 +608,7 @@
 
 ---
 
-> **Stage 5 complete.** All sections from Stages 1–3 fully restored. Stage 4 (UnifiedExpertSystem) and
-> Stage 5 (Phase2Pipeline) added as proper expanded detail blocks.
-> Next: `phase3/pipeline.py`, `layer0/router.py`, TRM internals, web-ui.
+> **Stage 6 complete.** All earlier sections preserved. `phase3/pipeline.py` expanded with original-query recovery,
+> validation gate semantics, action execution, feedback collection, conditional improvement cycle,
+> aggregate analysis/integration/improvement flow, metrics helpers, and graceful escalated-failure handling.
+> Next: `layer0/router.py`, TRM internals, web-ui.
