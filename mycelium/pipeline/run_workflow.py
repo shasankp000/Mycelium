@@ -69,6 +69,19 @@ except Exception as _es_import_err:
     _get_evidence_scorer = None  # type: ignore[assignment]
     _EVIDENCE_SCORER_AVAILABLE = False
 
+# ---------------------------------------------------------------------------
+# Stage 10 — DSTFusion adapter optional import (Phase D Step 10)
+# Guarded identically to the Stage 9 imports above.
+# ---------------------------------------------------------------------------
+try:
+    from mycelium.fusion.evidence_dst_adapter import (
+        get_evidence_dst_adapter as _get_evidence_dst_adapter,
+    )
+    _EVIDENCE_DST_AVAILABLE = True
+except Exception as _edst_import_err:
+    _get_evidence_dst_adapter = None  # type: ignore[assignment]
+    _EVIDENCE_DST_AVAILABLE = False
+
 try:
     import torch as _torch
     from mycelium.trm.reasoner import TRMReasoner
@@ -731,6 +744,8 @@ def run_mycelium_workflow(
                     "predicate_store": None,
                     "evidence_result": None,
                     "scored_evidence": None,
+                    # Stage 10: not reached for L0-handled sentences
+                    "evidence_dst": None,
                 }
             )
             continue
@@ -1094,6 +1109,7 @@ def run_mycelium_workflow(
         # weighted_confidence is injected as a read-only hint into the
         # depth_cfg copy used for this sentence's Phase 2 call only.
         # -------------------------------------------------------------------
+        _scored_evidence: Any = None
         if (
             _EVIDENCE_SCORER_AVAILABLE
             and _get_evidence_scorer is not None
@@ -1124,18 +1140,64 @@ def run_mycelium_workflow(
                 print(f"\u26a0\ufe0f  EvidenceScorer failed: {_es_err}")
                 _scored_evidence_summary = None
                 _evidence_confidence = 0.0
-        else:
-            _scored_evidence_summary = None
 
+        # -------------------------------------------------------------------
+        # Stage 10 — DSTFusion adapter (Phase D Step 10)
+        # Converts ScoredEvidence → EvidenceDSTResult (structured DSTFrame).
+        # The result is:
+        #   1. Emitted as 'evidence_dst_fusion' SSE event (surfaces MODAL
+        #      ceiling annotations explicitly for the UI)
+        #   2. Injected as read-only 'evidence_dst' hint into
+        #      _sentence_depth_cfg for Phase 2 CalibrationPipeline
+        #   3. Stored in all_sentence_data as 'evidence_dst'
+        # Fully guarded: any failure leaves _evidence_dst_summary=None and
+        # the pipeline continues unchanged.
+        # -------------------------------------------------------------------
+        _evidence_dst_summary: Optional[Dict[str, Any]] = None
+        if (
+            _EVIDENCE_DST_AVAILABLE
+            and _get_evidence_dst_adapter is not None
+            and _scored_evidence is not None
+        ):
+            try:
+                emitter.emit(
+                    phase_name="evidence_dst_fusion",
+                    message="Fusing evidence into DST belief state...",
+                    detail="EvidenceDSTAdapter converting ScoredBundles → DSTFrames",
+                    state="running",
+                    metadata={"sentence_index": idx},
+                )
+                _dst_result = _get_evidence_dst_adapter().fuse(_scored_evidence)
+                _evidence_dst_summary = _dst_result.summary()
+                emitter.emit(
+                    phase_name="evidence_dst_fusion",
+                    message="DST belief fusion complete",
+                    detail=(
+                        f"net_confidence={round(_dst_result.net_confidence, 4)} "
+                        f"m_true={round(_dst_result.combined_frame.m_true, 4)} "
+                        f"m_unknown={round(_dst_result.combined_frame.m_unknown, 4)} "
+                        f"uncertain={_dst_result.is_genuinely_uncertain}"
+                    ),
+                    state="running",
+                    metadata=_evidence_dst_summary,
+                )
+            except Exception as _edst_err:
+                print(f"\u26a0\ufe0f  EvidenceDSTAdapter failed: {_edst_err}")
+                _evidence_dst_summary = None
+
+        # -------------------------------------------------------------------
         # Build a per-sentence depth_cfg copy with the evidence confidence
-        # hint so Phase 2.5 CalibrationPipeline can read it if it chooses.
+        # and DST hints so Phase 2.5 CalibrationPipeline can read them.
         # We never mutate the shared depth_cfg dict.
+        # -------------------------------------------------------------------
         _sentence_depth_cfg: Dict[str, Any] = dict(depth_cfg)
         if _evidence_confidence > 0.0:
             _sentence_depth_cfg["evidence_confidence"] = round(_evidence_confidence, 6)
+        if _evidence_dst_summary is not None:
+            _sentence_depth_cfg["evidence_dst"] = _evidence_dst_summary
 
         # -------------------------------------------------------------------
-        # End Stage 9 — resume existing pipeline unchanged
+        # End Stage 10 / Stage 9 — resume existing pipeline unchanged
         # -------------------------------------------------------------------
 
         emitter.emit(
@@ -1307,6 +1369,8 @@ def run_mycelium_workflow(
                 "predicate_store": _predicate_store_summary,
                 "evidence_result": _evidence_result_summary,
                 "scored_evidence": _scored_evidence_summary,
+                # Stage 10 — DST belief fusion (Phase D Step 10)
+                "evidence_dst": _evidence_dst_summary,
             }
         )
 
