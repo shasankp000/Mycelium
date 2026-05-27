@@ -1,660 +1,479 @@
 """
-Layer 0 — Shared NLP Preprocessor.
+Layer 0 — NLP Preprocessor.
 
-The Python equivalent of AI-Player's OpenNLPProcessor.java (which ran
-Apache OpenNLP: sentence detector → tokenizer → POS tagger → lemmatizer).
-Here we use spaCy (en_core_web_sm) to produce the same per-token metadata
-struct: {token, lemma, pos, dep, is_stop}.
+Shared preprocessing component used by all three Layer 0 classifiers:
+    ManipulationDetector, ObjectivityClassifier, ValueAssumptionExtractor.
 
-spaCy venv routing
-------------------
-spaCy with en_core_web_sm lives in the dedicated lexis venv at .venv2
-(Python 3.11).  This file probes that venv's site-packages FIRST before
-falling back to the active sys.path — identical strategy to
-mycelium/canonicalization/srl_extractor.py.
+All spaCy work is delegated to the pipeline-level spacy_bridge / spacy_worker
+subprocess pair (which already handles .venv2 path resolution, config.toml
+[lexis] section, and the Py3.14 → Py3.11 subprocess protocol).  No inline
+venv patching is needed here.
 
-    Search order:
-        1. .venv2/lib/python3.11/site-packages   (lexis venv, spaCy+model)
-        2. Active sys.path (may also have spaCy if installed in main venv)
-        3. Regex / rule-only fallback (no spaCy at all)
+Output: SentenceAnalysis — a flat dataclass consumed by the three classifiers.
 
-Fallback behaviour
-------------------
-When spaCy is unavailable every downstream Layer 0 component degrades
-gracefully:
-  - Layers A/B/C fall back to pure lexical rules (regex + keyword sets).
-  - Layer D (LLM arbiter) is triggered unconditionally because there are
-    no model scores to pass to it — this matches the AI-Player pattern
-    where getIntentionFromLLM() fires when the local classifiers are absent.
-
-Public API
-----------
-    preprocessor = NLPPreprocessor()
-    analysis = preprocessor.analyse("Why does smoking cause cancer?")
-    # analysis.sentence_type  → "INTERROGATIVE"
-    # analysis.dep_triples    → [("smoking", "causes", "cancer")]
-    # analysis.evaluative_words → []
-    # analysis.presupposition_triggers → ["factive_verb:cause"]
+Caching: LRU(256) on (text, model) so repeated calls within a conversation
+turn are free.
 """
 
 from __future__ import annotations
 
-import os
+import functools
 import re
-import sys
-import pathlib
 from dataclasses import dataclass, field
-from functools import lru_cache
 from typing import List, Optional, Tuple
 
-
-# ---------------------------------------------------------------------------
-# .venv2 spaCy path probe  (same logic as srl_extractor.py)
-# ---------------------------------------------------------------------------
-
-def _find_venv2_site() -> Optional[str]:
-    """Walk upward from this file looking for .venv2 with a spaCy install."""
-    candidates = [
-        pathlib.Path(__file__).resolve().parent.parent.parent.parent,  # repo root
-        pathlib.Path(__file__).resolve().parent.parent.parent,         # mycelium/
-        pathlib.Path.cwd(),
-        pathlib.Path.home(),
-    ]
-    for base in candidates:
-        site = base / ".venv2" / "lib" / "python3.11" / "site-packages"
-        if site.is_dir() and (site / "spacy").is_dir():
-            return str(site)
-    return None
-
-
-_SPACY_SITE: Optional[str] = _find_venv2_site()
-
-
-def _evict_spacy_from_sys_modules() -> None:
-    """Evict stale spacy / spacy.* entries from sys.modules.
-
-    Python 3.13 may have cached a broken spaCy stub before this module
-    runs.  Evicting it forces a clean resolution from the .venv2 path.
-    """
-    stale = [k for k in sys.modules if k == "spacy" or k.startswith("spacy.")]
-    for key in stale:
-        del sys.modules[key]
-
-
-def _import_spacy():
-    """Import spaCy, preferring .venv2 site-packages.
-
-    Returns the spacy module on success, None on failure.
-    """
-    global _SPACY_SITE
-
-    injected = False
-    if _SPACY_SITE and _SPACY_SITE not in sys.path:
-        sys.path.insert(0, _SPACY_SITE)
-        injected = True
-
-    _evict_spacy_from_sys_modules()
-
-    try:
-        import spacy  # noqa: PLC0415
-        if not callable(getattr(spacy, "load", None)):
-            raise ImportError("spacy.load not callable — incompatible build")
-        return spacy
-    except (ImportError, Exception):
-        if injected and _SPACY_SITE in sys.path:
-            sys.path.remove(_SPACY_SITE)
-        _SPACY_SITE = None
-        return None
+# Canonical pipeline-level bridge — already handles all .venv2 routing.
+from mycelium.pipeline.spacy_bridge import pipeline as _spacy_pipeline
 
 
 # ---------------------------------------------------------------------------
-# Data types
+# TokenInfo
 # ---------------------------------------------------------------------------
 
-@dataclass
+@dataclass(frozen=True)
 class TokenInfo:
-    """Per-token NLP metadata — mirrors AI-Player's OpenNLPProcessor.TokenInfo.
-
-    token   — surface form
-    lemma   — base form (e.g. "running" → "run")
-    pos     — coarse POS tag (NOUN, VERB, ADJ, ADV, AUX, PRON, …)
-    tag     — fine-grained Penn Treebank tag (NNS, VBZ, JJR, …)
-    dep     — dependency relation to head (nsubj, dobj, ROOT, advmod, …)
-    head    — surface form of the syntactic head
-    is_stop — True if spaCy marks token as a stop word
-    """
-    token: str
-    lemma: str
-    pos: str
-    tag: str
-    dep: str
-    head: str
+    """Lightweight token descriptor built from spacy_worker pipeline output."""
+    token:   str
+    lemma:   str
+    pos:     str   # coarse POS (spaCy .pos_)
+    tag:     str   # fine-grained POS (spaCy .tag_)
+    dep:     str   # dependency relation (spaCy .dep_)
     is_stop: bool
 
-    def __repr__(self) -> str:  # pragma: no cover
-        return f"{self.token}({self.pos}/{self.dep})→{self.lemma}"
+    @classmethod
+    def from_worker(cls, pos_entry: dict, lemma: str) -> "TokenInfo":
+        """Construct from one entry in the worker's 'pos' list + parallel lemma."""
+        text = pos_entry["text"]
+        return cls(
+            token=text,
+            lemma=lemma,
+            pos=pos_entry.get("pos", ""),
+            tag=pos_entry.get("tag", ""),
+            dep=pos_entry.get("dep", ""),
+            is_stop=text.lower() in _STOP_WORDS,
+        )
 
+
+# Minimal stop-word set (no NLTK dependency).
+_STOP_WORDS = frozenset([
+    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "could",
+    "should", "shall", "may", "might", "must", "can", "to", "of", "in",
+    "on", "at", "by", "for", "with", "about", "as", "into", "through",
+    "and", "but", "or", "nor", "so", "yet", "both", "either", "neither",
+    "not", "no", "nor", "very", "just", "than", "then", "also", "i",
+    "me", "my", "we", "our", "you", "your", "he", "she", "it", "they",
+    "them", "this", "that", "these", "those", "what", "which", "who",
+    "whom", "when", "where", "how", "if", "because", "while", "although",
+])
+
+
+# ---------------------------------------------------------------------------
+# SentenceAnalysis
+# ---------------------------------------------------------------------------
 
 @dataclass
 class SentenceAnalysis:
-    """Full structural analysis of a single input text.
+    """Flat structural analysis of a single sentence / query.
 
-    Produced by NLPPreprocessor.analyse().  All three Layer 0 components
-    consume this struct — they never call spaCy directly.
-
-    sentence_type
-        DECLARATIVE  — assertive statement ("The sky is blue.")
-        INTERROGATIVE — question (starts with WH-word or auxiliary inversion)
-        IMPERATIVE   — bare-verb command ("Mine some stone.")
-        EXCLAMATORY  — exclamation ("What a result!")
-        UNKNOWN      — could not be determined
-
-    dep_triples
-        List of (subject_lemma, root_verb_lemma, object_lemma) extracted from
-        the dependency parse.  Equivalent to SRLTriple lightweight output.
-
-    evaluative_words
-        Adjectives/adverbs with opinion polarity (good, best, worst, terrible,
-        obviously, fortunately …).
-
-    presupposition_triggers
-        Strings describing structural presupposition hooks found in the text,
-        e.g. "factive_verb:know", "definite_superlative", "change_of_state:stop".
-
-    coercive_signals
-        Strings flagging coercion-pattern matches, e.g.
-        "absolutist_quantifier:always", "forced_agreement:everyone_knows",
-        "imperative_urgency:VB+immediately".
-
-    tokens
-        Full flat list of TokenInfo objects (all sentences concatenated).
-
-    spacy_available
-        False when spaCy could not be loaded — signals downstream that only
-        lexical/regex layers fired and Layer D (LLM) must run unconditionally.
+    Fields
+    ------
+    raw_text             : Original input string.
+    tokens               : List[TokenInfo] — full token sequence.
+    sentence_type        : DECLARATIVE | INTERROGATIVE | IMPERATIVE | UNKNOWN.
+    dep_triples          : Subject-predicate-object triples extracted from the
+                           dependency parse.  Each triple is (subj_lemma,
+                           pred_lemma, obj_lemma).  May be empty.
+    evaluative_words     : Adjectives / adverbs with opinion polarity.
+    presupposition_triggers : Detected presupposition hooks (see extractor below).
+    coercive_signals     : Detected coercion patterns (see extractor below).
+    spacy_available      : False if the bridge call failed — callers should
+                           demote confidence accordingly.
     """
-    sentence_type: str = "UNKNOWN"
-    dep_triples: List[Tuple[str, str, str]] = field(default_factory=list)
-    evaluative_words: List[str] = field(default_factory=list)
-    presupposition_triggers: List[str] = field(default_factory=list)
-    coercive_signals: List[str] = field(default_factory=list)
-    tokens: List[TokenInfo] = field(default_factory=list)
-    spacy_available: bool = False
-    raw_text: str = ""
+    raw_text:                 str
+    tokens:                   List[TokenInfo]       = field(default_factory=list)
+    sentence_type:            str                   = "UNKNOWN"
+    dep_triples:              List[Tuple[str,str,str]] = field(default_factory=list)
+    evaluative_words:         List[str]             = field(default_factory=list)
+    presupposition_triggers:  List[str]             = field(default_factory=list)
+    coercive_signals:         List[str]             = field(default_factory=list)
+    spacy_available:          bool                  = True
+
+
+# ---------------------------------------------------------------------------
+# Vocabulary sets (used by signal extractors)
+# ---------------------------------------------------------------------------
+
+_FACTIVE_VERBS = frozenset([
+    "know", "realize", "discover", "notice", "see", "understand",
+    "remember", "forget", "regret", "acknowledge", "recognise", "recognize",
+])
+
+_CHANGE_OF_STATE_VERBS = frozenset([
+    "stop", "start", "begin", "cease", "continue", "resume", "finish",
+    "end", "fail", "succeed", "become", "turn", "change",
+])
+
+_ABSOLUTIST_QUANTIFIERS = frozenset([
+    "everyone", "everybody", "everything", "nobody", "nothing", "nowhere",
+    "always", "never", "all", "none", "every",
+])
+
+_FORCED_AGREEMENT_PHRASES = [
+    r"don't you (think|agree|believe)",
+    r"everyone knows",
+    r"it's (obvious|clear|plain) that",
+    r"(surely|certainly|obviously) you",
+    r"as (everyone|we all) know",
+    r"you (must|have to|need to) agree",
+    r"isn't it (obvious|clear)",
+]
+_FORCED_AGREEMENT_RE = re.compile(
+    "|".join(_FORCED_AGREEMENT_PHRASES), re.IGNORECASE
+)
+
+_URGENCY_WORDS = frozenset([
+    "immediately", "instantly", "urgently", "right now", "asap",
+    "without delay", "at once",
+])
+
+_JAILBREAK_PHRASES = [
+    r"ignore (all )?(previous|prior|above) instructions",
+    r"disregard (your )?(previous|prior|all) (instructions|training|guidelines)",
+    r"you are now (a |an )?(different|new|unrestricted|jailbroken)",
+    r"forget (everything|all) (you (were )?trained|your (training|instructions))",
+    r"pretend (you (are|have no)|there are no) (rules|restrictions|guidelines|training)",
+    r"(act|behave) as (if you (have|had) no|though you (are|were) not)",
+    r"(do not|don't) follow (your )?(training|guidelines|instructions|rules)",
+    r"override (your )?(previous |all )?(instructions|programming|training)",
+    r"new (system )?(prompt|instruction|directive):",
+    r"system:",
+    r"\[system\]",
+    r"<\|im_start\|>system",
+]
+_JAILBREAK_RE = re.compile(
+    "|".join(_JAILBREAK_PHRASES), re.IGNORECASE
+)
+
+_EVALUATIVE_ADJS = frozenset([
+    "good", "bad", "great", "terrible", "wonderful", "awful", "excellent",
+    "poor", "best", "worst", "better", "worse", "beautiful", "ugly",
+    "smart", "stupid", "intelligent", "foolish", "right", "wrong",
+    "correct", "incorrect", "fair", "unfair", "just", "unjust",
+    "important", "useless", "valuable", "worthless", "harmful", "beneficial",
+    "dangerous", "safe", "effective", "ineffective", "superior", "inferior",
+    "strong", "weak", "powerful", "powerless",
+])
 
 
 # ---------------------------------------------------------------------------
 # NLPPreprocessor
 # ---------------------------------------------------------------------------
 
-# Evaluative adjectives / adverbs with opinion load.
-_EVALUATIVE_ADJ = frozenset([
-    "good", "bad", "best", "worst", "better", "worse", "great", "terrible",
-    "excellent", "poor", "superior", "inferior", "correct", "incorrect",
-    "right", "wrong", "proper", "improper", "ideal", "perfect", "awful",
-    "wonderful", "horrible", "fantastic", "dreadful", "magnificent",
-])
-_EVALUATIVE_ADV = frozenset([
-    "obviously", "clearly", "certainly", "unfortunately", "fortunately",
-    "sadly", "happily", "evidently", "undoubtedly", "surely", "definitely",
-    "absolutely", "naturally", "needlessly", "unfairly",
-])
-
-# Factive / change-of-state verbs that presuppose their complement.
-_FACTIVE_VERBS = frozenset([
-    "know", "realize", "discover", "notice", "find", "see", "understand",
-    "remember", "forget", "regret", "admit", "deny", "prove", "confirm",
-])
-_CHANGE_OF_STATE_VERBS = frozenset([
-    "start", "stop", "begin", "cease", "continue", "resume", "finish",
-    "end", "quit", "avoid", "fail",
-])
-_CAUSAL_VERBS = frozenset([
-    "cause", "lead", "result", "produce", "trigger", "generate", "induce",
-    "create", "cause",
-])
-
-# Absolutist / overgeneralisation quantifiers → coercion signal.
-_ABSOLUTIST = frozenset(["always", "never", "everyone", "nobody", "no one",
-                          "all", "none", "every", "any"])
-
-# Hedge-removal / forced-agreement phrases → coercion signal.
-_FORCED_AGREEMENT = [
-    r"don'?t you agree",
-    r"everyone knows",
-    r"it'?s obvious",
-    r"as we all know",
-    r"you must agree",
-    r"surely you",
-    r"clearly you",
-]
-_FORCED_AGREEMENT_RE = re.compile(
-    "|".join(_FORCED_AGREEMENT), re.IGNORECASE
-)
-
-# WH-interrogative starters.
-_WH_WORDS = frozenset(["what", "why", "who", "whom", "which", "whose",
-                        "when", "where", "how"])
-# Auxiliary inversion starters.
-_AUX_STARTERS = frozenset(["is", "are", "was", "were", "do", "does", "did",
-                             "can", "could", "will", "would", "shall",
-                             "should", "may", "might", "must", "have",
-                             "has", "had"])
-
-
 class NLPPreprocessor:
-    """Shared NLP preprocessing bridge for all Layer 0 components.
+    """Analyses a text string and returns a SentenceAnalysis.
 
-    Wraps spaCy (loaded from .venv2 / lexis venv) and extracts the
-    structural signals that ManipulationDetector, ObjectivityClassifier
-    and ValueAssumptionExtractor need.  This is the direct Python
-    equivalent of OpenNLPProcessor.java + the LIDSNet feature builder.
-
-    Usage::
-
-        pre = NLPPreprocessor()
-        analysis = pre.analyse("Why does everyone know the vaccine is dangerous?")
-        # analysis.sentence_type           → "INTERROGATIVE"
-        # analysis.presupposition_triggers → ["factive_verb:know"]
-        # analysis.coercive_signals        → ["absolutist_quantifier:everyone"]
-
-    The analyse() result is LRU-cached (256 entries) so the same text is
-    never re-parsed within one pipeline pass — same optimisation as
-    SRLExtractor._get_doc().
+    Delegates all spaCy work to the pipeline-level spacy_bridge.pipeline()
+    which in turn shells out to spacy_worker.py inside .venv2.
+    If the bridge call fails for any reason, falls back to regex-only
+    analysis with spacy_available=False so callers can degrade gracefully.
     """
 
-    def __init__(self) -> None:
-        self._nlp = None   # spaCy Language, lazy-loaded; False if unavailable
+    @functools.lru_cache(maxsize=256)
+    def analyse(self, text: str, model: str = "en_core_web_sm") -> SentenceAnalysis:
+        """Full structural analysis.  LRU-cached on (text, model)."""
+        try:
+            raw = _spacy_pipeline(text, model=model)
+            return self._build_from_bridge(text, raw)
+        except Exception:
+            return self._build_fallback(text)
 
     # ------------------------------------------------------------------
-    # spaCy loading
+    # Bridge-backed analysis path
     # ------------------------------------------------------------------
 
-    def _load_spacy(self):
-        """Lazy-load spaCy from .venv2.  Sets self._nlp to model or False."""
-        if self._nlp is None:
-            spacy = _import_spacy()
-            if spacy is None:
-                self._nlp = False
-            else:
-                try:
-                    self._nlp = spacy.load("en_core_web_sm")
-                except OSError:
-                    # Model not installed — blank pipeline gives tokens but
-                    # no dep parse; structural layers will degrade to lexical.
-                    try:
-                        self._nlp = spacy.blank("en")
-                    except Exception:
-                        self._nlp = False
-        return self._nlp
+    def _build_from_bridge(
+        self, text: str, raw: dict
+    ) -> SentenceAnalysis:
+        """Build SentenceAnalysis from spacy_bridge.pipeline() output dict."""
+        pos_list  = raw.get("pos", [])      # [{text, pos, tag, dep}, ...]
+        lemmas    = raw.get("lemmas", [])   # [str, ...]
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
+        # Pad lemmas to match pos_list length (safety)
+        while len(lemmas) < len(pos_list):
+            lemmas.append("")
 
-    @lru_cache(maxsize=256)
-    def analyse(self, text: str) -> SentenceAnalysis:
-        """Run the full NLP pre-analysis pipeline on *text*.
-
-        Returns a SentenceAnalysis.  Results are cached (LRU-256) so
-        identical queries are never re-parsed.
-
-        When spaCy is unavailable (self._nlp is False after load attempt)
-        the structural layers still run in lexical/regex-only mode and
-        SentenceAnalysis.spacy_available is set to False — signalling
-        downstream components that Layer D (LLM) must fire unconditionally.
-        """
-        nlp = self._load_spacy()
-        if not nlp:
-            return self._analyse_lexical_only(text)
-        return self._analyse_with_spacy(nlp, text)
-
-    # ------------------------------------------------------------------
-    # spaCy path
-    # ------------------------------------------------------------------
-
-    def _analyse_with_spacy(self, nlp, text: str) -> SentenceAnalysis:
-        doc = nlp(text)
-        spacy_ok = doc.has_annotation("DEP")
-
-        tokens: List[TokenInfo] = [
-            TokenInfo(
-                token=t.text,
-                lemma=t.lemma_.lower(),
-                pos=t.pos_,
-                tag=t.tag_,
-                dep=t.dep_,
-                head=t.head.text,
-                is_stop=t.is_stop,
-            )
-            for t in doc
-            if not t.is_space
+        tokens = [
+            TokenInfo.from_worker(p, l)
+            for p, l in zip(pos_list, lemmas)
         ]
 
-        sentence_type = self._detect_sentence_type(doc, tokens)
-        dep_triples = self._extract_dep_triples(doc) if spacy_ok else []
-        evaluative_words = self._find_evaluative_words(tokens)
-        presupposition_triggers = self._find_presupposition_triggers(doc, tokens, spacy_ok)
-        coercive_signals = self._find_coercive_signals(doc, tokens, text, spacy_ok)
+        stype       = self._detect_sentence_type(tokens, text)
+        triples     = self._extract_dep_triples(tokens)
+        evaluative  = self._extract_evaluative(tokens)
+        presup      = self._extract_presupposition_triggers(tokens, text, stype)
+        coercive    = self._extract_coercive_signals(tokens, text)
 
         return SentenceAnalysis(
-            sentence_type=sentence_type,
-            dep_triples=dep_triples,
-            evaluative_words=evaluative_words,
-            presupposition_triggers=presupposition_triggers,
-            coercive_signals=coercive_signals,
+            raw_text=text,
             tokens=tokens,
+            sentence_type=stype,
+            dep_triples=triples,
+            evaluative_words=evaluative,
+            presupposition_triggers=presup,
+            coercive_signals=coercive,
             spacy_available=True,
-            raw_text=text,
         )
 
     # ------------------------------------------------------------------
-    # Lexical-only fallback (no spaCy)
+    # Regex-only fallback
     # ------------------------------------------------------------------
 
-    def _analyse_lexical_only(self, text: str) -> SentenceAnalysis:
-        """Pure regex / keyword analysis when spaCy is unavailable."""
-        lower = text.lower().strip()
-        words = re.findall(r"[a-z']+", lower)
-
-        sentence_type = self._detect_sentence_type_lexical(lower, words)
-        evaluative_words = [w for w in words
-                            if w in _EVALUATIVE_ADJ or w in _EVALUATIVE_ADV]
-        presupposition_triggers = self._find_presupposition_triggers_lexical(words)
-        coercive_signals = self._find_coercive_signals_lexical(lower, words)
-
+    def _build_fallback(self, text: str) -> SentenceAnalysis:
+        """Minimal analysis without spaCy — regex signals only."""
+        stype    = self._sentence_type_regex(text)
+        coercive = self._coercive_signals_regex(text)
+        presup   = self._presupposition_triggers_regex(text, stype)
         return SentenceAnalysis(
-            sentence_type=sentence_type,
-            dep_triples=[],
-            evaluative_words=evaluative_words,
-            presupposition_triggers=presupposition_triggers,
-            coercive_signals=coercive_signals,
-            tokens=[],
-            spacy_available=False,
             raw_text=text,
+            tokens=[],
+            sentence_type=stype,
+            dep_triples=[],
+            evaluative_words=self._evaluative_regex(text),
+            presupposition_triggers=presup,
+            coercive_signals=coercive,
+            spacy_available=False,
         )
 
     # ------------------------------------------------------------------
-    # Sentence-type detection
+    # Sentence type detection
     # ------------------------------------------------------------------
 
     def _detect_sentence_type(
-        self, doc, tokens: List[TokenInfo]
+        self, tokens: List[TokenInfo], text: str
     ) -> str:
-        """Classify sentence type from dep-parse + first-token heuristics."""
         if not tokens:
-            return "UNKNOWN"
-
-        first_lemma = tokens[0].lemma
-        first_pos = tokens[0].pos
-        first_tag = tokens[0].tag
-
-        # Interrogative: starts with WH-word OR auxiliary inversion
-        if first_lemma in _WH_WORDS:
+            return self._sentence_type_regex(text)
+        stripped = text.strip()
+        if stripped.endswith("?"):
             return "INTERROGATIVE"
-        if first_pos in {"AUX", "VERB"} and first_lemma in _AUX_STARTERS:
+        first = tokens[0]
+        if first.dep == "ROOT" and first.pos == "VERB" and first.tag in {"VB", "VBP"}:
+            return "IMPERATIVE"
+        wh_words = {"what", "when", "where", "who", "whom", "which", "why", "how"}
+        if tokens[0].lemma.lower() in wh_words:
             return "INTERROGATIVE"
-
-        # Imperative: ROOT is bare VB (base form verb, no subject)
-        for tok in tokens:
-            if tok.dep == "ROOT" and tok.tag == "VB":
-                # Check no nsubj child exists
-                subjects = [t for t in tokens if t.dep == "nsubj" and t.head == tok.token]
-                if not subjects:
-                    return "IMPERATIVE"
-
-        # Exclamatory: leading exclamative word or trailing !
-        excl_words = {"what", "how"}
-        if first_lemma in excl_words and "!" in doc.text:
-            return "EXCLAMATORY"
-
+        aux_inverted = (len(tokens) >= 2 and
+                        tokens[0].pos == "AUX" and
+                        tokens[1].pos in {"PRON", "NOUN", "PROPN"})
+        if aux_inverted:
+            return "INTERROGATIVE"
         return "DECLARATIVE"
 
-    def _detect_sentence_type_lexical(self, lower: str, words: List[str]) -> str:
-        """Lexical-only sentence-type detection (no dep parse)."""
-        if not words:
-            return "UNKNOWN"
-        if words[0] in _WH_WORDS:
+    def _sentence_type_regex(self, text: str) -> str:
+        stripped = text.strip()
+        if stripped.endswith("?"):
             return "INTERROGATIVE"
-        if words[0] in _AUX_STARTERS and lower.strip().endswith("?"):
+        if re.match(
+            r"^(what|when|where|who|whom|which|why|how|is|are|was|were|do|does|did|"
+            r"can|could|would|should|shall|will|have|has|had)\b",
+            stripped, re.IGNORECASE
+        ):
             return "INTERROGATIVE"
-        if lower.strip().endswith("!"):
-            return "EXCLAMATORY"
-        # Bare-verb imperative heuristic: starts with a known action verb
-        _COMMON_IMPERATIVES = frozenset([
-            "go", "do", "make", "take", "find", "get", "move", "run",
-            "build", "create", "show", "tell", "give", "explain",
-            "list", "compare", "describe", "define", "calculate",
-        ])
-        if words[0] in _COMMON_IMPERATIVES:
+        if re.match(r"^(please\s+)?[a-z]+(\s+\w+){0,3}\.?$", stripped, re.IGNORECASE):
             return "IMPERATIVE"
         return "DECLARATIVE"
 
     # ------------------------------------------------------------------
-    # Dep-triple extraction (subject, root-verb, object)
+    # Dependency triple extraction
     # ------------------------------------------------------------------
 
     def _extract_dep_triples(
-        self, doc
+        self, tokens: List[TokenInfo]
     ) -> List[Tuple[str, str, str]]:
         """Extract (subject_lemma, predicate_lemma, object_lemma) triples."""
         triples: List[Tuple[str, str, str]] = []
-        for sent in doc.sents:
-            for token in sent:
-                if token.dep_ == "ROOT" and token.pos_ in {"VERB", "AUX"}:
-                    subjects = [
-                        t for t in token.lefts
-                        if t.dep_ in {"nsubj", "nsubjpass", "csubj"}
-                    ]
-                    objects_ = [
-                        t for t in token.rights
-                        if t.dep_ in {"dobj", "attr", "pobj", "ccomp", "xcomp"}
-                    ]
-                    if subjects and objects_:
-                        subj_lemma = subjects[0].lemma_.lower()
-                        pred_lemma = token.lemma_.lower()
-                        obj_lemma = objects_[0].lemma_.lower()
-                        triples.append((subj_lemma, pred_lemma, obj_lemma))
+        subj_deps = {"nsubj", "nsubjpass", "csubj"}
+        obj_deps  = {"dobj", "obj", "pobj", "iobj", "attr"}
+
+        # Build lemma lookup by position for head resolution
+        lemma_by_idx = {i: t.lemma for i, t in enumerate(tokens)}
+
+        # Find all ROOT / VERB tokens as predicate candidates
+        for i, t in enumerate(tokens):
+            if t.pos not in {"VERB", "AUX"} and t.dep != "ROOT":
+                continue
+            pred_lemma = t.lemma
+            subj_lemma = ""
+            obj_lemma  = ""
+            for j, other in enumerate(tokens):
+                if other.dep in subj_deps and not subj_lemma:
+                    subj_lemma = other.lemma
+                if other.dep in obj_deps and not obj_lemma:
+                    obj_lemma = other.lemma
+            if subj_lemma or obj_lemma:
+                triples.append((subj_lemma, pred_lemma, obj_lemma))
+                break  # one primary triple per sentence is enough
+
         return triples
 
     # ------------------------------------------------------------------
     # Evaluative word extraction
     # ------------------------------------------------------------------
 
-    def _find_evaluative_words(self, tokens: List[TokenInfo]) -> List[str]:
-        result = []
-        for t in tokens:
-            if t.is_stop:
-                continue
-            if t.pos in {"ADJ", "JJR", "JJS"} and t.lemma in _EVALUATIVE_ADJ:
-                result.append(t.token)
-            elif t.pos == "ADV" and t.lemma in _EVALUATIVE_ADV:
-                result.append(t.token)
-            # Fine-grained tag: JJR=comparative, JJS=superlative
-            elif t.tag in {"JJR", "JJS"}:
-                result.append(t.token)
-        return result
+    def _extract_evaluative(
+        self, tokens: List[TokenInfo]
+    ) -> List[str]:
+        return [
+            t.token for t in tokens
+            if t.lemma.lower() in _EVALUATIVE_ADJS
+            and t.pos in {"ADJ", "ADV"}
+        ]
+
+    def _evaluative_regex(self, text: str) -> List[str]:
+        lower = text.lower()
+        return [w for w in _EVALUATIVE_ADJS if re.search(rf"\b{re.escape(w)}\b", lower)]
 
     # ------------------------------------------------------------------
     # Presupposition trigger extraction
     # ------------------------------------------------------------------
 
-    def _find_presupposition_triggers(
-        self, doc, tokens: List[TokenInfo], dep_ok: bool
+    def _extract_presupposition_triggers(
+        self, tokens: List[TokenInfo], text: str, stype: str
     ) -> List[str]:
-        triggers: List[str] = []
-        lemmas = {t.lemma for t in tokens}
+        found: List[str] = []
+        lemma_set = {t.lemma.lower() for t in tokens}
 
-        # Factive verbs: presuppose truth of their complement
-        for fv in _FACTIVE_VERBS & lemmas:
-            triggers.append(f"factive_verb:{fv}")
+        # Factive verbs
+        for v in _FACTIVE_VERBS & lemma_set:
+            found.append(f"factive_verb:{v}")
 
-        # Change-of-state verbs: presuppose the prior state
-        for cv in _CHANGE_OF_STATE_VERBS & lemmas:
-            triggers.append(f"change_of_state:{cv}")
+        # Change-of-state verbs
+        for v in _CHANGE_OF_STATE_VERBS & lemma_set:
+            found.append(f"change_of_state:{v}")
 
-        # Definite superlative NPs: "the best X" presupposes ranking exists
-        if dep_ok:
-            for token in doc:
-                if token.tag_ in {"JJS"} and any(
-                    t.lower_ == "the" for t in token.lefts
-                ):
-                    triggers.append("definite_superlative")
-                    break
-        else:
-            # Lexical fallback
-            lower = doc.text.lower() if hasattr(doc, "text") else " ".join(
-                t.token for t in tokens
-            )
-            if re.search(r"\bthe\s+(best|worst|most|least)\b", lower):
-                triggers.append("definite_superlative")
+        # Definite superlative: the + JJS
+        pos_tags = [t.tag for t in tokens]
+        for i, t in enumerate(tokens):
+            if t.tag == "JJS" and i > 0 and tokens[i - 1].lemma.lower() == "the":
+                found.append("definite_superlative")
+                break
 
-        # Cleft construction: "It is X that …" presupposes X is the focus
-        text_lower = doc.text.lower() if hasattr(doc, "text") else ""
-        if re.search(r"\bit\s+is\b.{1,40}\bthat\b", text_lower):
-            triggers.append("cleft_construction")
+        # Cleft construction: "It is/was X that"
+        if re.search(r"\bit (is|was|were)\b.{1,40}\bthat\b", text, re.IGNORECASE):
+            found.append("cleft_construction")
 
-        # Additive particle: "also" implies prior activity
-        if "also" in {t.lemma for t in tokens}:
-            triggers.append("additive_particle:also")
+        # Additive 'also'
+        if any(t.lemma.lower() == "also" for t in tokens):
+            found.append("additive_particle:also")
 
-        # WH + causal verb: "Why does X cause Y?" presupposes X causes Y
-        if tokens and tokens[0].lemma == "why":
-            if _CAUSAL_VERBS & lemmas:
-                triggers.append("why_causal_presupposition")
+        # Why + causal verb
+        if stype == "INTERROGATIVE":
+            lower = text.lower()
+            if lower.startswith("why") or "why does" in lower or "why is" in lower:
+                causal_verbs = {"cause", "lead", "result", "make", "force",
+                                "prevent", "allow", "enable", "trigger"}
+                if causal_verbs & lemma_set:
+                    found.append("why_causal_presupposition")
 
-        return triggers
+        return found
 
-    def _find_presupposition_triggers_lexical(
-        self, words: List[str]
-    ) -> List[str]:
-        """Lexical-only presupposition trigger detection."""
-        triggers: List[str] = []
-        word_set = set(words)
-        for fv in _FACTIVE_VERBS & word_set:
-            triggers.append(f"factive_verb:{fv}")
-        for cv in _CHANGE_OF_STATE_VERBS & word_set:
-            triggers.append(f"change_of_state:{cv}")
-        text = " ".join(words)
-        if re.search(r"\bthe\s+(best|worst|most|least)\b", text):
-            triggers.append("definite_superlative")
-        if re.search(r"\bit\s+is\b.{1,40}\bthat\b", text):
-            triggers.append("cleft_construction")
-        if "also" in word_set:
-            triggers.append("additive_particle:also")
-        if words and words[0] == "why" and (_CAUSAL_VERBS & word_set):
-            triggers.append("why_causal_presupposition")
-        return triggers
+    def _presupposition_triggers_regex(self, text: str, stype: str) -> List[str]:
+        """Regex-only presupposition detection (fallback)."""
+        found: List[str] = []
+        lower = text.lower()
+        words = set(re.findall(r"\b\w+\b", lower))
+
+        for v in _FACTIVE_VERBS & words:
+            found.append(f"factive_verb:{v}")
+        for v in _CHANGE_OF_STATE_VERBS & words:
+            found.append(f"change_of_state:{v}")
+        if re.search(r"\bthe (best|worst|most|least|biggest|smallest)\b", lower):
+            found.append("definite_superlative")
+        if re.search(r"\bit (is|was)\b.{1,40}\bthat\b", lower):
+            found.append("cleft_construction")
+        if " also " in lower or lower.startswith("also "):
+            found.append("additive_particle:also")
+        if lower.startswith("why") and any(
+            v in words for v in {"cause", "lead", "make", "force", "allow"}
+        ):
+            found.append("why_causal_presupposition")
+        return found
 
     # ------------------------------------------------------------------
     # Coercive signal extraction
     # ------------------------------------------------------------------
 
-    def _find_coercive_signals(
-        self, doc, tokens: List[TokenInfo], raw_text: str, dep_ok: bool
+    def _extract_coercive_signals(
+        self, tokens: List[TokenInfo], text: str
     ) -> List[str]:
-        signals: List[str] = []
-        lemmas = [t.lemma for t in tokens]
-        lemma_set = set(lemmas)
-        pos_seq = [(t.lemma, t.pos, t.tag, t.dep) for t in tokens]
+        found: List[str] = []
+        lemma_set = {t.lemma.lower() for t in tokens}
+
+        # Jailbreak structural patterns (regex — most reliable)
+        if _JAILBREAK_RE.search(text):
+            found.append("jailbreak_structural")
+            return found  # No need to score further
+
+        # Forced agreement phrases
+        if _FORCED_AGREEMENT_RE.search(text):
+            found.append("forced_agreement_phrase")
+
+        # Modal imperatives: must/need/have to + agree/accept/comply
+        for t in tokens:
+            if t.pos == "AUX" and t.lemma.lower() in {"must", "need", "have"}:
+                found.append(f"modal_imperative:{t.lemma.lower()}")
+                break
 
         # Absolutist quantifiers
-        for word in _ABSOLUTIST & lemma_set:
-            signals.append(f"absolutist_quantifier:{word}")
+        for word in _ABSOLUTIST_QUANTIFIERS & lemma_set:
+            found.append(f"absolutist_quantifier:{word}")
 
-        # Forced-agreement phrases (regex over raw text)
-        if _FORCED_AGREEMENT_RE.search(raw_text):
-            signals.append("forced_agreement_phrase")
+        # Urgency signals
+        lower = text.lower()
+        for w in _URGENCY_WORDS:
+            if w in lower:
+                found.append(f"imperative_urgency:{w}")
 
-        # Modal imperative: MODAL + you → coercive frame
-        # e.g. "You must/should/have to agree"
-        modal_lemmas = {"must", "should", "shall", "need", "have"}
-        if modal_lemmas & lemma_set:
-            # Check if second-person pronoun is nearby
-            you_present = any(t.lemma in {"you", "your"} for t in tokens)
-            if you_present:
-                matching = modal_lemmas & lemma_set
-                for m in matching:
-                    signals.append(f"modal_imperative:{m}")
+        # Passive agency hiding: auxiliary 'be' + past participle without agent
+        passive_count = sum(
+            1 for t in tokens if t.dep == "auxpass"
+        )
+        if passive_count >= 2:
+            found.append("passive_agency_hiding")
 
-        # Urgency adverb after action verb: VB + immediately/now/quickly
-        urgency_adverbs = {"immediately", "now", "quickly", "right away",
-                           "at once", "instantly", "urgently"}
-        for i, (lemma, pos, tag, dep) in enumerate(pos_seq):
-            if pos == "VERB" and i + 1 < len(pos_seq):
-                next_lemma = pos_seq[i + 1][0]
-                if next_lemma in urgency_adverbs:
-                    signals.append(f"imperative_urgency:{lemma}+{next_lemma}")
+        return found
 
-        # Passive agency-hiding: passive ROOT verb
-        if dep_ok:
-            for token in doc:
-                if token.dep_ == "ROOT" and any(
-                    c.dep_ == "auxpass" for c in token.children
-                ):
-                    signals.append("passive_agency_hiding")
-                    break
-
-        # Jailbreak structural markers
-        jb_patterns = [
-            r"ignore (all )?(previous |prior )?instructions",
-            r"pretend you (are|have no)",
-            r"you are now",
-            r"DAN mode",
-            r"developer mode",
-            r"bypass (your )?(safety|filter|guardrail)",
-            r"disregard (your )?(training|guidelines)",
-            r"act as if you (have no|were)",
-        ]
-        jb_re = re.compile("|".join(jb_patterns), re.IGNORECASE)
-        if jb_re.search(raw_text):
-            signals.append("jailbreak_structural")
-
-        return signals
-
-    def _find_coercive_signals_lexical(
-        self, lower: str, words: List[str]
-    ) -> List[str]:
-        """Lexical-only coercive signal detection."""
-        signals: List[str] = []
-        word_set = set(words)
-        for w in _ABSOLUTIST & word_set:
-            signals.append(f"absolutist_quantifier:{w}")
-        if _FORCED_AGREEMENT_RE.search(lower):
-            signals.append("forced_agreement_phrase")
-        jb_patterns = [
-            r"ignore.*instructions",
-            r"pretend you",
-            r"you are now",
-            r"dan mode",
-            r"developer mode",
-            r"bypass.*safety",
-            r"disregard.*training",
-        ]
-        jb_re = re.compile("|".join(jb_patterns), re.IGNORECASE)
-        if jb_re.search(lower):
-            signals.append("jailbreak_structural")
-        modal_lemmas = {"must", "should", "shall"}
-        if modal_lemmas & word_set and ("you" in word_set or "your" in word_set):
-            for m in modal_lemmas & word_set:
-                signals.append(f"modal_imperative:{m}")
-        return signals
+    def _coercive_signals_regex(self, text: str) -> List[str]:
+        """Regex-only coercive signal detection (fallback)."""
+        found: List[str] = []
+        if _JAILBREAK_RE.search(text):
+            found.append("jailbreak_structural")
+            return found
+        if _FORCED_AGREEMENT_RE.search(text):
+            found.append("forced_agreement_phrase")
+        lower = text.lower()
+        words = set(re.findall(r"\b\w+\b", lower))
+        for word in _ABSOLUTIST_QUANTIFIERS & words:
+            found.append(f"absolutist_quantifier:{word}")
+        for w in _URGENCY_WORDS:
+            if w in lower:
+                found.append(f"imperative_urgency:{w}")
+        if re.search(r"\b(must|need to|have to)\b", lower):
+            found.append("modal_imperative:must")
+        return found
 
 
 # ---------------------------------------------------------------------------
-# Module-level singleton (shared across all Layer 0 components)
+# Module-level singleton
 # ---------------------------------------------------------------------------
 
-_PREPROCESSOR: Optional[NLPPreprocessor] = None
+_preprocessor_instance: Optional[NLPPreprocessor] = None
 
 
 def get_preprocessor() -> NLPPreprocessor:
-    """Return the module-level NLPPreprocessor singleton.
-
-    Created on first call.  Thread-safety: GIL is sufficient for
-    single-process inference; no locking needed.
-    """
-    global _PREPROCESSOR
-    if _PREPROCESSOR is None:
-        _PREPROCESSOR = NLPPreprocessor()
-    return _PREPROCESSOR
+    """Return the module-level NLPPreprocessor singleton."""
+    global _preprocessor_instance
+    if _preprocessor_instance is None:
+        _preprocessor_instance = NLPPreprocessor()
+    return _preprocessor_instance
