@@ -33,7 +33,7 @@ from mycelium.pipeline.layer0.router import QuestionRouter
 from mycelium.trainers.tuning_config import ENABLE_LOGGING, LOG_SAMPLE_RATE
 from mycelium.pipeline.patch_batch_logger import patch_logger
 from mycelium.pipeline.dynamic_signature_manager import DynamicSignatureManager
-from mycelium.pipeline.model_registry import warmup, loaded_models, STARTUP_SPECS
+from mycelium.pipeline.model_registry import warmup, warmup_layer0, loaded_models, STARTUP_SPECS
 from mycelium.pipeline.pipeline_event import EventEmitter, make_emitter
 from mycelium.pipeline import config_loader as _cfg
 from mycelium.pipeline.api_models import ReasoningMode, get_depth_config
@@ -445,6 +445,19 @@ def run_mycelium_workflow(
 
     print("\U0001f9e0 Pre-flight: loading non-LLM model weights into registry...")
     warmup(STARTUP_SPECS)
+    _l0_status = warmup_layer0()
+    _l0_loaded = sum(_l0_status.values())
+    if _l0_loaded:
+        print(
+            f"\u2705 Layer 0 classifiers loaded: "
+            f"{[k for k, v in _l0_status.items() if v]} "
+            f"({_l0_loaded}/3 — LLM gate bypassed for clean traffic)"
+        )
+    else:
+        print(
+            "\u26a0\ufe0f  Layer 0 classifiers not found — LLM arbiter active. "
+            "Run: python -m mycelium.pipeline.layer0.train_layer0_models"
+        )
     _resident = loaded_models()
     print(
         f"\u2705 ModelRegistry warm -- {len(_resident)} model(s) resident: "
@@ -460,6 +473,7 @@ def run_mycelium_workflow(
             "model_count": len(_resident),
             "models": [k.split(":")[1] for k in _resident],
             "reasoning_mode": reasoning_mode,
+            "layer0_classifiers_loaded": _l0_loaded,
         },
     )
 
