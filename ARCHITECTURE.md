@@ -1,7 +1,7 @@
 # Mycelium — Architecture Diagram
 
 > **WIP — updated in stages.** See `.diagram_wip.md` for expansion plan.  
-> Stage 4: `unified_expert_system.py` internals expanded (expert initialization, LRU cache, unified scoring, recommendation logic).
+> Stage 5: `phase2/pipeline.py` internals expanded (6-phase orchestration, expert resolution, depth-cap).
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -15,140 +15,21 @@
                                                                                                 │   │
 ┌────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │  FASTAPI BACKEND  (broadcast_api.py)                                                               │
-│                                                                                                    │
-│  Startup                                                                                           │
-│  └─ preload_models()                                                                               │
-│      └─ model_registry.warmup([mpnet, MiniLM])  ── _warmup_done.set()                              │
-│      └─ _write_calibration_state()  →  runtime/calibration_state.json                              │
-│                                                                                                    │
-│  POST /api/v1/chat/stream  (primary SSE)                                               ◄───┘       │
-│  GET  /api/v1/chat/stream  (legacy GET shim)                                                       │
-│  POST /api/v1/chat         (blocking, returns ChatResponse)                                        │
-│  POST /api/v1/query        (legacy, returns MyceliumRunSummary only)                               │
-│  GET  /health  /api/v1/health                                                                      │
-│  GET  /api/calibrate/ready                                                                         │
-│  GET  /api/v1/traces/recent  GET /api/v1/traces/{trace_id}                                         │
-│                                                                                                    │
-│  _make_sse_response()                                                                              │
-│  ├─ ReplayJournal (maxlen=200)  ←─ reconnect replay via Last-Event-ID header                       │
-│  └─ ThreadPoolExecutor(1)  →  _producer()                                                          │
-│       └─ _full_pipeline_generator()                                                                │
-│            ├─ _build_run_summary()  ──────────────────────────────────────────────────────────────┐│
-│            ├─ _run_sandbox()                                                                       ││
-│            ├─ ConversationAgent.answer()                                                           ││
-│            ├─ append_trace()  →  traces/*.jsonl                                                    ││
-│            └─ patch_logger.log_query() / fill_response()  (patch queries)                         ││
-│                                                                                                    │
-│  asyncio.Queue ──────────────────────── pipeline events (SSE) ─────────────────────────────────────┘
-│  (loop.call_soon_threadsafe)  →  StreamingResponse(_async_gen)                                     │
+│  ... unchanged from Stage 4 ...                                                                    │
 └────────────────────────────────────────────────────────────────────────────────────────────────────┘
                                             |
                                _build_run_summary()
                                └─ run_mycelium_workflow()  [run_workflow.py]
                                     |
 ┌────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│  PIPELINE ORCHESTRATOR  (run_workflow.py :: run_mycelium_workflow)                                  │
-│                                                                                                    │
-│  INIT (once per request)                                                                           │
-│  ├─ api_models.get_depth_config(reasoning_mode)                                                    │
-│  ├─ EventEmitter / make_emitter()  →  pipeline_event.py                                            │
-│  ├─ model_registry.warmup(STARTUP_SPECS)                                                           │
-│  ├─ Phase2Pipeline()                                                                               │
-│  ├─ Phase3To5Pipeline()                                                                            │
-│  ├─ GraphStore(persistence_path)                                                                   │
-│  ├─ MultiWorkerDFSLookup(graph_store)                                                              │
-│  ├─ TRMEngine(store, dfs)                                                                          │
-│  ├─ TRMLens()                                                                                      │
-│  ├─ DAGDecomposer(graph_store, max_depth)                                                          │
-│  ├─ TRMReasoner (optional, loaded from trm_latest.pt checkpoint)                                   │
-│  ├─ CanonicalizeAndHash  (optional)                                                                │
-│  ├─ DSTFusion  (optional)                                                                          │
-│  ├─ ContradictionClassifier  (optional)                                                            │
-│  ├─ get_unified_expert_system()  →  UnifiedExpertSystem                                            │
-│  ├─ DynamicSignatureManager.sync_signatures()  →  SpectralAnalyzer                                │
-│  ├─ MultiLensRouter(spectral_analyzer)                                                             │
-│  ├─ TRMOODFallback (optional, wraps TRMOODHead + MultiLensRouter)                                 │
-│  ├─ ExpertFilter(domain_list, use_auto_clustering=True)                                            │
-│  └─ QuestionRouter()  [layer0/router.py]                                                           │
-│                                                                                                    │
-│  PER-SENTENCE LOOP  (╳ each sentence in the batch)                                                 │
-│  │                                                                                                 │
-│  ├── 1. TAG EXTRACTION  [layer1_router.py]                                                         │
-│  │       extract_tags_llama(text)  →  raw tags                                                     │
-│  │       normalize_tags(tags)  →  normalized_tags                                                  │
-│  │       TemporalLocalityLayer.add_statement()                                                     │
-│  │                                                                                                 │
-│  ├── 2. LAYER 0 ROUTING  [layer0/router.py]                                                        │
-│  │       QuestionRouter.route(text)                                                                │
-│  │       ├─ route == REASONING_PIPELINE  →  continue to step 3                                     │
-│  │       └─ other routes (refusal, direct)  →  emit SSE + skip remaining steps                     │
-│  │                                                                                                 │
-│  ├── 3. MULTI-LENS ROUTING  [multi_lens_router.py]  ←── see detail block below                    │
-│  │       MultiLensRouter.route(text)  →  RoutingResult                                             │
-│  │       TRMLens.refine(routing_context)  →  refined routing_context                               │
-│  │       └─ shadow_signal PROMOTE_TO_EXPERT → reload_domain_ontology()                             │
-│  │                                                                                                 │
-│  ├── 4. DOMAIN RESOLUTION                                                                          │
-│  │       routing_context.selected_domains  →  relevant_domains[]                                   │
-│  │       ExpertFilter.normalize_domain()  (fallback normalization)                                 │
-│  │       emit graph:dfs_step (one event per domain)                                                │
-│  │                                                                                                 │
-│  ├── 5. TRM REASONER  (optional)  [trm/reasoner.py]                                               │
-│  │       _run_trm_reasoner(text, routing_context, relevant_domains)                                │
-│  │       ├─ reranks relevant_domains by domain_probs                                               │
-│  │       ├─ halt_confidence < trm_threshold  →  should_escalate = True                             │
-│  │       └─ TRMOODFallback.should_trigger()  →  LEVEL_N ood_fallback_result                        │
-│  │                                                                                                 │
-│  ├── 6. LAYER 1 SPATIAL/TEMPORAL ANALYSIS  [layer1_router.py]                                      │
-│  │       embed_tags_transformer(normalized_tags)  →  tag_vectors                                   │
-│  │       cluster_tags_transformer()  →  tag_clusters                                               │
-│  │       TemporalLocalityLayer.get_recent_statements()                                             │
-│  │       analyze_spatial_locality()  →  spatial_analysis                                          │
-│  │       assign_domain_patch()  →  domain_patch                                                   │
-│  │                                                                                                 │
-│  ├── 7. EXPERT PRE-FILTER  [expert_filter.py]                                                      │
-│  │       ExpertFilter.filter_experts_by_tags()  →  pre_filter_result                               │
-│  │       filtered_experts = {domain: expert}  →  only in relevant_domains                         │
-│  │                                                                                                 │
-│  ├── 8. PHASE 2 PIPELINE  [phase2/pipeline.py]                                                     │
-│  │       Phase2Pipeline.run(text, routing_context, filtered_experts, depth_cfg)                   │
-│  │       emit graph:tool_start / graph:tool_done                                                   │
-│  │       └─ returns Phase2Result  →  _adapt_phase2_to_p3()  →  P3FinalDecisionResult               │
-│  │                                                                                                 │
-│  ├── 9. PHASE 3–5 PIPELINE  [phase3/pipeline.py]                                                   │
-│  │       Phase3To5Pipeline.run_complete_pipeline(final_decision_result)                            │
-│  │       emit graph:tool_start / graph:tool_done                                                   │
-│  │       └─ returns phase3_result (validation + action_result + phase_latencies)                   │
-│  │                                                                                                 │
-│  ├── 10. UNIFIED EXPERT DECISION  [unified_expert_system.py]  ←── see detail block below          │
-│  │        emit graph:synthesis_start                                                               │
-│  │        UnifiedExpertSystem.unified_decision_analysis(                                           │
-│  │            text, routing_context, filtered_experts, depth_cfg)                                 │
-│  │        └─ returns unified_decision  →  _adapt_unified_to_p3()                                   │
-│  │                                                                                                 │
-│  ├── 11. ORCHESTRATION COMBINE  [orchestration.py]                                                 │
-│  │        combine_routing_and_expert_decisions(routing, expert)                                    │
-│  │                                                                                                 │
-│  ├── 12. TRM TRACE WRITER  [trm/trm_routing_trace_writer.py]  (optional)                          │
-│  │        trm_trace_writer.record(text, routing_context, selected_domain, ...)                    │
-│  │                                                                                                 │
-│  └── →  append to all_sentence_data[]                                                             │
-│           fields: sentence, tags, routing_context, phase2_result, phase3_result,                   │
-│                   expert_decision, shadow_signal, trm_reasoner_result,                             │
-│                   ood_fallback_result, should_escalate                                             │
-└────────────────────────────────────────────────────────────────────────────────────────────────────┘
-
-
-                              ↑ step 1 + step 6 expand here ↓
-┌────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│  LAYER 1 ROUTER  (layer1_router.py)                                                                │
-│  ... unchanged from Stage 3 ...                                                                    │
+│  PIPELINE ORCHESTRATOR  (run_workflow.py)                                                           │
+│  ... unchanged from Stage 4 ...                                                                    │
 └────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
 
                               ↑ step 3 expands here ↓
 ┌────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│  MULTI-LENS ROUTER  (multi_lens_router.py :: MultiLensRouter.route)                                │
+│  MULTI-LENS ROUTER  (multi_lens_router.py)                                                          │
 │  ... unchanged from Stage 3 ...                                                                    │
 └────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
@@ -156,96 +37,52 @@
                               ↑ step 10 expands here ↓
 ┌────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │  UNIFIED EXPERT SYSTEM  (unified_expert_system.py)                                                 │
+│  ... unchanged from Stage 4 ...                                                                    │
+└────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+                              ↑ step 8 expands here ↓
+┌────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│  PHASE 2 PIPELINE  (phase2/pipeline.py :: Phase2Pipeline)                                          │
 │                                                                                                    │
-│  get_unified_expert_system()                                                                       │
-│  └─ singleton _unified_system : UnifiedExpertSystem                                                │
+│  Phase2Pipeline.__init__(config=Phase2Config())                                                    │
+│  ├─ InputNormalizationPipeline(config)        phase_2_1_input_normalization.py                   │
+│  ├─ SemanticUnderstandingPipeline(config)     phase_2_2_semantic_understanding.py                │
+│  ├─ ExpertSelectionPipeline(config)           phase_2_3_expert_selection.py                      │
+│  ├─ MultiExpertInferencePipeline(config)      phase_2_4_inference.py                             │
+│  ├─ CalibrationPipeline(config)               phase_2_5_calibration.py                           │
+│  └─ DecisionSynthesisPipeline(config)         phase_2_6_synthesis.py                             │
 │                                                                                                    │
-│  UnifiedExpertSystem.__init__()                                                                    │
-│  ├─ reads max_resident_experts from config_loader (fallback=8)                                    │
-│  ├─ _initialize_all_experts()                                                                      │
-│  │   └─ initialize_unified_experts(enable_calibration, enable_ood_detection)                      │
-│  └─ wraps _raw_experts in _ExpertLRUCache(max_k=max_resident)                                     │
+│  Phase2Pipeline.run(text, routing_context, filtered_experts, depth_config)                        │
+│  │                                                                                                 │
+│  ├─ 2.1  InputNormalizationPipeline.normalize(text)                                               │
+│  │       → norm_result  { cleaned_text, domain_mapping, ... }                                      │
+│  │                                                                                                 │
+│  ├─ 2.2  SemanticUnderstandingPipeline.understand(norm_result, domains)                           │
+│  │       → semantic_result                                                                         │
+│  │                                                                                                 │
+│  ├─ 2.3  Expert resolution (priority order):                                                       │
+│  │       1. available_experts  (explicit list, highest priority)                                   │
+│  │       2. filtered_experts   (dict → [{name:expert_{d}, domain:d}] conversion)                  │
+│  │       3. ExpertSelectionPipeline.build_default_experts(semantic_result)                        │
+│  │       ExpertSelectionPipeline.select_experts(semantic_result, experts,                         │
+│  │                                              routing_context=routing_context)                  │
+│  │       → selection_result { selected_experts[] }                                                 │
+│  │       depth_config.expert_top_k caps selected_experts length                                   │
+│  │         fast=1  balanced=2  deep=3                                                              │
+│  │                                                                                                 │
+│  ├─ 2.4  MultiExpertInferencePipeline.infer(cleaned_text, selected_experts)                       │
+│  │       → inference_result                                                                        │
+│  │                                                                                                 │
+│  ├─ 2.5  CalibrationPipeline.calibrate_and_quantify(inference_result)                             │
+│  │       → calibration_result                                                                      │
+│  │                                                                                                 │
+│  └─ 2.6  DecisionSynthesisPipeline.synthesize(                                                    │
+│            norm_result, semantic_result, selection_result,                                         │
+│            inference_result, calibration_result)                                                   │
+│         → FinalDecisionResult { final_decision, decision_confidence, phase_outputs... }            │
 │                                                                                                    │
-│  _ExpertLRUCache                                                                                   │
-│  ├─ resident experts kept in OrderedDict _loaded                                                  │
-│  ├─ overflow experts pickled to lru_cache/<domain>.pkl                                            │
-│  ├─ __getitem__ reloads evicted expert on demand and re-applies LRU eviction                      │
-│  └─ keys()/items()/values()/__contains__ include resident + evicted domains                       │
-│                                                                                                    │
-│  initialize_unified_experts()                                                                      │
-│  ├─ hardcoded SVM configs: music → experts/Music                                                  │
-│  │   └─ create_unified_expert_from_domain_folder()                                                │
-│  │       ├─ finds svm_model_*.pkl                                                                  │
-│  │       ├─ finds *vectorizer*.pkl                                                                 │
-│  │       └─ finds *.csv dataset                                                                    │
-│  ├─ hardcoded BERT configs: physics / chemistry / medical                                         │
-│  │   └─ UnifiedBERTExpert(domain, model_path=domain_folder, dataset_path=resolved CSV)           │
-│  └─ returns {domain: expert}                                                                       │
-│                                                                                                    │
-│  UnifiedExpert (SVM-backed expert)                                                                 │
-│  ├─ _load_trained_model()      → pickle.load(model_path)                                          │
-│  ├─ _load_vectorizer()         → explicit vectorizer_path OR auto-discover *vectorizer*.pkl      │
-│  ├─ _setup_k_medoids_system()                                                                    │
-│  │   ├─ load existing centroid_*.pkl if present                                                   │
-│  │   └─ else _calculate_centroid() + _save_centroid()                                             │
-│  ├─ _setup_calibration_system()                                                                   │
-│  │   ├─ reads dataset CSV + label column                                                          │
-│  │   ├─ train_test_split(stratified)                                                              │
-│  │   ├─ CalibratedClassifierCV(method="isotonic")                                                │
-│  │   └─ calibration_score = 1 - brier_score_loss()                                                │
-│  ├─ _setup_ood_detection_system()                                                                 │
-│  │   ├─ vectorizer.transform(training_texts)                                                      │
-│  │   ├─ SentenceTransformer(all-MiniLM-L6-v2) embeddings                                          │
-│  │   ├─ IsolationForest(contamination=0.1, n_estimators=50)                                       │
-│  │   └─ NearestNeighbors(n_neighbors=3, metric="cosine")                                         │
-│  └─ system_stats.initialization_status records success/disabled flags                             │
-│                                                                                                    │
-│  K-Medoids path                                                                                    │
-│  ├─ _calculate_centroid()                                                                         │
-│  │   ├─ embed dataset texts with model_registry SentenceTransformer                                │
-│  │   ├─ _pure_python_k_medoids(embeddings, k=10)                                                  │
-│  │   ├─ stores self.medoids, self.medoid, self.centroid                                           │
-│  │   └─ self.medoid_text = representative text                                                     │
-│  ├─ _pure_python_k_medoids()                                                                      │
-│  │   ├─ initialize random medoid_indices                                                          │
-│  │   ├─ assign by cosine_similarity to medoids                                                    │
-│  │   ├─ recompute cluster medoid by minimum total cosine distance                                 │
-│  │   └─ iterate until convergence or 10 iterations                                                │
-│  └─ calculate_similarity_to_centroid(text) → max cosine(text_embedding, each medoid)             │
-│                                                                                                    │
-│  UnifiedExpert.unified_decision_analysis(text)                                                    │
-│  ├─ systems_analysis.k_medoids     → similarity_score, num_medoids, medoid_text                  │
-│  ├─ systems_analysis.calibration   → prediction, confidence_score, calibration_quality            │
-│  ├─ systems_analysis.ood_detection → is_ood, ood_confidence, ood_scores, reason                  │
-│  ├─ _calculate_unified_scores()                                                                   │
-│  │   composite = 0.45*adj_similarity + 0.45*adj_confidence + 0.1*(1-ood_penalty)                 │
-│  │   quality_score from enabled systems + calibration quality                                     │
-│  └─ _make_unified_recommendation()                                                                 │
-│      ├─ high composite + low OOD     → use_existing_expert                                        │
-│      ├─ medium composite + tolerable OOD → create_new_patch                                       │
-│      └─ otherwise                     → create_new_expert                                         │
-│                                                                                                    │
-│  OOD path                                                                                          │
-│  ├─ svm_distance = abs(model.decision_function(tfidf))                                            │
-│  ├─ nn_distance  = mean cosine distance to 3 nearest training embeddings                          │
-│  ├─ isolation_score = IsolationForest.decision_function(embedding)                                │
-│  ├─ ood_flags = [svm_distance<0.3, nn_distance>0.65, isolation_score<-0.05]                      │
-│  └─ is_ood = at least 2 of 3 methods flag OOD                                                     │
-│                                                                                                    │
-│  make_unified_expert_decision(input_text, experts, depth_config)                                  │
-│  ├─ if depth_config.expert_top_k > 0: cheap pre-rank all experts by centroid similarity          │
-│  ├─ run full unified_decision_analysis() only on top-k experts                                   │
-│  ├─ weighted_score = composite_score * quality_score                                              │
-│  └─ choose best expert, returning unified_decision {selected_domain, recommendation, quality}     │
-│                                                                                                    │
-│  UnifiedExpertSystem.unified_decision_analysis(...)                                               │
-│  ├─ experts = filtered_experts or self.experts                                                    │
-│  ├─ decision_result = make_unified_expert_decision(...)                                           │
-│  ├─ recommendation.decision normalized to:                                                        │
-│  │   USE_EXISTING_EXPERT | CREATE_NEW_PATCH | CREATE_NEW_EXPERT                                   │
-│  └─ returns ExpertDecisionResult(                                                                  │
-│        decision_type, selected_experts, expert_confidence, metadata=decision_result               │
-│      )                                                                                             │
+│  On any exception → raises Phase2PipelineError (caller gets structured failure)                   │
 └────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
 
@@ -296,6 +133,27 @@
   spacy_worker.py           spaCy subprocess worker
 
 
+                          PHASE 2 SUB-PHASES  (phase2/phases/)
+                          ────────────────────────────────────────
+
+  phase_2_1_input_normalization.py    InputNormalizationPipeline
+                                      .normalize(text)  →  NormalizationResult
+  phase_2_2_semantic_understanding.py SemanticUnderstandingPipeline
+                                      .understand(norm, domains)  →  SemanticResult
+  phase_2_3_expert_selection.py       ExpertSelectionPipeline
+                                      .select_experts(semantic, experts, routing_context)
+                                      .build_default_experts(semantic)  →  [{name,domain}]
+  phase_2_4_inference.py              MultiExpertInferencePipeline
+                                      .infer(text, selected_experts)  →  InferenceResult
+  phase_2_5_calibration.py            CalibrationPipeline
+                                      .calibrate_and_quantify(inference)  →  CalibrationResult
+  phase_2_6_synthesis.py              DecisionSynthesisPipeline
+                                      .synthesize(norm, semantic, selection,
+                                                  inference, calibration)
+                                      →  FinalDecisionResult { final_decision,
+                                                               decision_confidence }
+
+
                                 TRM SUBSYSTEM  (mycelium/trm/)
                                 ───────────────────────────────
 
@@ -321,7 +179,8 @@
 
 ---
 
-> **Stage 4 complete.** `unified_expert_system.py` expanded: singleton system init, resident/evicted expert cache,
-> SVM/BERT expert bootstrapping, K-medoids centroiding, isotonic calibration, 3-signal OOD detection,
-> top-k pre-ranking by centroid similarity, unified score composition, and ExpertDecisionResult normalization.
-> Next: `phase2/pipeline.py`, `phase3/pipeline.py`, `layer0/router.py`, TRM internals, web-ui.
+> **Stage 5 complete.** `phase2/pipeline.py` expanded: 6-phase sequence (2.1 input normalisation →
+> 2.2 semantic understanding → 2.3 expert resolution with 3-priority fallback + depth-cap →
+> 2.4 multi-expert inference → 2.5 calibration → 2.6 decision synthesis → FinalDecisionResult).
+> Sub-phase registry added to supporting-modules section.
+> Next: `phase3/pipeline.py`, `layer0/router.py`, TRM internals, web-ui.
