@@ -17,65 +17,7 @@ import {
   type GraphLifecycle,
   type LayoutMode,
 } from '../../types/graph';
-
-// ---------------------------------------------------------------------------
-// SSE phase → graph zone mapping
-// ---------------------------------------------------------------------------
-
-const PHASE_ZONE: Record<string, SubgraphZone> = {
-  setting_up:            'pipeline',
-  environment_ready:     'pipeline',
-  routing:               'pipeline',
-  graph_routing:         'reasoning',
-  graph_expert_init:     'reasoning',
-  graph_coverage_report: 'reasoning',
-  heartbeat:             'reasoning',
-  expert_decision:       'reasoning',
-  sandbox_plan:          'evidence',
-  sandbox_summary:       'evidence',
-  conversation:          'pipeline',
-  done:                  'pipeline',
-  error:                 'pipeline',
-  graph_dfs_step:        'reasoning',
-  graph_tool_start:      'evidence',
-  graph_tool_done:       'evidence',
-  graph_synthesis_start: 'reasoning',
-  graph_cluster_expand:  'reasoning',
-  graph_snapshot_saved:  'pipeline',
-};
-
-function zoneForPhase(phase: string): SubgraphZone {
-  if (PHASE_ZONE[phase]) return PHASE_ZONE[phase];
-  if (phase.startsWith('sandbox_tool/')) return 'evidence';
-  return 'reasoning';
-}
-
-// ---------------------------------------------------------------------------
-// SSE phase → NodeKind mapping
-// ---------------------------------------------------------------------------
-
-function kindForPhase(phase: string): NodeKind {
-  if (phase === 'expert_decision')        return 'decision_point';
-  if (phase === 'graph_synthesis_start')  return 'synthesis_node';
-  if (phase.startsWith('sandbox_tool/') ||
-      phase === 'sandbox_plan' ||
-      phase === 'graph_tool_start' ||
-      phase === 'graph_tool_done')        return 'tool_call';
-  if (phase === 'graph_routing' ||
-      phase === 'graph_expert_init' ||
-      phase === 'graph_coverage_report' ||
-      phase === 'graph_dfs_step')         return 'expert';
-  if (phase === 'heartbeat')              return 'reasoning_step';
-  if (phase === 'routing' ||
-      phase === 'setting_up' ||
-      phase === 'environment_ready' ||
-      phase === 'conversation' ||
-      phase === 'done' ||
-      phase === 'error')                  return 'pipeline_stage';
-  if (phase === 'sandbox_summary' ||
-      phase === 'graph_snapshot_saved')   return 'evidence_node';
-  return 'reasoning_step';
-}
+import { zoneForPhaseName, kindForPhaseName } from '../../types/sseContract';
 
 // ---------------------------------------------------------------------------
 // Node size derivation from semantic weight (§2.3.8)
@@ -123,6 +65,9 @@ export function edgeThickness(weight?: number, highDetail = false): number {
 // buildNodeFromSseEvent
 // The main mapping function: SSE event → GraphNode.
 // Uses sequenceNumber for deterministic ordering (§4.3).
+// Zone and kind are now derived from the shared sseContract helpers so that
+// a backend phase_name rename is caught at the call site, not silently
+// mis-routed to the wrong graph zone.
 // ---------------------------------------------------------------------------
 
 export function buildNodeFromSseEvent(
@@ -130,8 +75,8 @@ export function buildNodeFromSseEvent(
   sequenceNumber: number,
 ): GraphNode {
   const phase     = (event.phase_name ?? event.phase ?? 'unknown') as string;
-  const kind      = kindForPhase(phase);
-  const zone      = zoneForPhase(phase);
+  const kind      = kindForPhaseName(phase);
+  const zone      = zoneForPhaseName(phase);
   const state     = event.state === 'done' ? 'done'
                   : event.state === 'error' ? 'error'
                   : event.phase === 'done' ? 'done'
