@@ -84,14 +84,18 @@ class ValueAssumptionExtractor:
     ) -> Optional[List[Assumption]]:
         """Return list of additional typed Assumptions from the sklearn model, or None."""
         try:
-            from mycelium.pipeline.model_registry import get_layer0_classifier
+            from mycelium.pipeline.model_registry import get_layer0_classifier, get_model
             from mycelium.pipeline.layer0.train_layer0_models import _rule_signal_vector
             artifact = get_layer0_classifier("assumption_typer")
             if artifact is None:
                 return None
-            from sentence_transformers import SentenceTransformer  # type: ignore
             import numpy as np
-            encoder = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+            # Pull the already-warmed encoder from the registry — never reload from disk.
+            encoder = get_model(
+                "sentence-transformers/all-MiniLM-L6-v2",
+                model_type="sentence_transformer",
+                device="cpu",
+            )
             emb = encoder.encode([text], convert_to_numpy=True)
             rule_vec = _rule_signal_vector(text).reshape(1, -1)
             X = np.hstack([emb, rule_vec])
@@ -112,7 +116,7 @@ class ValueAssumptionExtractor:
         except Exception:
             return None
 
-    # Layers A, B, C, D — identical to previous version, plus dataset_logger hook in _layer_d
+    # Layers A, B, C, D — unchanged
 
     def _layer_a(self, analysis: SentenceAnalysis, raw_text: str) -> List[Assumption]:
         found: List[Assumption] = []
@@ -190,7 +194,6 @@ class ValueAssumptionExtractor:
         if response is None:
             return []
         results = self._parse_llm_response(response)
-        # Log for training
         try:
             from mycelium.pipeline.layer0.dataset_logger import log_entry
             detected_types = [a.atype for a in results]
