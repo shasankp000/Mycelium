@@ -247,7 +247,12 @@ class WorkflowMetrics:
         }
 
 
+# ---------------------------------------------------------------------------
+# Process-level singletons — initialised once, reused across workflow calls
+# ---------------------------------------------------------------------------
+
 _trm_reasoner: Optional[Any] = None
+_question_router: Optional[QuestionRouter] = None
 
 
 def _get_trm_reasoner() -> Optional[Any]:
@@ -289,6 +294,16 @@ def _get_trm_reasoner() -> Optional[Any]:
     except Exception as _e:
         print(f"\u274c TRMReasoner init failed: {_e} \u2014 TRM disabled for this run")
         return None
+
+
+def _get_question_router() -> QuestionRouter:
+    """Return the process-level singleton QuestionRouter, creating it once."""
+    global _question_router
+    if _question_router is None:
+        print("Initializing Layer0 question router...")
+        _question_router = QuestionRouter()
+        print("\u2705 Layer0 router initialized\n")
+    return _question_router
 
 
 def _sanitize_spectral_scores(spectral_scores: Any) -> Any:
@@ -572,9 +587,6 @@ def run_mycelium_workflow(
     router = MultiLensRouter(spectral_analyzer=spectral_analyzer)
 
     if trm_reasoner is not None and TRMOODFallback is not None:
-        # ----------------------------------------------------------------
-        # Trained path: build OOD fallback with live TRMReasoner
-        # ----------------------------------------------------------------
         try:
             if TRMConfig is None or TRMOODHead is None:
                 raise RuntimeError("TRMConfig/TRMOODHead unavailable")
@@ -598,18 +610,13 @@ def run_mycelium_workflow(
             )
             _ood_fallback = None
     elif TRMOODFallback is not None:
-        # ----------------------------------------------------------------
-        # Pre-TRM path: no checkpoint yet — build OOD fallback anyway so
-        # the L0-L6 reasoning chain fires unconditionally for every query.
-        # TRMOODHead is omitted (no TRMOutput to feed it).
-        # ----------------------------------------------------------------
         try:
             if TRMConfig is None:
                 raise RuntimeError("TRMConfig unavailable")
             _trm_cfg_pre = cast(Any, TRMConfig)()
             _ood_fallback = TRMOODFallback(
                 cfg=_trm_cfg_pre,
-                ood_head=None,          # no trained head without checkpoint
+                ood_head=None,
                 multi_lens_router=router,
                 canonicalizer=_canonicalizer,
                 dag_decomposer=dag_decomposer,
@@ -635,9 +642,8 @@ def run_mycelium_workflow(
     )
     print("\u2705 Expert filter initialized with auto-clustering\n")
 
-    print("Initializing Layer0 question router...")
-    question_router = QuestionRouter()
-    print("\u2705 Layer0 router initialized\n")
+    # Retrieve (or lazily create) the singleton QuestionRouter
+    question_router = _get_question_router()
 
     emitter.emit(
         phase_name="graph_router_ready",
@@ -710,9 +716,6 @@ def run_mycelium_workflow(
         routing_context = router.route(text)
         routing_context = trm_lens.refine(routing_context)
 
-        # ----------------------------------------------------------------
-        # Shadow domain handling
-        # ----------------------------------------------------------------
         shadow_signal_dict = _extract_shadow_signal(routing_context)
         if shadow_signal_dict is not None:
             _shadow_status = shadow_signal_dict.get("status", "")
@@ -746,7 +749,6 @@ def run_mycelium_workflow(
                     f"{_shadow_id} evidence={_shadow_evid} "
                     f"tokens={_shadow_tokens[:4]}"
                 )
-        # ----------------------------------------------------------------
 
         classification = getattr(routing_context, "classification", None)
         if classification:
@@ -800,11 +802,6 @@ def run_mycelium_workflow(
 
         relevant_domains = list(set(relevant_domains))
 
-        # ----------------------------------------------------------------
-        # graph:dfs_step  — one event per domain the router surfaced.
-        # Emitted here, after relevant_domains is final, so the frontend
-        # graph builder has the complete explored set before Phase 2 begins.
-        # ----------------------------------------------------------------
         _fused_scores: Dict[str, float] = dict(
             getattr(routing_context, "fusion_scores", {}) or {}
         )
@@ -823,16 +820,12 @@ def run_mycelium_workflow(
                     "classification": str(classification) if classification else "",
                 },
             )
-        # ----------------------------------------------------------------
 
         trm_reasoner_result: Optional[Dict[str, Any]] = None
         ood_fallback_result: Optional[Dict[str, Any]] = None
         should_escalate: bool = True
 
         if trm_reasoner is not None:
-            # ------------------------------------------------------------
-            # Trained path: run TRMReasoner → maybe trigger OOD fallback
-            # ------------------------------------------------------------
             trm_reasoner_result = _run_trm_reasoner(
                 trm_reasoner, text, routing_context, relevant_domains
             )
@@ -897,10 +890,6 @@ def run_mycelium_workflow(
                             "reason": _ood_res.reason,
                         }
         else:
-            # ------------------------------------------------------------
-            # Pre-TRM path: no checkpoint yet — run L0-L6 pipeline
-            # unconditionally via TRMLens.run_pre_trm_pipeline().
-            # ------------------------------------------------------------
             if _ood_fallback is not None:
                 _hint_domain = (
                     getattr(routing_context, "primary_domain", None)
@@ -936,17 +925,12 @@ def run_mycelium_workflow(
                         "pre_trm_mode": True,
                     }
 
-                    # Re-rank relevant_domains using the router result
-                    # that the fallback's terminal MultiLensRouter call
-                    # produced, if it returned any domain ordering.
                     _fb_router = getattr(_pre_trm_res, "router_result", None)
                     if _fb_router is not None:
                         _fb_domains = (
                             list(getattr(_fb_router, "selected_domains", []) or [])
                         )
                         if _fb_domains:
-                            # Prepend fallback-router domains; keep
-                            # original set as long-tail fallback.
                             _reranked = [
                                 d for d in _fb_domains if d in registered_domains
                             ]
@@ -995,9 +979,6 @@ def run_mycelium_workflow(
             if d in expert_system.experts
         }
 
-        # ----------------------------------------------------------------
-        # graph:tool_start — Phase 2 validation
-        # ----------------------------------------------------------------
         emitter.emit(
             phase_name="graph:tool_start",
             message="Starting Phase 2 validation",
@@ -1019,9 +1000,6 @@ def run_mycelium_workflow(
         )
         _prev_phase2_result = phase2_result
 
-        # ----------------------------------------------------------------
-        # graph:tool_done — Phase 2 validation complete
-        # ----------------------------------------------------------------
         emitter.emit(
             phase_name="graph:tool_done",
             message="Phase 2 validation complete",
@@ -1038,9 +1016,6 @@ def run_mycelium_workflow(
 
         p3_input = _adapt_phase2_to_p3(phase2_result, original_text=text)
 
-        # ----------------------------------------------------------------
-        # graph:tool_start — Phase 3 reasoning
-        # ----------------------------------------------------------------
         emitter.emit(
             phase_name="graph:tool_start",
             message="Starting Phase 3 reasoning pipeline",
@@ -1057,9 +1032,6 @@ def run_mycelium_workflow(
             final_decision_result=p3_input,
         )
 
-        # ----------------------------------------------------------------
-        # graph:tool_done — Phase 3 reasoning complete
-        # ----------------------------------------------------------------
         _p3_latencies: Dict[str, float] = {}
         if isinstance(phase3_result, dict):
             _p3_latencies = phase3_result.get("phase_latencies", {}) or {}
@@ -1077,11 +1049,6 @@ def run_mycelium_workflow(
             },
         )
 
-        # ----------------------------------------------------------------
-        # graph:synthesis_start — LLM synthesis about to begin
-        # Fires before unified_decision_analysis so the frontend can show
-        # a "thinking" node as soon as the expert arbiter starts.
-        # ----------------------------------------------------------------
         emitter.emit(
             phase_name="graph:synthesis_start",
             message="Expert synthesis starting",
