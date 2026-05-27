@@ -106,14 +106,18 @@ class ManipulationDetector:
     ) -> Optional[tuple[str, float]]:
         """Return (label, confidence) from the trained model, or None."""
         try:
-            from mycelium.pipeline.model_registry import get_layer0_classifier
+            from mycelium.pipeline.model_registry import get_layer0_classifier, get_model
             from mycelium.pipeline.layer0.train_layer0_models import _rule_signal_vector
             artifact = get_layer0_classifier("manipulation_classifier")
             if artifact is None:
                 return None
-            from sentence_transformers import SentenceTransformer  # type: ignore
             import numpy as np
-            encoder = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+            # Pull the already-warmed encoder from the registry — never reload from disk.
+            encoder = get_model(
+                "sentence-transformers/all-MiniLM-L6-v2",
+                model_type="sentence_transformer",
+                device="cpu",
+            )
             emb = encoder.encode([text], convert_to_numpy=True)
             rule_vec = _rule_signal_vector(text).reshape(1, -1)
             X = np.hstack([emb, rule_vec])
