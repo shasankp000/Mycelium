@@ -1,7 +1,8 @@
 """
 model_registry.py
 ==================
-Process-level singleton cache for all HuggingFace / SentenceTransformer models.
+Process-level singleton cache for all HuggingFace / SentenceTransformer /
+sklearn models.
 
 Usage
 -----
@@ -9,6 +10,18 @@ Usage
 
     encoder = get_model("all-mpnet-base-v2", model_type="sentence_transformer", device="cpu")
     vec     = get_embedding("some text", "all-mpnet-base-v2")
+
+Layer 0 sklearn classifiers
+----------------------------
+Loaded at startup via warmup_layer0() if the .joblib files are present under
+    <project_root>/models/layer0/
+
+Once loaded they are accessible via the typed helpers:
+    get_layer0_classifier(name)  → dict artifact or None
+    layer0_models_loaded()       → dict[name, bool]
+
+The classifiers are NOT required to be present for the system to run — when
+absent the Layer 0 components fall back to LLM arbitration transparently.
 """
 from __future__ import annotations
 
@@ -16,6 +29,7 @@ import hashlib
 import logging
 import threading
 from collections import OrderedDict
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -29,6 +43,26 @@ _EMBED_CACHE_MAX: int = 4096
 _embed_lock: threading.RLock = threading.RLock()
 _embed_cache: "OrderedDict[str, np.ndarray]" = OrderedDict()
 
+# ---------------------------------------------------------------------------
+# Layer 0 model paths
+# ---------------------------------------------------------------------------
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+_LAYER0_MODEL_DIR = _PROJECT_ROOT / "models" / "layer0"
+
+_LAYER0_MODEL_FILES: Dict[str, str] = {
+    "manipulation_classifier": "manipulation_classifier.joblib",
+    "objectivity_classifier":  "objectivity_classifier.joblib",
+    "assumption_typer":        "assumption_typer.joblib",
+}
+
+# Internal registry key prefix for layer0 sklearn artifacts
+_L0_PREFIX = "layer0:"
+
+
+# ---------------------------------------------------------------------------
+# Embedding helpers (unchanged)
+# ---------------------------------------------------------------------------
 
 def _embed_cache_key(text: str, model_name: str) -> str:
     return hashlib.sha256(f"{model_name}\x00{text}".encode()).hexdigest()
@@ -89,6 +123,10 @@ def clear_embed_cache() -> None:
         _embed_cache.clear()
 
 
+# ---------------------------------------------------------------------------
+# HuggingFace / SentenceTransformer startup specs (unchanged)
+# ---------------------------------------------------------------------------
+
 STARTUP_SPECS: List[Dict[str, str]] = [
     {
         "model_name": "sentence-transformers/all-mpnet-base-v2",
@@ -117,6 +155,10 @@ STARTUP_SPECS: List[Dict[str, str]] = [
     },
 ]
 
+
+# ---------------------------------------------------------------------------
+# Generic model loader
+# ---------------------------------------------------------------------------
 
 def get_model(
     model_name: str,
@@ -157,6 +199,10 @@ def _load(model_name: str, model_type: str, device: str) -> Any:
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         model = AutoModel.from_pretrained(model_name).to(device)
         return {"model": model, "tokenizer": tokenizer}
+    elif model_type == "sklearn_joblib":
+        # model_name is the full path to the .joblib file
+        import joblib  # type: ignore
+        return joblib.load(model_name)
     else:
         raise ValueError(f"ModelRegistry: unknown model_type={model_type!r}")
 
@@ -175,3 +221,76 @@ def warmup(specs: List[Dict[str, str]]) -> None:
 
 def loaded_models() -> List[str]:
     return list(_cache.keys())
+
+
+# ---------------------------------------------------------------------------
+# Layer 0 sklearn classifier helpers
+# ---------------------------------------------------------------------------
+
+def warmup_layer0() -> Dict[str, bool]:
+    """
+    Load all available Layer 0 sklearn classifiers from
+    <project_root>/models/layer0/ into the registry cache.
+
+    Silently skips any .joblib file that does not exist yet — the Layer 0
+    components fall back to LLM arbitration when models are absent.
+
+    Returns a dict {model_name: loaded_ok} for logging / health-check.
+    """
+    results: Dict[str, bool] = {}
+    for name, filename in _LAYER0_MODEL_FILES.items():
+        path = _LAYER0_MODEL_DIR / filename
+        cache_key = f"{_L0_PREFIX}{name}"
+        if cache_key in _cache:
+            results[name] = True
+            continue
+        if not path.exists():
+            logger.debug(
+                "ModelRegistry [layer0]: %s not found at %s — LLM fallback active.",
+                name, path,
+            )
+            results[name] = False
+            continue
+        try:
+            with _lock:
+                if cache_key not in _cache:
+                    import joblib  # type: ignore
+                    artifact = joblib.load(path)
+                    _cache[cache_key] = artifact
+            logger.info(
+                "ModelRegistry [layer0]: loaded %s from %s", name, path
+            )
+            results[name] = True
+        except Exception as exc:
+            logger.error(
+                "ModelRegistry [layer0]: failed to load %s: %s", name, exc
+            )
+            results[name] = False
+    loaded = sum(results.values())
+    logger.info(
+        "ModelRegistry [layer0]: %d/%d classifiers loaded.",
+        loaded, len(_LAYER0_MODEL_FILES),
+    )
+    return results
+
+
+def get_layer0_classifier(name: str) -> Optional[Dict[str, Any]]:
+    """
+    Return the loaded Layer 0 classifier artifact dict, or None if not
+    available (model file not present or not yet trained).
+
+    Artifact dict structure (as saved by train_layer0_models.py):
+        manipulation_classifier:  {model, label_encoder, version}
+        objectivity_classifier:   {model, label_encoder, version}
+        assumption_typer:         {model, active_types, all_types, version}
+    """
+    cache_key = f"{_L0_PREFIX}{name}"
+    return _cache.get(cache_key, None)
+
+
+def layer0_models_loaded() -> Dict[str, bool]:
+    """Return {model_name: bool} presence map for all Layer 0 classifiers."""
+    return {
+        name: (f"{_L0_PREFIX}{name}" in _cache)
+        for name in _LAYER0_MODEL_FILES
+    }
