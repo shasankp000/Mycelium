@@ -138,6 +138,49 @@ class PredictionCalibrator:
 
         return calibrated
 
+    def calibrate_predictions_with_temperature(
+        self,
+        raw_predictions: List[Dict],
+        temperature: float,
+        calibration_method: str = "temperature_scaling",
+    ) -> List[Dict]:
+        """Apply calibration using an externally supplied temperature.
+
+        Identical to calibrate_predictions() but skips the internal
+        temperature computation — the caller is responsible for
+        providing the temperature (e.g. after blending evidence hints).
+
+        Args:
+            raw_predictions: List of prediction dicts with
+                'confidence' key.
+            temperature: Pre-computed temperature value.
+            calibration_method: 'temperature_scaling' or 'isotonic'.
+
+        Returns:
+            List of calibrated prediction dicts.
+        """
+        if not raw_predictions:
+            return []
+
+        calibrated = []
+        for pred in raw_predictions:
+            cal_pred = dict(pred)
+            raw_conf = pred.get("confidence", 0.5)
+
+            if calibration_method == "temperature_scaling":
+                cal_conf = self.apply_temperature_scaling(
+                    [raw_conf], temperature
+                )[0]
+            else:
+                cal_conf = self._isotonic_calibrate(raw_conf)
+
+            cal_pred["calibrated_confidence"] = cal_conf
+            cal_pred["original_confidence"] = raw_conf
+            cal_pred["confidence"] = cal_conf
+            calibrated.append(cal_pred)
+
+        return calibrated
+
     def compute_calibration_temperature(
         self,
         predictions: List[Dict],
@@ -738,7 +781,23 @@ class CalibrationPipeline:
         >>> result = pipeline.calibrate_and_quantify(
         ...     inference_result
         ... )
+
+    Phase D integration:
+        Pass evidence_hints from run_workflow.py Stages 9–10 to
+        close the feedback loop from the predicate/DST layer:
+
+        >>> result = pipeline.calibrate_and_quantify(
+        ...     inference_result,
+        ...     evidence_hints={
+        ...         "evidence_confidence": scored.weighted_confidence,
+        ...         "evidence_dst": dst_result.summary(),
+        ...     },
+        ... )
     """
+
+    # Weight for blending evidence_confidence into temperature.
+    # 0.4 means 60% raw variance-based, 40% evidence-driven.
+    _EVIDENCE_TEMPERATURE_BLEND_WEIGHT: float = 0.4
 
     def __init__(
         self,
@@ -751,11 +810,128 @@ class CalibrationPipeline:
         self._metrics = CalibrationMetrics()
         self._metadata: Dict[str, Any] = {}
 
+    # ------------------------------------------------------------------
+    # Private helpers — Phase D hint extraction
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _extract_evidence_confidence(
+        evidence_hints: Optional[Dict[str, Any]],
+    ) -> Optional[float]:
+        """Safely extract evidence_confidence from hints dict.
+
+        Returns a float in (0, 1] or None if absent/invalid.
+        """
+        if not evidence_hints:
+            return None
+        raw = evidence_hints.get("evidence_confidence")
+        if raw is None:
+            return None
+        try:
+            val = float(raw)
+        except (TypeError, ValueError):
+            return None
+        if not (0.0 < val <= 1.0):
+            return None
+        return val
+
+    @staticmethod
+    def _extract_dst_net_confidence(
+        evidence_hints: Optional[Dict[str, Any]],
+    ) -> Optional[float]:
+        """Safely extract evidence_dst.net_confidence from hints.
+
+        Returns a float in (0, 1] or None if absent/invalid.
+        """
+        if not evidence_hints:
+            return None
+        dst = evidence_hints.get("evidence_dst")
+        if not isinstance(dst, dict):
+            return None
+        raw = dst.get("net_confidence")
+        if raw is None:
+            return None
+        try:
+            val = float(raw)
+        except (TypeError, ValueError):
+            return None
+        if not (0.0 < val <= 1.0):
+            return None
+        return val
+
+    def _blend_temperature_with_evidence(
+        self,
+        raw_temperature: float,
+        evidence_confidence: float,
+    ) -> float:
+        """Blend raw variance-based temperature with evidence prior.
+
+        Higher evidence_confidence → sharper (lower) temperature.
+        Lower evidence_confidence → more smoothing (higher temp).
+
+        Formula:
+            dst_temp = 1.0 / evidence_confidence
+            blended  = raw * (1 - w) + dst_temp * w
+        where w = _EVIDENCE_TEMPERATURE_BLEND_WEIGHT.
+
+        Args:
+            raw_temperature: Temperature from variance heuristic.
+            evidence_confidence: Weighted confidence from EvidenceScorer.
+
+        Returns:
+            Blended temperature >= 0.1.
+        """
+        w = self._EVIDENCE_TEMPERATURE_BLEND_WEIGHT
+        dst_temp = 1.0 / max(evidence_confidence, 0.01)
+        blended = raw_temperature * (1.0 - w) + dst_temp * w
+        return max(0.1, blended)
+
+    @staticmethod
+    def _apply_dst_ceiling(
+        calibrated: List[Dict],
+        ceiling: float,
+    ) -> List[Dict]:
+        """Cap each prediction's confidence to the DST net_confidence ceiling.
+
+        Mirrors the modal ceiling annotation logic in
+        evidence_dst_adapter.py — the cap is explicit and auditable,
+        not a silent reduction.  Each capped prediction gains a
+        'dst_ceiling_applied' key with the ceiling value so that
+        phase_2_6_synthesis can surface it in explanation rendering.
+
+        Args:
+            calibrated: List of calibrated prediction dicts (mutated
+                in-place — dicts are already copies from calibrate_*).
+            ceiling: DST net_confidence upper bound in (0, 1].
+
+        Returns:
+            The same list with confidences capped and annotations added.
+        """
+        for pred in calibrated:
+            conf = pred.get("confidence", 0.0)
+            if conf > ceiling:
+                pred["confidence"] = ceiling
+                pred["calibrated_confidence"] = ceiling
+                pred["dst_ceiling_applied"] = ceiling
+                logger.debug(
+                    "DST ceiling %.3f applied to expert '%s' "
+                    "(was %.3f)",
+                    ceiling,
+                    pred.get("expert_name", "unknown"),
+                    conf,
+                )
+        return calibrated
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
     def calibrate_and_quantify(
         self,
         inference_result: InferenceResult,
         calibration_method: str = "temperature_scaling",
         uncertainty_method: str = "bayesian",
+        evidence_hints: Optional[Dict[str, Any]] = None,
     ) -> CalibrationResult:
         """Run full calibration and uncertainty pipeline.
 
@@ -763,6 +939,16 @@ class CalibrationPipeline:
             inference_result: Output from Phase 2.4.
             calibration_method: Calibration approach.
             uncertainty_method: Uncertainty approach.
+            evidence_hints: Optional dict from run_workflow.py
+                Stages 9–10 containing Phase D feedback signals:
+                  - 'evidence_confidence' (float): weighted
+                    confidence from EvidenceScorer; used to adjust
+                    the calibration temperature.
+                  - 'evidence_dst' (dict): EvidenceDSTResult.summary()
+                    dict; 'net_confidence' key is used as a hard
+                    upper-bound cap on all calibrated confidences.
+                Absent, None, or malformed values are silently
+                ignored — the pipeline always produces a valid result.
 
         Returns:
             CalibrationResult with all outputs.
@@ -771,6 +957,14 @@ class CalibrationPipeline:
         warnings: List[str] = []
 
         logger.info("Starting Phase 2.5 calibration")
+
+        # --- Extract Phase D hints (fully guarded) ---
+        evidence_confidence = self._extract_evidence_confidence(
+            evidence_hints
+        )
+        dst_ceiling = self._extract_dst_net_confidence(
+            evidence_hints
+        )
 
         # Build prediction list from inference result
         raw_predictions = []
@@ -790,16 +984,45 @@ class CalibrationPipeline:
                 ),
             )
 
-        # Step 1: Calibrate predictions
-        calibrated = self._calibrator.calibrate_predictions(
-            raw_predictions, calibration_method
-        )
-
-        temperature = (
+        # Step 1: Compute raw temperature from variance heuristic
+        raw_temperature = (
             self._calibrator.compute_calibration_temperature(
                 raw_predictions
             )
         )
+
+        # Step 1a: Blend with evidence_confidence if available
+        if evidence_confidence is not None:
+            temperature = self._blend_temperature_with_evidence(
+                raw_temperature, evidence_confidence
+            )
+            logger.debug(
+                "Phase D temperature blend: raw=%.3f "
+                "evidence_conf=%.3f -> blended=%.3f",
+                raw_temperature,
+                evidence_confidence,
+                temperature,
+            )
+        else:
+            temperature = raw_temperature
+
+        # Step 1b: Calibrate predictions using (possibly adjusted) temperature
+        calibrated = (
+            self._calibrator.calibrate_predictions_with_temperature(
+                raw_predictions, temperature, calibration_method
+            )
+        )
+
+        # Step 1c: Apply DST net_confidence ceiling if available
+        if dst_ceiling is not None:
+            calibrated = self._apply_dst_ceiling(
+                calibrated, dst_ceiling
+            )
+            logger.debug(
+                "Phase D DST ceiling %.3f applied to %d predictions",
+                dst_ceiling,
+                len(calibrated),
+            )
 
         # Step 2: Compute uncertainties
         epistemic = (
@@ -837,12 +1060,19 @@ class CalibrationPipeline:
             "uncertainty_method": uncertainty_method,
             "n_predictions": len(calibrated),
             "processing_time_ms": elapsed,
+            # Phase D audit keys
+            "evidence_confidence_hint": evidence_confidence,
+            "dst_net_confidence_ceiling": dst_ceiling,
         }
 
         logger.info(
-            "Phase 2.5 complete: temp=%.2f "
+            "Phase 2.5 complete: temp=%.2f (raw=%.2f) "
+            "dst_ceil=%s evidence_conf=%s "
             "total_uncertainty=%.4f time=%.1fms",
             temperature,
+            raw_temperature,
+            f"{dst_ceiling:.3f}" if dst_ceiling is not None else "none",
+            f"{evidence_confidence:.3f}" if evidence_confidence is not None else "none",
             total.get("total_uncertainty", 0.0),
             elapsed,
         )
@@ -863,9 +1093,9 @@ class CalibrationPipeline:
         )
 
     def get_processing_metadata(self) -> Dict[str, Any]:
-        """Return timing metadata.
+        """Return timing and Phase D audit metadata.
 
         Returns:
-            Dict with processing metadata.
+            Dict with processing metadata including Phase D hint values.
         """
         return dict(self._metadata)
