@@ -77,6 +77,57 @@ class Phase2Pipeline:
         self._synthesis_pipeline = DecisionSynthesisPipeline(self.config)
         logger.info("Phase2Pipeline initialised")
 
+    # ------------------------------------------------------------------
+    # Internal helper: extract evidence_hints from depth_config
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_evidence_hints(
+        depth_config: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """Extract Phase-D evidence keys from *depth_config*.
+
+        Returns a dict suitable for passing as *evidence_hints* to
+        :meth:`CalibrationPipeline.calibrate_and_quantify`, or
+        ``None`` when neither key is present so that the callee can
+        distinguish "no hints" from "hints present but zero-valued".
+
+        Keys read from *depth_config* (both optional):
+          * ``evidence_confidence`` — float in [0, 1] from
+            EvidenceScorer.weighted_confidence
+          * ``evidence_dst`` — summary dict from
+            EvidenceDSTAdapter.fuse().summary()
+
+        Args:
+            depth_config: The per-sentence depth config dict built
+                in run_workflow.py, or ``None`` for callers that
+                don't supply one.
+
+        Returns:
+            Dict with at least one key, or ``None``.
+        """
+        if not depth_config:
+            return None
+
+        hints: Dict[str, Any] = {}
+
+        ev_conf = depth_config.get("evidence_confidence")
+        if ev_conf is not None:
+            try:
+                hints["evidence_confidence"] = float(ev_conf)
+            except (TypeError, ValueError):
+                pass
+
+        ev_dst = depth_config.get("evidence_dst")
+        if isinstance(ev_dst, dict) and ev_dst:
+            hints["evidence_dst"] = ev_dst
+
+        return hints if hints else None
+
+    # ------------------------------------------------------------------
+    # Public entry point
+    # ------------------------------------------------------------------
+
     def run(
         self,
         text: str,
@@ -110,6 +161,11 @@ class Phase2Pipeline:
                 When present, ``expert_top_k`` caps the number of
                 selected experts passed to Phase 2.4 inference.
                 Fast mode passes 1 expert, balanced 2, deep 3.
+                Phase-D keys ``evidence_confidence`` and
+                ``evidence_dst`` are forwarded to Phase 2.5
+                :meth:`CalibrationPipeline.calibrate_and_quantify`
+                as *evidence_hints* so that the blended temperature
+                and DST ceiling are applied during calibration.
 
         Returns:
             :class:`FinalDecisionResult` with all phase outputs.
@@ -162,7 +218,7 @@ class Phase2Pipeline:
                 routing_context=routing_context,
             )
 
-            # Phase 6 — cap selected experts to expert_top_k from depth_config
+            # Cap selected experts to expert_top_k from depth_config
             if depth_config:
                 top_k = depth_config.get("expert_top_k")
                 if top_k is not None and isinstance(top_k, int) and top_k > 0:
@@ -183,9 +239,26 @@ class Phase2Pipeline:
             )
 
             # Phase 2.5 — Calibration
+            # Build evidence_hints from Phase-D keys in depth_config so
+            # that CalibrationPipeline can apply:
+            #   • blended temperature  (evidence_confidence path)
+            #   • DST confidence ceiling (evidence_dst.net_confidence path)
+            # _build_evidence_hints returns None (not {}) when neither key
+            # is present, preserving the CalibrationPipeline's existing
+            # "no hints" branch unchanged.
+            _evidence_hints = self._build_evidence_hints(depth_config)
+            logger.debug(
+                "Phase2Pipeline: evidence_hints=%s",
+                (
+                    {k: v for k, v in _evidence_hints.items() if k != "evidence_dst"}
+                    if _evidence_hints
+                    else None
+                ),
+            )
             calibration_result = (
                 self._calibration_pipeline.calibrate_and_quantify(
-                    inference_result
+                    inference_result,
+                    evidence_hints=_evidence_hints,
                 )
             )
 
