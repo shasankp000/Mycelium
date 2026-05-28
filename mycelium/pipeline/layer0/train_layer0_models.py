@@ -66,6 +66,12 @@ _MODELS_DIR = _ROOT / "models" / "layer0"
 _DATA_DIR.mkdir(parents=True, exist_ok=True)
 _MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
+# Minimum samples required before attempting to fit a classifier.
+# CalibratedClassifierCV uses 5-fold CV by default, so we need at least
+# 5 * n_classes samples for a balanced split.  We enforce a generous
+# lower bound here and emit a clear error when the check fails.
+_MIN_TRAIN_SAMPLES = 50
+
 # ---------------------------------------------------------------------------
 # Device selection — resolved once at import time
 # ---------------------------------------------------------------------------
@@ -185,6 +191,7 @@ def _load_manipulation_data() -> List[Tuple[str, str]]:
 
     # --- JailbreakBench: walk all .csv files under data/
     jbb_dir = _DATA_DIR / "jailbreakbench" / "data"
+    jbb_count = 0
     if jbb_dir.exists():
         for csv_path in jbb_dir.rglob("*.csv"):
             try:
@@ -194,12 +201,16 @@ def _load_manipulation_data() -> List[Tuple[str, str]]:
                         goal = row.get("Goal") or row.get("goal") or row.get("prompt") or ""
                         if goal.strip():
                             samples.append((goal.strip(), "JAILBREAK_ATTEMPT"))
+                            jbb_count += 1
             except Exception:
                 pass
-    log.info("[manip] jailbreakbench: %d samples", sum(1 for _, l in samples if l == "JAILBREAK_ATTEMPT"))
+    else:
+        log.warning("[manip] JailbreakBench data dir not found: %s", jbb_dir)
+    log.info("[manip] jailbreakbench: %d samples", jbb_count)
 
     # --- LIAR: map label to manipulation category
     liar_path = _DATA_DIR / "liar_train.csv"
+    liar_count = 0
     if liar_path.exists():
         try:
             with open(liar_path, newline="", encoding="utf-8") as f:
@@ -209,16 +220,21 @@ def _load_manipulation_data() -> List[Tuple[str, str]]:
                     lbl  = row.get("label", "").strip().lower()
                     if not stmt:
                         continue
-                    # Coercive framing: pants-fire / false / barely-true
                     if lbl in {"pants-fire", "false"}:
                         samples.append((stmt, "COERCIVE"))
+                        liar_count += 1
                     elif lbl in {"half-true", "mostly-true", "true"}:
                         samples.append((stmt, "NOT_MANIPULATIVE"))
+                        liar_count += 1
         except Exception as exc:
             log.warning("[manip] LIAR load error: %s", exc)
+    else:
+        log.warning("[manip] liar_train.csv not found — re-run without --skip-download")
+    log.info("[manip] liar: %d samples", liar_count)
 
     # --- TriviaQA: factual questions → NOT_MANIPULATIVE
     tqa_path = _DATA_DIR / "trivia_qa.csv"
+    tqa_count = 0
     if tqa_path.exists():
         try:
             with open(tqa_path, newline="", encoding="utf-8") as f:
@@ -229,8 +245,12 @@ def _load_manipulation_data() -> List[Tuple[str, str]]:
                     q = row.get("question", "").strip()
                     if q:
                         samples.append((q, "NOT_MANIPULATIVE"))
+                        tqa_count += 1
         except Exception as exc:
             log.warning("[manip] TriviaQA load error: %s", exc)
+    else:
+        log.warning("[manip] trivia_qa.csv not found — re-run without --skip-download")
+    log.info("[manip] trivia_qa: %d samples", tqa_count)
 
     # --- dataset_logger live JSONL (manipulation component)
     _append_from_logger(samples, "manipulation")
@@ -250,6 +270,7 @@ def _load_objectivity_data() -> List[Tuple[str, str]]:
     samples: List[Tuple[str, str]] = []
 
     tqa_path = _DATA_DIR / "trivia_qa.csv"
+    tqa_count = 0
     if tqa_path.exists():
         try:
             with open(tqa_path, newline="", encoding="utf-8") as f:
@@ -260,10 +281,15 @@ def _load_objectivity_data() -> List[Tuple[str, str]]:
                     q = row.get("question", "").strip()
                     if q:
                         samples.append((q, "OBJECTIVE"))
+                        tqa_count += 1
         except Exception as exc:
             log.warning("[obj] TriviaQA load error: %s", exc)
+    else:
+        log.warning("[obj] trivia_qa.csv not found — re-run without --skip-download")
+    log.info("[obj] trivia_qa: %d samples", tqa_count)
 
     ethics_path = _DATA_DIR / "ethics_qa.csv"
+    ethics_count = 0
     if ethics_path.exists():
         try:
             with open(ethics_path, newline="", encoding="utf-8") as f:
@@ -272,10 +298,15 @@ def _load_objectivity_data() -> List[Tuple[str, str]]:
                     inp = row.get("input", "").strip()
                     if inp:
                         samples.append((inp, "VALUE_LADEN"))
+                        ethics_count += 1
         except Exception as exc:
             log.warning("[obj] Ethics load error: %s", exc)
+    else:
+        log.warning("[obj] ethics_qa.csv not found — re-run without --skip-download")
+    log.info("[obj] ethics_qa: %d samples", ethics_count)
 
     liar_path = _DATA_DIR / "liar_train.csv"
+    liar_count = 0
     if liar_path.exists():
         try:
             with open(liar_path, newline="", encoding="utf-8") as f:
@@ -286,8 +317,12 @@ def _load_objectivity_data() -> List[Tuple[str, str]]:
                     stmt = row.get("statement", "").strip()
                     if stmt:
                         samples.append((stmt, "SUBJECTIVE"))
+                        liar_count += 1
         except Exception as exc:
             log.warning("[obj] LIAR load error: %s", exc)
+    else:
+        log.warning("[obj] liar_train.csv not found — re-run without --skip-download")
+    log.info("[obj] liar: %d samples", liar_count)
 
     _append_from_logger(samples, "objectivity")
     log.info("[obj] total samples: %d", len(samples))
@@ -518,6 +553,17 @@ def train_manipulation_classifier(skip_if_exists: bool = False) -> Path:
         log.error("[train] No manipulation training data found. Run with dataset pull first.")
         return out_path
 
+    n = len(samples)
+    if n < _MIN_TRAIN_SAMPLES:
+        log.error(
+            "[train] ManipulationClassifier: only %d samples loaded — need at least %d.\n"
+            "        Check the WARNING lines above to see which source CSVs are missing.\n"
+            "        Delete any incomplete CSVs in training_data/ and re-run without "
+            "--skip-download.",
+            n, _MIN_TRAIN_SAMPLES,
+        )
+        return out_path
+
     texts  = [s[0] for s in samples]
     labels = [s[1] for s in samples]
 
@@ -527,8 +573,13 @@ def train_manipulation_classifier(skip_if_exists: bool = False) -> Path:
 
     X = _build_feature_matrix(texts)
 
-    log.info("[train] ManipulationClassifier: X=%s  classes=%s", X.shape, le.classes_)
-    clf = CalibratedClassifierCV(LinearSVC(C=1.0, max_iter=2000, class_weight="balanced"))
+    # cv must not exceed n_samples; for normal runs this is always 5.
+    cv_folds = min(5, n)
+    log.info("[train] ManipulationClassifier: X=%s  classes=%s  cv=%d", X.shape, le.classes_, cv_folds)
+    clf = CalibratedClassifierCV(
+        LinearSVC(C=1.0, max_iter=2000, class_weight="balanced"),
+        cv=cv_folds,
+    )
     clf.fit(X, y)
 
     artifact = {"model": clf, "label_encoder": le, "version": "1.0"}
@@ -550,6 +601,17 @@ def train_objectivity_classifier(skip_if_exists: bool = False) -> Path:
     samples = _load_objectivity_data()
     if not samples:
         log.error("[train] No objectivity training data found.")
+        return out_path
+
+    n = len(samples)
+    if n < _MIN_TRAIN_SAMPLES:
+        log.error(
+            "[train] ObjectivityClassifier: only %d samples loaded — need at least %d.\n"
+            "        Check the WARNING lines above to see which source CSVs are missing.\n"
+            "        Delete any incomplete CSVs in training_data/ and re-run without "
+            "--skip-download.",
+            n, _MIN_TRAIN_SAMPLES,
+        )
         return out_path
 
     texts  = [s[0] for s in samples]
