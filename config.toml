@@ -136,7 +136,7 @@ tag_clusters_filename = "tag_clusters.json"
 #       automatically on the next discovery pass. Do not edit manually.
 # ---------------------------------------------------------------------------
 [layer1.domain_list]
-domains = ["AI", "healthcare", "logistics", "finance", "education", "physics", "maths", "biology", "chemistry", "technology", "sports", "politics", "history", "art", "music", "literature"]
+domains = ["chemistry", "medical", "physics"]
 
 # ---------------------------------------------------------------------------
 # [layer1.llama]  Ollama / local-LLM tag extractor
