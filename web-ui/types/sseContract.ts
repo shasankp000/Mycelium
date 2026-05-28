@@ -50,6 +50,12 @@ export const PHASE_NAMES = {
   GRAPH_TOOL_START:      'graph_tool_start',
   GRAPH_TOOL_DONE:       'graph_tool_done',
 
+  // Phase D — predicate extraction + evidence DST + contradiction
+  PREDICATE_EXTRACTION:      'predicate_extraction',
+  EVIDENCE_DST_FUSION:       'evidence_dst_fusion',
+  CONTRADICTION_INTEGRATION: 'contradiction_integration',
+  EVIDENCE_DST_DONE:         'evidence_dst_done',
+
   // synthesis / expert decision
   GRAPH_SYNTHESIS_START: 'graph_synthesis_start',
   EXPERT_DECISION:       'expert_decision',
@@ -138,6 +144,28 @@ export const SSE_PHASE_REGISTRY: Record<PhaseName, PhaseRegistryEntry> = {
     kind: 'tool_call',
     description: 'Phase 2/3 tool invocation completed',
   },
+  // ── Phase D ──────────────────────────────────────────────────────────
+  [PHASE_NAMES.PREDICATE_EXTRACTION]: {
+    zone: 'evidence',
+    kind: 'evidence_node',
+    description: 'Phase D — predicate extraction from sentence',
+  },
+  [PHASE_NAMES.EVIDENCE_DST_FUSION]: {
+    zone: 'evidence',
+    kind: 'evidence_node',
+    description: 'Phase D — DSTFusion over structured ScoredBundles',
+  },
+  [PHASE_NAMES.CONTRADICTION_INTEGRATION]: {
+    zone: 'evidence',
+    kind: 'contradiction_node',
+    description: 'Phase D — contradiction classification over predicate pairs',
+  },
+  [PHASE_NAMES.EVIDENCE_DST_DONE]: {
+    zone: 'evidence',
+    kind: 'evidence_node',
+    description: 'Phase D — EvidenceDSTResult complete',
+  },
+  // ── synthesis / decision ─────────────────────────────────────────────
   [PHASE_NAMES.GRAPH_SYNTHESIS_START]: {
     zone: 'reasoning',
     kind: 'synthesis_node',

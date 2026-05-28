@@ -75,6 +75,12 @@ class PhaseNames:
     GRAPH_TOOL_START    = "graph_tool_start"
     GRAPH_TOOL_DONE     = "graph_tool_done"
 
+    # ── Phase D — predicate extraction + evidence DST + contradiction ──
+    PREDICATE_EXTRACTION      = "predicate_extraction"
+    EVIDENCE_DST_FUSION       = "evidence_dst_fusion"
+    CONTRADICTION_INTEGRATION = "contradiction_integration"
+    EVIDENCE_DST_DONE         = "evidence_dst_done"
+
     # ── synthesis / expert decision ────────────────────────────────────
     GRAPH_SYNTHESIS_START = "graph_synthesis_start"
     EXPERT_DECISION       = "expert_decision"
@@ -154,6 +160,28 @@ PHASE_REGISTRY: Dict[str, _PhaseRegistry] = {
         kind="tool_call",
         description="Phase 2/3 tool invocation completed",
     ),
+    # ── Phase D ────────────────────────────────────────────────────────
+    PhaseNames.PREDICATE_EXTRACTION: _PhaseRegistry(
+        zone="evidence",
+        kind="evidence_node",
+        description="Phase D — predicate extraction from sentence",
+    ),
+    PhaseNames.EVIDENCE_DST_FUSION: _PhaseRegistry(
+        zone="evidence",
+        kind="evidence_node",
+        description="Phase D — DSTFusion over structured ScoredBundles",
+    ),
+    PhaseNames.CONTRADICTION_INTEGRATION: _PhaseRegistry(
+        zone="evidence",
+        kind="contradiction_node",
+        description="Phase D — contradiction classification over predicate pairs",
+    ),
+    PhaseNames.EVIDENCE_DST_DONE: _PhaseRegistry(
+        zone="evidence",
+        kind="evidence_node",
+        description="Phase D — EvidenceDSTResult complete",
+    ),
+    # ── synthesis / decision ───────────────────────────────────────────
     PhaseNames.GRAPH_SYNTHESIS_START: _PhaseRegistry(
         zone="reasoning",
         kind="synthesis_node",
