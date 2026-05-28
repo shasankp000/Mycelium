@@ -25,6 +25,11 @@ Model architecture:
     AssumptionTyper         — MultiOutputClassifier(LogisticRegression)
                                (multi-label: one binary clf per assumption type)
 
+Device selection:
+    SentenceTransformer encoding runs on CUDA when torch.cuda.is_available(),
+    otherwise falls back to CPU.  All sklearn estimators are CPU-only and are
+    not affected by device selection.
+
 Usage:
     python -m mycelium.pipeline.layer0.train_layer0_models
     python -m mycelium.pipeline.layer0.train_layer0_models --models manipulation
@@ -59,6 +64,29 @@ _MODELS_DIR = _ROOT / "models" / "layer0"
 
 _DATA_DIR.mkdir(parents=True, exist_ok=True)
 _MODELS_DIR.mkdir(parents=True, exist_ok=True)
+
+# ---------------------------------------------------------------------------
+# Device selection — resolved once at import time
+# ---------------------------------------------------------------------------
+
+def _get_device() -> str:
+    """Return 'cuda' when a CUDA-capable GPU is available, else 'cpu'."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            dev = "cuda"
+            log.info(
+                "[device] CUDA available — using GPU: %s",
+                torch.cuda.get_device_name(0),
+            )
+            return dev
+    except Exception:
+        pass
+    log.info("[device] CUDA not available — using CPU")
+    return "cpu"
+
+
+_DEVICE: str = _get_device()
 
 # ---------------------------------------------------------------------------
 # Labels
@@ -441,12 +469,26 @@ def _build_feature_matrix(
     texts: List[str],
     embed_model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
 ) -> np.ndarray:
-    """Return (N, 384+17) feature matrix."""
+    """Return (N, 384+17) feature matrix.
+
+    Encoding is performed on ``_DEVICE`` (CUDA when available, else CPU)
+    so the embedding step is GPU-accelerated on machines that have a
+    compatible GPU without any manual configuration.
+    """
     from sentence_transformers import SentenceTransformer  # type: ignore
-    log.info("[features] encoding %d texts with %s ...", len(texts), embed_model_name)
-    encoder = SentenceTransformer(embed_model_name)
-    embeddings = encoder.encode(texts, batch_size=64, show_progress_bar=True,
-                                convert_to_numpy=True)
+    log.info(
+        "[features] encoding %d texts with %s on device=%s ...",
+        len(texts),
+        embed_model_name,
+        _DEVICE,
+    )
+    encoder = SentenceTransformer(embed_model_name, device=_DEVICE)
+    embeddings = encoder.encode(
+        texts,
+        batch_size=64,
+        show_progress_bar=True,
+        convert_to_numpy=True,
+    )
     log.info("[features] building rule signal vectors ...")
     rule_vecs = np.array([_rule_signal_vector(t) for t in texts], dtype=np.float32)
     return np.hstack([embeddings, rule_vecs])
