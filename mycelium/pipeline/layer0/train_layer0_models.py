@@ -9,7 +9,8 @@ Offline trainer for the three Layer 0 sklearn classifiers.
 
 Dataset sources (auto-downloaded on first run, skipped if already present):
     training_data/jailbreakbench/   — JailbreakBench jailbreak prompts (git clone)
-    training_data/liar_train.csv    — LIAR dataset (HuggingFace datasets)
+    training_data/liar_train.csv    — LIAR dataset (ucsbnlp/liar on HuggingFace,
+                                       script-free Parquet mirror of the original)
     training_data/trivia_qa.csv     — TriviaQA rc sample (HuggingFace datasets)
     training_data/ethics_qa.csv     — Hendrycks ETHICS commonsense split
     training_data/benign_prompts.jsonl — ~1000 normal questions (auto-generated
@@ -151,8 +152,11 @@ def _pull_hf_dataset(hf_name: str, config: str, split: str, dest: Path, **kwargs
 
 def pull_all_datasets() -> None:
     _pull_jailbreakbench()
+    # ucsbnlp/liar is the official script-free Parquet re-upload of the LIAR
+    # dataset.  The original "liar" repo ID uses a legacy liar.py loading
+    # script that HuggingFace datasets>=2.21 refuses to execute.
     _pull_hf_dataset(
-        "liar", None, "train",
+        "ucsbnlp/liar", None, "train",
         _DATA_DIR / "liar_train.csv",
     )
     _pull_hf_dataset(
