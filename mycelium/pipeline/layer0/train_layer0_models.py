@@ -11,8 +11,7 @@ Dataset sources (auto-downloaded on first run, skipped if already present):
     training_data/jailbreakbench/   — JailbreakBench jailbreak prompts
                                        (cloned from JailbreakBench/artifacts)
     training_data/liar_train.csv    — LIAR dataset
-                                       (direct Parquet from ucsbnlp/liar
-                                        main branch: default/liar-train.parquet)
+                                       (ucsbnlp/liar via HuggingFace datasets)
     training_data/trivia_qa.csv     — TriviaQA rc sample (HuggingFace datasets)
     training_data/ethics_qa.csv     — Hendrycks ETHICS commonsense
                                        (direct Parquet from
@@ -84,12 +83,6 @@ _MIN_TRAIN_SAMPLES = 50
 # ---------------------------------------------------------------------------
 # URL constants
 # ---------------------------------------------------------------------------
-
-# ucsbnlp/liar — Parquet lives on the main branch, not refs/convert/parquet
-_LIAR_PARQUET_URL = (
-    "https://huggingface.co/datasets/ucsbnlp/liar"
-    "/resolve/main/default/liar-train.parquet"
-)
 
 # lighteval/hendrycks_ethics — clean Parquet-only mirror of hendrycks/ethics
 _ETHICS_PARQUET_URL = (
@@ -235,16 +228,23 @@ def _pull_jailbreakbench() -> Path:
 
 def _pull_liar() -> Path:
     """
-    Download LIAR train split as Parquet directly from ucsbnlp/liar main branch.
-    The file lives at default/liar-train.parquet on main (not on a
-    refs/convert/parquet branch).
+    Download LIAR train split via HuggingFace datasets library (ucsbnlp/liar).
+    The dataset uses the standard Arrow/Parquet loader (no loading script),
+    so trust_remote_code is not needed.
     Columns expected: statement, label (among others).
     """
     dest = _DATA_DIR / "liar_train.csv"
     if dest.exists():
         log.info("[download] liar_train.csv already present, skipping.")
         return dest
-    _fetch_parquet(_LIAR_PARQUET_URL, dest, "LIAR")
+    log.info("[download] Pulling ucsbnlp/liar (train) via datasets ...")
+    try:
+        from datasets import load_dataset  # type: ignore
+        ds = load_dataset("ucsbnlp/liar", split="train")
+        ds.to_csv(str(dest))
+        log.info("[download] liar_train.csv: %d rows written.", len(ds))
+    except Exception as exc:
+        log.warning("[download] Failed to pull LIAR: %s", exc)
     return dest
 
 
@@ -814,9 +814,9 @@ def train_objectivity_classifier(skip_if_exists: bool = False) -> Path:
 
     X = _build_feature_matrix(texts)
     log.info("[train] ObjectivityClassifier: X=%s  classes=%s", X.shape, le.classes_)
+    # multi_class removed in sklearn 1.5 — lbfgs uses multinomial softmax by default
     clf = LogisticRegression(
-        C=1.0, max_iter=1000, class_weight="balanced",
-        multi_class="multinomial", solver="lbfgs",
+        C=1.0, max_iter=1000, class_weight="balanced", solver="lbfgs",
     )
     clf.fit(X, y)
 
