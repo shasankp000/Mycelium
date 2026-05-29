@@ -10,15 +10,21 @@ Offline trainer for the three Layer 0 sklearn classifiers.
 Dataset sources (auto-downloaded on first run, skipped if already present):
     training_data/jailbreakbench/   — JailbreakBench jailbreak prompts
                                        (cloned from JailbreakBench/artifacts)
-    training_data/liar_train.csv    — LIAR dataset (ucsbnlp/liar via HF datasets)
+    training_data/liar_train.csv    — LIAR dataset
+                                       (direct Parquet from ucsbnlp/liar
+                                        refs/convert/parquet branch)
     training_data/trivia_qa.csv     — TriviaQA rc sample (HuggingFace datasets)
-    training_data/ethics_qa.csv     — Hendrycks ETHICS commonsense (HF datasets)
+    training_data/ethics_qa.csv     — Hendrycks ETHICS commonsense
+                                       (direct Parquet from
+                                        lighteval/hendrycks_ethics mirror)
+    training_data/anthropic_hh.csv  — Anthropic HH-RLHF harmless-base
+                                       (direct Parquet, VALUE_LADEN source)
     training_data/benign_prompts.jsonl — ~1000 normal questions (auto-generated
                                          from TriviaQA questions, relabelled)
 
 Feature vector per sample:
     [sentence_embedding (384-dim, all-MiniLM-L6-v2)]
-    + [rule_signal_vector (one-hot, ~30 dims)]
+    + [rule_signal_vector (one-hot, ~17 dims)]
 
 Model architecture:
     ManipulationClassifier  — LinearSVC (multi-class, C=1.0)
@@ -28,8 +34,7 @@ Model architecture:
 
 Device selection:
     SentenceTransformer encoding runs on CUDA when torch.cuda.is_available(),
-    otherwise falls back to CPU.  All sklearn estimators are CPU-only and are
-    not affected by device selection.
+    otherwise falls back to CPU.  All sklearn estimators are CPU-only.
 
 Usage:
     python -m mycelium.pipeline.layer0.train_layer0_models
@@ -43,11 +48,12 @@ import argparse
 import csv
 import json
 import logging
-import os
+import re
 import subprocess
 import sys
+from io import BytesIO
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import List, Tuple
 
 import joblib
 import numpy as np
@@ -63,25 +69,46 @@ log = logging.getLogger(__name__)
 # Paths
 # ---------------------------------------------------------------------------
 
-_HERE = Path(__file__).resolve().parent                    # layer0/
-_ROOT = _HERE.parent.parent.parent                         # project root
+_HERE = Path(__file__).resolve().parent          # layer0/
+_ROOT = _HERE.parent.parent.parent               # project root
 _DATA_DIR   = _ROOT / "training_data"
 _MODELS_DIR = _ROOT / "models" / "layer0"
 
 _DATA_DIR.mkdir(parents=True, exist_ok=True)
 _MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
-# Minimum samples required before attempting to fit a classifier.
 _MIN_TRAIN_SAMPLES = 50
 
 # ---------------------------------------------------------------------------
-# Device selection — resolved once at import time
+# Parquet URL constants
+# ---------------------------------------------------------------------------
+
+# ucsbnlp/liar — auto-converted Parquet branch (no loading script needed)
+_LIAR_PARQUET_URL = (
+    "https://huggingface.co/datasets/ucsbnlp/liar"
+    "/resolve/refs%2Fconvert%2Fparquet/default/liar-train.parquet"
+)
+
+# lighteval/hendrycks_ethics — clean Parquet-only mirror of hendrycks/ethics
+_ETHICS_PARQUET_URL = (
+    "https://huggingface.co/datasets/lighteval/hendrycks_ethics"
+    "/resolve/main/commonsense/train-00000-of-00001.parquet"
+)
+
+# Anthropic HH-RLHF — harmless-base train split (VALUE_LADEN source)
+_ANTHROPIC_HH_PARQUET_URL = (
+    "https://huggingface.co/datasets/Anthropic/hh-rlhf"
+    "/resolve/refs%2Fconvert%2Fparquet/harmless-base/hh-rlhf-train.parquet"
+)
+
+# ---------------------------------------------------------------------------
+# Device selection
 # ---------------------------------------------------------------------------
 
 def _get_device() -> str:
     """Return 'cuda' when a CUDA-capable GPU is available, else 'cpu'."""
     try:
-        import torch
+tml        import torch
         if torch.cuda.is_available():
             dev = "cuda"
             log.info(
@@ -124,23 +151,47 @@ ASSUMPTION_TYPES = [
 ]
 
 # ---------------------------------------------------------------------------
+# Parquet download helper
+# ---------------------------------------------------------------------------
+
+def _fetch_parquet(url: str, dest: Path, label: str) -> bool:
+    """
+    Download a Parquet file from *url* into *dest* using requests + pandas.
+    Returns True on success, False on failure.
+    No datasets library or trust_remote_code involved.
+    """
+    import requests  # type: ignore
+    import pandas as pd  # type: ignore
+
+    log.info("[download] Fetching %s parquet from %s ...", label, url)
+    try:
+        resp = requests.get(url, timeout=120)
+        resp.raise_for_status()
+        df = pd.read_parquet(BytesIO(resp.content))
+        df.to_csv(str(dest), index=False)
+        log.info("[download] %s: %d rows written to %s", label, len(df), dest)
+        return True
+    except Exception as exc:
+        log.warning("[download] Failed to fetch %s: %s", label, exc)
+        return False
+
+
+# ---------------------------------------------------------------------------
 # Dataset download helpers
 # ---------------------------------------------------------------------------
 
 def _pull_jailbreakbench() -> Path:
     """
-    Clone JailbreakBench/artifacts — this repo stores attack results as JSON
-    files under attack-artifacts/<method>/<type>/<model>.json.  Each JSON has
-    a top-level "jailbreaks" array; we convert it to a CSV on first clone.
+    Clone JailbreakBench/artifacts and walk .json files to build
+    jailbreakbench_train.csv with columns: text, label.
     """
-    dest = _DATA_DIR / "jailbreakbench"
+    dest    = _DATA_DIR / "jailbreakbench"
     out_csv = _DATA_DIR / "jailbreakbench_train.csv"
 
     if out_csv.exists():
         log.info("[download] jailbreakbench_train.csv already present, skipping.")
         return out_csv
 
-    # Clone the repo if not already present.
     if not dest.exists() or not any(dest.iterdir()):
         log.info("[download] Cloning JailbreakBench/artifacts ...")
         subprocess.run(
@@ -150,7 +201,6 @@ def _pull_jailbreakbench() -> Path:
             check=True,
         )
 
-    # Walk all .json files and extract jailbreak prompt rows.
     import glob as _glob
     rows: List[dict] = []
     for json_path in _glob.glob(str(dest / "**" / "*.json"), recursive=True):
@@ -159,9 +209,7 @@ def _pull_jailbreakbench() -> Path:
                 data = json.load(f)
             for entry in data.get("jailbreaks", []):
                 prompt = (
-                    entry.get("prompt")
-                    or entry.get("goal")
-                    or ""
+                    entry.get("prompt") or entry.get("goal") or ""
                 ).strip()
                 if not prompt:
                     continue
@@ -183,6 +231,77 @@ def _pull_jailbreakbench() -> Path:
     return out_csv
 
 
+def _pull_liar() -> Path:
+    """
+    Download LIAR train split as Parquet directly from the
+    ucsbnlp/liar refs/convert/parquet branch.
+
+    Bypasses the legacy liar.py loading script entirely — no datasets
+    library, no trust_remote_code.
+    Columns expected: statement, label (among others).
+    """
+    dest = _DATA_DIR / "liar_train.csv"
+    if dest.exists():
+        log.info("[download] liar_train.csv already present, skipping.")
+        return dest
+    _fetch_parquet(_LIAR_PARQUET_URL, dest, "LIAR")
+    return dest
+
+
+def _pull_ethics() -> Path:
+    """
+    Download Hendrycks ETHICS commonsense train split as Parquet from the
+    lighteval/hendrycks_ethics mirror (clean Parquet-only, no loading script).
+
+    Bypasses the legacy ethics.py loading script entirely.
+    Columns expected: input, label.
+    """
+    dest = _DATA_DIR / "ethics_qa.csv"
+    if dest.exists():
+        log.info("[download] ethics_qa.csv already present, skipping.")
+        return dest
+    _fetch_parquet(_ETHICS_PARQUET_URL, dest, "ETHICS")
+    return dest
+
+
+def _pull_anthropic_hh() -> Path:
+    """
+    Download Anthropic HH-RLHF harmless-base train split as Parquet.
+
+    The 'chosen' column contains multi-turn Human/Assistant dialogues.
+    We extract the first Human: turn from each entry as a VALUE_LADEN
+    sample for the ObjectivityClassifier.
+    Raw column: chosen (string with 'Human: ...\n\nAssistant: ...' format)
+    """
+    dest = _DATA_DIR / "anthropic_hh.csv"
+    if dest.exists():
+        log.info("[download] anthropic_hh.csv already present, skipping.")
+        return dest
+
+    import requests  # type: ignore
+    import pandas as pd  # type: ignore
+
+    log.info("[download] Fetching Anthropic HH-RLHF parquet ...")
+    try:
+        resp = requests.get(_ANTHROPIC_HH_PARQUET_URL, timeout=120)
+        resp.raise_for_status()
+        df = pd.read_parquet(BytesIO(resp.content))
+
+        # Extract first Human turn from the 'chosen' column
+        def _first_human(text: str) -> str:
+            m = re.search(r"Human:\s*(.+?)(?:\n\nAssistant:|$)", text, re.DOTALL)
+            return m.group(1).strip() if m else ""
+
+        df["text"] = df["chosen"].astype(str).apply(_first_human)
+        out = df[["text"]].copy()
+        out = out[out["text"].str.len() > 0].head(3000)
+        out.to_csv(str(dest), index=False)
+        log.info("[download] anthropic_hh.csv: %d rows written.", len(out))
+    except Exception as exc:
+        log.warning("[download] Failed to fetch Anthropic HH-RLHF: %s", exc)
+    return dest
+
+
 def _pull_hf_dataset(hf_name: str, config: str, split: str, dest: Path, **kwargs) -> Path:
     """Download a HuggingFace dataset split to a CSV if not already present."""
     if dest.exists():
@@ -199,55 +318,6 @@ def _pull_hf_dataset(hf_name: str, config: str, split: str, dest: Path, **kwargs
     return dest
 
 
-def _pull_liar() -> Path:
-    """
-    Download the LIAR train split via the HuggingFace datasets library.
-
-    ucsbnlp/liar uses a legacy dataset loading script (liar.py). Newer
-    versions of the datasets library require trust_remote_code=True to
-    run such scripts; without it the download fails with:
-      'Dataset scripts are no longer supported, but found liar.py'
-    """
-    dest = _DATA_DIR / "liar_train.csv"
-    if dest.exists():
-        log.info("[download] liar_train.csv already present, skipping.")
-        return dest
-    log.info("[download] Pulling LIAR via HuggingFace datasets ...")
-    try:
-        from datasets import load_dataset  # type: ignore
-        ds = load_dataset("ucsbnlp/liar", split="train", trust_remote_code=True)
-        ds.to_csv(str(dest))
-        log.info("[download] LIAR saved %d rows to %s", len(ds), dest)
-    except Exception as exc:
-        log.warning("[download] Failed to pull LIAR: %s", exc)
-    return dest
-
-
-def _pull_ethics() -> Path:
-    """
-    Download the Hendrycks ETHICS commonsense split via HuggingFace datasets.
-
-    hendrycks/ethics uses a legacy dataset loading script (ethics.py). Newer
-    versions of the datasets library require trust_remote_code=True to
-    run such scripts; without it the download fails with:
-      'Dataset scripts are no longer supported, but found ethics.py'
-    Produces a CSV with columns: label, input.
-    """
-    dest = _DATA_DIR / "ethics_qa.csv"
-    if dest.exists():
-        log.info("[download] ethics_qa.csv already present, skipping.")
-        return dest
-    log.info("[download] Pulling ETHICS commonsense via HuggingFace datasets ...")
-    try:
-        from datasets import load_dataset  # type: ignore
-        ds = load_dataset("hendrycks/ethics", "commonsense", split="train", trust_remote_code=True)
-        ds.to_csv(str(dest))
-        log.info("[download] ETHICS saved %d rows to %s", len(ds), dest)
-    except Exception as exc:
-        log.warning("[download] Failed to pull ETHICS: %s", exc)
-    return dest
-
-
 def pull_all_datasets() -> None:
     _pull_jailbreakbench()
     _pull_liar()
@@ -256,6 +326,8 @@ def pull_all_datasets() -> None:
         _DATA_DIR / "trivia_qa.csv",
     )
     _pull_ethics()
+    _pull_anthropic_hh()
+
 
 # ---------------------------------------------------------------------------
 # Dataset loaders → (text, label) lists
@@ -264,14 +336,13 @@ def pull_all_datasets() -> None:
 def _load_manipulation_data() -> List[Tuple[str, str]]:
     """
     Returns (text, manip_label) pairs from:
-      - jailbreakbench_train.csv  → JAILBREAK_ATTEMPT / BENIGN (NOT_MANIPULATIVE)
-      - LIAR politifact lies      → COERCIVE
-      - TriviaQA questions        → NOT_MANIPULATIVE
+      - jailbreakbench_train.csv  → JAILBREAK_ATTEMPT / NOT_MANIPULATIVE
+      - liar_train.csv            → COERCIVE / NOT_MANIPULATIVE
+      - trivia_qa.csv             → NOT_MANIPULATIVE
       - dataset_logger JSONL (live labelled, if present)
     """
     samples: List[Tuple[str, str]] = []
 
-    # --- JailbreakBench: read the pre-built CSV produced by _pull_jailbreakbench()
     jbb_csv = _DATA_DIR / "jailbreakbench_train.csv"
     jbb_count = 0
     if jbb_csv.exists():
@@ -283,7 +354,6 @@ def _load_manipulation_data() -> List[Tuple[str, str]]:
                     label = row.get("label", "").strip()
                     if not text or not label:
                         continue
-                    # BENIGN entries become NOT_MANIPULATIVE for this classifier
                     mapped = label if label != "BENIGN" else "NOT_MANIPULATIVE"
                     samples.append((text, mapped))
                     jbb_count += 1
@@ -293,7 +363,6 @@ def _load_manipulation_data() -> List[Tuple[str, str]]:
         log.warning("[manip] jailbreakbench_train.csv not found — re-run without --skip-download")
     log.info("[manip] jailbreakbench: %d samples", jbb_count)
 
-    # --- LIAR: map label to manipulation category
     liar_path = _DATA_DIR / "liar_train.csv"
     liar_count = 0
     if liar_path.exists():
@@ -317,7 +386,6 @@ def _load_manipulation_data() -> List[Tuple[str, str]]:
         log.warning("[manip] liar_train.csv not found — re-run without --skip-download")
     log.info("[manip] liar: %d samples", liar_count)
 
-    # --- TriviaQA: factual questions → NOT_MANIPULATIVE
     tqa_path = _DATA_DIR / "trivia_qa.csv"
     tqa_count = 0
     if tqa_path.exists():
@@ -337,9 +405,7 @@ def _load_manipulation_data() -> List[Tuple[str, str]]:
         log.warning("[manip] trivia_qa.csv not found — re-run without --skip-download")
     log.info("[manip] trivia_qa: %d samples", tqa_count)
 
-    # --- dataset_logger live JSONL (manipulation component)
     _append_from_logger(samples, "manipulation")
-
     log.info("[manip] total samples: %d", len(samples))
     return samples
 
@@ -347,9 +413,10 @@ def _load_manipulation_data() -> List[Tuple[str, str]]:
 def _load_objectivity_data() -> List[Tuple[str, str]]:
     """
     Returns (text, obj_label) pairs from:
-      - TriviaQA factual questions → OBJECTIVE
-      - Ethics QA                  → VALUE_LADEN
-      - LIAR subjective statements → SUBJECTIVE
+      - trivia_qa.csv     → OBJECTIVE
+      - ethics_qa.csv     → VALUE_LADEN
+      - anthropic_hh.csv  → VALUE_LADEN
+      - liar_train.csv    → SUBJECTIVE
     """
     samples: List[Tuple[str, str]] = []
 
@@ -379,8 +446,6 @@ def _load_objectivity_data() -> List[Tuple[str, str]]:
             with open(ethics_path, newline="", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    # HF datasets export produces columns: label, input
-                    # (the old GitHub raw CSV also used 'input', so this is compatible)
                     inp = (
                         row.get("input")
                         or row.get("sentence")
@@ -395,6 +460,23 @@ def _load_objectivity_data() -> List[Tuple[str, str]]:
     else:
         log.warning("[obj] ethics_qa.csv not found — re-run without --skip-download")
     log.info("[obj] ethics_qa: %d samples", ethics_count)
+
+    hh_path = _DATA_DIR / "anthropic_hh.csv"
+    hh_count = 0
+    if hh_path.exists():
+        try:
+            with open(hh_path, newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    text = row.get("text", "").strip()
+                    if text:
+                        samples.append((text, "VALUE_LADEN"))
+                        hh_count += 1
+        except Exception as exc:
+            log.warning("[obj] Anthropic HH load error: %s", exc)
+    else:
+        log.warning("[obj] anthropic_hh.csv not found — re-run without --skip-download")
+    log.info("[obj] anthropic_hh: %d samples", hh_count)
 
     liar_path = _DATA_DIR / "liar_train.csv"
     liar_count = 0
@@ -425,17 +507,15 @@ def _load_assumption_data() -> List[Tuple[str, List[int]]]:
     Returns (text, multi_hot_vector) pairs.
     Multi-hot vector has len == len(ASSUMPTION_TYPES).
     Sources:
-      - TriviaQA factual → mostly empty vector (no assumptions)
-      - Ethics QA → VALUE_FRAME + NORMATIVE_UNIVERSAL flags
+      - trivia_qa.csv  → mostly empty vector (no assumptions)
+      - ethics_qa.csv  → auto-labelled via rule signals
       - dataset_logger JSONL (assumption component)
-    Auto-labels using rule signals from NLPPreprocessor.
     """
     from mycelium.pipeline.layer0.nlp_preprocessor import get_preprocessor
     pre = get_preprocessor()
     samples: List[Tuple[str, List[int]]] = []
 
     def _auto_label(text: str) -> List[int]:
-        """Derive a multi-hot assumption vector from rule signals."""
         try:
             a = pre.analyse(text)
         except Exception:
@@ -490,7 +570,6 @@ def _load_assumption_data() -> List[Tuple[str, List[int]]]:
         except Exception as exc:
             log.warning("[assumption] Ethics load error: %s", exc)
 
-    # dataset_logger: load assumption entries
     logger_path = _ROOT / "training_data" / "dataset_log.jsonl"
     if logger_path.exists():
         with open(logger_path, encoding="utf-8") as f:
@@ -550,7 +629,7 @@ def _rule_signal_vector(text: str) -> np.ndarray:
     """
     Build a sparse one-hot feature vector from rule signals extracted
     by NLPPreprocessor.  Used alongside the sentence embedding.
-    Dimensions (~30):
+    Dimensions (17):
       [0]  jailbreak_structural
       [1]  forced_agreement_phrase
       [2]  modal_imperative
@@ -579,17 +658,17 @@ def _rule_signal_vector(text: str) -> np.ndarray:
     sigs  = set(a.coercive_signals)
     preps = set(a.presupposition_triggers)
 
-    v[0]  = 1.0 if "jailbreak_structural"   in sigs  else 0.0
-    v[1]  = 1.0 if "forced_agreement_phrase" in sigs  else 0.0
-    v[2]  = 1.0 if any("modal_imperative"   in s for s in sigs)   else 0.0
-    v[3]  = 1.0 if any("absolutist_quantifier" in s for s in sigs) else 0.0
-    v[4]  = 1.0 if any("imperative_urgency" in s for s in sigs)   else 0.0
-    v[5]  = 1.0 if "passive_agency_hiding"  in sigs  else 0.0
-    v[6]  = 1.0 if any("factive_verb"        in p for p in preps) else 0.0
-    v[7]  = 1.0 if any("change_of_state"     in p for p in preps) else 0.0
-    v[8]  = 1.0 if "definite_superlative"   in preps else 0.0
-    v[9]  = 1.0 if "cleft_construction"     in preps else 0.0
-    v[10] = 1.0 if "additive_particle:also" in preps else 0.0
+    v[0]  = 1.0 if "jailbreak_structural"      in sigs  else 0.0
+    v[1]  = 1.0 if "forced_agreement_phrase"   in sigs  else 0.0
+    v[2]  = 1.0 if any("modal_imperative"      in s for s in sigs)  else 0.0
+    v[3]  = 1.0 if any("absolutist_quantifier" in s for s in sigs)  else 0.0
+    v[4]  = 1.0 if any("imperative_urgency"    in s for s in sigs)  else 0.0
+    v[5]  = 1.0 if "passive_agency_hiding"     in sigs  else 0.0
+    v[6]  = 1.0 if any("factive_verb"          in p for p in preps) else 0.0
+    v[7]  = 1.0 if any("change_of_state"       in p for p in preps) else 0.0
+    v[8]  = 1.0 if "definite_superlative"      in preps else 0.0
+    v[9]  = 1.0 if "cleft_construction"        in preps else 0.0
+    v[10] = 1.0 if "additive_particle:also"    in preps else 0.0
     v[11] = 1.0 if "why_causal_presupposition" in preps else 0.0
     v[12] = min(len(a.evaluative_words), 5) / 5.0
     v[13] = 1.0 if a.sentence_type == "INTERROGATIVE" else 0.0
@@ -603,13 +682,11 @@ def _build_feature_matrix(
     texts: List[str],
     embed_model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
 ) -> np.ndarray:
-    """Return (N, 384+17) feature matrix."""
+    """Return (N, 401) feature matrix: 384-dim embedding + 17 rule signals."""
     from sentence_transformers import SentenceTransformer  # type: ignore
     log.info(
         "[features] encoding %d texts with %s on device=%s ...",
-        len(texts),
-        embed_model_name,
-        _DEVICE,
+        len(texts), embed_model_name, _DEVICE,
     )
     encoder = SentenceTransformer(embed_model_name, device=_DEVICE)
     embeddings = encoder.encode(
@@ -633,22 +710,19 @@ def train_manipulation_classifier(skip_if_exists: bool = False) -> Path:
         log.info("[train] manipulation_classifier already trained, skipping.")
         return out_path
 
-    from sklearn.svm import LinearSVC          # type: ignore
-    from sklearn.preprocessing import LabelEncoder  # type: ignore
-    from sklearn.calibration import CalibratedClassifierCV  # type: ignore
+    from sklearn.svm import LinearSVC
+    from sklearn.preprocessing import LabelEncoder
+    from sklearn.calibration import CalibratedClassifierCV
 
     samples = _load_manipulation_data()
     if not samples:
-        log.error("[train] No manipulation training data found. Run with dataset pull first.")
+        log.error("[train] No manipulation training data found.")
         return out_path
 
     n = len(samples)
     if n < _MIN_TRAIN_SAMPLES:
         log.error(
-            "[train] ManipulationClassifier: only %d samples loaded — need at least %d.\n"
-            "        Check the WARNING lines above to see which source CSVs are missing.\n"
-            "        Delete any incomplete CSVs in training_data/ and re-run without "
-            "--skip-download.",
+            "[train] ManipulationClassifier: only %d samples — need at least %d.",
             n, _MIN_TRAIN_SAMPLES,
         )
         return out_path
@@ -660,31 +734,25 @@ def train_manipulation_classifier(skip_if_exists: bool = False) -> Path:
     le.fit(MANIP_LABELS)
     y = le.transform(labels)
 
-    # Guard: need at least 2 distinct classes in the actual loaded data.
     unique_classes = np.unique(y)
     if len(unique_classes) < 2:
-        loaded_label_names = [MANIP_LABELS[c] for c in unique_classes.tolist()]
         log.error(
-            "[train] ManipulationClassifier: only 1 class present in loaded data: %s.\n"
-            "        COERCIVE needs liar_train.csv and JAILBREAK_ATTEMPT needs "
-            "jailbreakbench_train.csv.\n"
-            "        Delete stale CSVs and re-run without --skip-download.",
-            loaded_label_names,
+            "[train] ManipulationClassifier: only 1 class present: %s.",
+            [MANIP_LABELS[c] for c in unique_classes.tolist()],
         )
         return out_path
 
     X = _build_feature_matrix(texts)
-
     cv_folds = min(5, n)
-    log.info("[train] ManipulationClassifier: X=%s  classes=%s  cv=%d", X.shape, le.classes_, cv_folds)
+    log.info("[train] ManipulationClassifier: X=%s  classes=%s  cv=%d",
+             X.shape, le.classes_, cv_folds)
     clf = CalibratedClassifierCV(
         LinearSVC(C=1.0, max_iter=2000, class_weight="balanced"),
         cv=cv_folds,
     )
     clf.fit(X, y)
 
-    artifact = {"model": clf, "label_encoder": le, "version": "1.0"}
-    joblib.dump(artifact, out_path)
+    joblib.dump({"model": clf, "label_encoder": le, "version": "1.0"}, out_path)
     log.info("[train] Saved → %s", out_path)
     return out_path
 
@@ -695,8 +763,8 @@ def train_objectivity_classifier(skip_if_exists: bool = False) -> Path:
         log.info("[train] objectivity_classifier already trained, skipping.")
         return out_path
 
-    from sklearn.linear_model import LogisticRegression  # type: ignore
-    from sklearn.preprocessing import LabelEncoder       # type: ignore
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.preprocessing import LabelEncoder
 
     samples = _load_objectivity_data()
     if not samples:
@@ -706,10 +774,7 @@ def train_objectivity_classifier(skip_if_exists: bool = False) -> Path:
     n = len(samples)
     if n < _MIN_TRAIN_SAMPLES:
         log.error(
-            "[train] ObjectivityClassifier: only %d samples loaded — need at least %d.\n"
-            "        Check the WARNING lines above to see which source CSVs are missing.\n"
-            "        Delete any incomplete CSVs in training_data/ and re-run without "
-            "--skip-download.",
+            "[train] ObjectivityClassifier: only %d samples — need at least %d.",
             n, _MIN_TRAIN_SAMPLES,
         )
         return out_path
@@ -725,20 +790,20 @@ def train_objectivity_classifier(skip_if_exists: bool = False) -> Path:
     if len(unique_classes) < 2:
         log.error(
             "[train] ObjectivityClassifier: only 1 class present: %s. "
-            "Need ethics_qa.csv and liar_train.csv.",
+            "Need ethics_qa.csv, anthropic_hh.csv, and liar_train.csv.",
             [OBJ_LABELS[c] for c in unique_classes.tolist()],
         )
         return out_path
 
     X = _build_feature_matrix(texts)
-
     log.info("[train] ObjectivityClassifier: X=%s  classes=%s", X.shape, le.classes_)
-    clf = LogisticRegression(C=1.0, max_iter=1000, class_weight="balanced",
-                              multi_class="multinomial", solver="lbfgs")
+    clf = LogisticRegression(
+        C=1.0, max_iter=1000, class_weight="balanced",
+        multi_class="multinomial", solver="lbfgs",
+    )
     clf.fit(X, y)
 
-    artifact = {"model": clf, "label_encoder": le, "version": "1.0"}
-    joblib.dump(artifact, out_path)
+    joblib.dump({"model": clf, "label_encoder": le, "version": "1.0"}, out_path)
     log.info("[train] Saved → %s", out_path)
     return out_path
 
@@ -749,8 +814,8 @@ def train_assumption_typer(skip_if_exists: bool = False) -> Path:
         log.info("[train] assumption_typer already trained, skipping.")
         return out_path
 
-    from sklearn.linear_model import LogisticRegression   # type: ignore
-    from sklearn.multioutput import MultiOutputClassifier  # type: ignore
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.multioutput import MultiOutputClassifier
 
     samples = _load_assumption_data()
     if not samples:
@@ -770,19 +835,19 @@ def train_assumption_typer(skip_if_exists: bool = False) -> Path:
     Y_active = Y[:, active_cols]
 
     X = _build_feature_matrix(texts)
-
     log.info("[train] AssumptionTyper: X=%s  active_types=%s", X.shape, active_types)
-    base_clf = LogisticRegression(C=1.0, max_iter=500, solver="lbfgs")
-    clf = MultiOutputClassifier(base_clf, n_jobs=-1)
+    clf = MultiOutputClassifier(
+        LogisticRegression(C=1.0, max_iter=500, solver="lbfgs"),
+        n_jobs=-1,
+    )
     clf.fit(X, Y_active)
 
-    artifact = {
+    joblib.dump({
         "model": clf,
         "active_types": active_types,
         "all_types": ASSUMPTION_TYPES,
         "version": "1.0",
-    }
-    joblib.dump(artifact, out_path)
+    }, out_path)
     log.info("[train] Saved → %s", out_path)
     return out_path
 
