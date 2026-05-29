@@ -108,7 +108,7 @@ _ANTHROPIC_HH_PARQUET_URL = (
 def _get_device() -> str:
     """Return 'cuda' when a CUDA-capable GPU is available, else 'cpu'."""
     try:
-tml        import torch
+        import torch
         if torch.cuda.is_available():
             dev = "cuda"
             log.info(
