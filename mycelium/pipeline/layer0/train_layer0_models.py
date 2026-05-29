@@ -203,9 +203,10 @@ def _pull_liar() -> Path:
     """
     Download the LIAR train split via the HuggingFace datasets library.
 
-    The previous approach tried to construct the Parquet URL manually
-    (default/train-00000-of-00001.parquet), which no longer resolves.
-    load_dataset('ucsbnlp/liar') discovers the correct shard automatically.
+    ucsbnlp/liar uses a legacy dataset loading script (liar.py). Newer
+    versions of the datasets library require trust_remote_code=True to
+    run such scripts; without it the download fails with:
+      'Dataset scripts are no longer supported, but found liar.py'
     """
     dest = _DATA_DIR / "liar_train.csv"
     if dest.exists():
@@ -214,7 +215,7 @@ def _pull_liar() -> Path:
     log.info("[download] Pulling LIAR via HuggingFace datasets ...")
     try:
         from datasets import load_dataset  # type: ignore
-        ds = load_dataset("ucsbnlp/liar", split="train")
+        ds = load_dataset("ucsbnlp/liar", split="train", trust_remote_code=True)
         ds.to_csv(str(dest))
         log.info("[download] LIAR saved %d rows to %s", len(ds), dest)
     except Exception as exc:
@@ -226,10 +227,11 @@ def _pull_ethics() -> Path:
     """
     Download the Hendrycks ETHICS commonsense split via HuggingFace datasets.
 
-    The previous approach fetched a raw CSV from GitHub
-    (hendrycks/ethics/master/commonsense/cm_train.csv) which now returns 404.
-    Using load_dataset('hendrycks/ethics', 'commonsense') is more robust and
-    produces a CSV with columns: label, input.
+    hendrycks/ethics uses a legacy dataset loading script (ethics.py). Newer
+    versions of the datasets library require trust_remote_code=True to
+    run such scripts; without it the download fails with:
+      'Dataset scripts are no longer supported, but found ethics.py'
+    Produces a CSV with columns: label, input.
     """
     dest = _DATA_DIR / "ethics_qa.csv"
     if dest.exists():
@@ -238,9 +240,9 @@ def _pull_ethics() -> Path:
     log.info("[download] Pulling ETHICS commonsense via HuggingFace datasets ...")
     try:
         from datasets import load_dataset  # type: ignore
-        ds = load_dataset("hendrycks/ethics", "commonsense", split="train")
+        ds = load_dataset("hendrycks/ethics", "commonsense", split="train", trust_remote_code=True)
         ds.to_csv(str(dest))
-        log.info("[download] ETHICS saved %d rows to %s", len(dest), dest)
+        log.info("[download] ETHICS saved %d rows to %s", len(ds), dest)
     except Exception as exc:
         log.warning("[download] Failed to pull ETHICS: %s", exc)
     return dest
