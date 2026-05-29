@@ -12,13 +12,14 @@ Dataset sources (auto-downloaded on first run, skipped if already present):
                                        (cloned from JailbreakBench/artifacts)
     training_data/liar_train.csv    — LIAR dataset
                                        (direct Parquet from ucsbnlp/liar
-                                        refs/convert/parquet branch)
+                                        main branch: default/liar-train.parquet)
     training_data/trivia_qa.csv     — TriviaQA rc sample (HuggingFace datasets)
     training_data/ethics_qa.csv     — Hendrycks ETHICS commonsense
                                        (direct Parquet from
                                         lighteval/hendrycks_ethics mirror)
     training_data/anthropic_hh.csv  — Anthropic HH-RLHF harmless-base
-                                       (direct Parquet, VALUE_LADEN source)
+                                       (streamed from train.jsonl.gz,
+                                        VALUE_LADEN source)
     training_data/benign_prompts.jsonl — ~1000 normal questions (auto-generated
                                          from TriviaQA questions, relabelled)
 
@@ -46,6 +47,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gzip
 import json
 import logging
 import re
@@ -80,13 +82,13 @@ _MODELS_DIR.mkdir(parents=True, exist_ok=True)
 _MIN_TRAIN_SAMPLES = 50
 
 # ---------------------------------------------------------------------------
-# Parquet URL constants
+# URL constants
 # ---------------------------------------------------------------------------
 
-# ucsbnlp/liar — auto-converted Parquet branch (no loading script needed)
+# ucsbnlp/liar — Parquet lives on the main branch, not refs/convert/parquet
 _LIAR_PARQUET_URL = (
     "https://huggingface.co/datasets/ucsbnlp/liar"
-    "/resolve/refs%2Fconvert%2Fparquet/default/liar-train.parquet"
+    "/resolve/main/default/liar-train.parquet"
 )
 
 # lighteval/hendrycks_ethics — clean Parquet-only mirror of hendrycks/ethics
@@ -95,10 +97,10 @@ _ETHICS_PARQUET_URL = (
     "/resolve/main/commonsense/train-00000-of-00001.parquet"
 )
 
-# Anthropic HH-RLHF — harmless-base train split (VALUE_LADEN source)
-_ANTHROPIC_HH_PARQUET_URL = (
+# Anthropic HH-RLHF — raw jsonl.gz (no Parquet branch exists for this repo)
+_ANTHROPIC_HH_JSONL_URL = (
     "https://huggingface.co/datasets/Anthropic/hh-rlhf"
-    "/resolve/refs%2Fconvert%2Fparquet/harmless-base/hh-rlhf-train.parquet"
+    "/resolve/main/harmless-base/train.jsonl.gz"
 )
 
 # ---------------------------------------------------------------------------
@@ -233,11 +235,9 @@ def _pull_jailbreakbench() -> Path:
 
 def _pull_liar() -> Path:
     """
-    Download LIAR train split as Parquet directly from the
-    ucsbnlp/liar refs/convert/parquet branch.
-
-    Bypasses the legacy liar.py loading script entirely — no datasets
-    library, no trust_remote_code.
+    Download LIAR train split as Parquet directly from ucsbnlp/liar main branch.
+    The file lives at default/liar-train.parquet on main (not on a
+    refs/convert/parquet branch).
     Columns expected: statement, label (among others).
     """
     dest = _DATA_DIR / "liar_train.csv"
@@ -252,8 +252,6 @@ def _pull_ethics() -> Path:
     """
     Download Hendrycks ETHICS commonsense train split as Parquet from the
     lighteval/hendrycks_ethics mirror (clean Parquet-only, no loading script).
-
-    Bypasses the legacy ethics.py loading script entirely.
     Columns expected: input, label.
     """
     dest = _DATA_DIR / "ethics_qa.csv"
@@ -266,12 +264,16 @@ def _pull_ethics() -> Path:
 
 def _pull_anthropic_hh() -> Path:
     """
-    Download Anthropic HH-RLHF harmless-base train split as Parquet.
+    Download Anthropic HH-RLHF harmless-base train split.
 
-    The 'chosen' column contains multi-turn Human/Assistant dialogues.
-    We extract the first Human: turn from each entry as a VALUE_LADEN
-    sample for the ObjectivityClassifier.
-    Raw column: chosen (string with 'Human: ...\n\nAssistant: ...' format)
+    Anthropic/hh-rlhf has no auto-converted Parquet branch; the dataset
+    ships as newline-delimited JSON compressed with gzip.  We stream the
+    .jsonl.gz directly, extract the first Human: turn from each 'chosen'
+    field, and write up to 3 000 rows to anthropic_hh.csv.
+
+    Schema of each JSON line:
+        {"chosen": "Human: ...\n\nAssistant: ...",
+         "rejected": "Human: ...\n\nAssistant: ..."}
     """
     dest = _DATA_DIR / "anthropic_hh.csv"
     if dest.exists():
@@ -279,24 +281,39 @@ def _pull_anthropic_hh() -> Path:
         return dest
 
     import requests  # type: ignore
-    import pandas as pd  # type: ignore
 
-    log.info("[download] Fetching Anthropic HH-RLHF parquet ...")
+    log.info("[download] Fetching Anthropic HH-RLHF jsonl.gz from %s ...",
+             _ANTHROPIC_HH_JSONL_URL)
     try:
-        resp = requests.get(_ANTHROPIC_HH_PARQUET_URL, timeout=120)
+        resp = requests.get(_ANTHROPIC_HH_JSONL_URL, timeout=180)
         resp.raise_for_status()
-        df = pd.read_parquet(BytesIO(resp.content))
 
-        # Extract first Human turn from the 'chosen' column
         def _first_human(text: str) -> str:
             m = re.search(r"Human:\s*(.+?)(?:\n\nAssistant:|$)", text, re.DOTALL)
             return m.group(1).strip() if m else ""
 
-        df["text"] = df["chosen"].astype(str).apply(_first_human)
-        out = df[["text"]].copy()
-        out = out[out["text"].str.len() > 0].head(3000)
-        out.to_csv(str(dest), index=False)
-        log.info("[download] anthropic_hh.csv: %d rows written.", len(out))
+        rows: List[str] = []
+        with gzip.open(BytesIO(resp.content), "rt", encoding="utf-8") as gz:
+            for line in gz:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                    text = _first_human(entry.get("chosen", ""))
+                    if text:
+                        rows.append(text)
+                except Exception:
+                    pass
+                if len(rows) >= 3000:
+                    break
+
+        with open(dest, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["text"])
+            for r in rows:
+                writer.writerow([r])
+        log.info("[download] anthropic_hh.csv: %d rows written.", len(rows))
     except Exception as exc:
         log.warning("[download] Failed to fetch Anthropic HH-RLHF: %s", exc)
     return dest
