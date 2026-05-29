@@ -8,10 +8,11 @@ Offline trainer for the three Layer 0 sklearn classifiers.
     AssumptionTyper         →  models/layer0/assumption_typer.joblib
 
 Dataset sources (auto-downloaded on first run, skipped if already present):
-    training_data/jailbreakbench/   — JailbreakBench jailbreak prompts (git clone)
-    training_data/liar_train.csv    — LIAR dataset  (ucsbnlp/liar Parquet, direct)
+    training_data/jailbreakbench/   — JailbreakBench jailbreak prompts
+                                       (cloned from JailbreakBench/artifacts)
+    training_data/liar_train.csv    — LIAR dataset (ucsbnlp/liar, default/ shard)
     training_data/trivia_qa.csv     — TriviaQA rc sample (HuggingFace datasets)
-    training_data/ethics_qa.csv     — Hendrycks ETHICS commonsense split (Parquet, direct)
+    training_data/ethics_qa.csv     — Hendrycks ETHICS commonsense (raw GitHub CSV)
     training_data/benign_prompts.jsonl — ~1000 normal questions (auto-generated
                                          from TriviaQA questions, relabelled)
 
@@ -71,9 +72,6 @@ _DATA_DIR.mkdir(parents=True, exist_ok=True)
 _MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Minimum samples required before attempting to fit a classifier.
-# CalibratedClassifierCV uses 5-fold CV by default, so we need at least
-# 5 * n_classes samples for a balanced split.  We enforce a generous
-# lower bound here and emit a clear error when the check fails.
 _MIN_TRAIN_SAMPLES = 50
 
 # ---------------------------------------------------------------------------
@@ -130,32 +128,21 @@ ASSUMPTION_TYPES = [
 # ---------------------------------------------------------------------------
 
 def _pull_jailbreakbench() -> Path:
+    """
+    Clone JailbreakBench/artifacts — this is the repo that actually contains
+    the adversarial prompt CSVs, not the main jailbreakbench repo.
+    """
     dest = _DATA_DIR / "jailbreakbench"
     if dest.exists() and any(dest.iterdir()):
         log.info("[download] jailbreakbench already present, skipping.")
         return dest
-    log.info("[download] Cloning JailbreakBench ...")
+    log.info("[download] Cloning JailbreakBench/artifacts ...")
     subprocess.run(
         ["git", "clone", "--depth=1",
-         "https://github.com/JailbreakBench/jailbreakbench",
+         "https://github.com/JailbreakBench/artifacts",
          str(dest)],
         check=True,
     )
-    # Pull LFS objects (CSV files live in Git LFS).  Non-fatal if LFS is
-    # not installed — the missing-dir warning in the loader will guide user.
-    try:
-        subprocess.run(
-            ["git", "-C", str(dest), "lfs", "pull"],
-            check=True,
-            capture_output=True,
-        )
-        log.info("[download] JailbreakBench LFS pull complete.")
-    except Exception as exc:
-        log.warning(
-            "[download] git lfs pull failed (%s). "
-            "Install git-lfs and re-run if jailbreakbench samples are 0.",
-            exc,
-        )
     return dest
 
 
@@ -180,19 +167,20 @@ def _pull_liar() -> Path:
     Download the LIAR train split directly from Parquet without invoking
     any legacy dataset script.
 
-    ucsbnlp/liar has Parquet shards at a predictable URL pattern; we load
-    them via data_files= so HuggingFace datasets never touches liar.py.
+    ucsbnlp/liar stores its Parquet shards under the 'default/' subdirectory
+    (not 'data/').  We pass the resolved URL directly via data_files= so
+    HuggingFace datasets never invokes liar.py.
     """
     dest = _DATA_DIR / "liar_train.csv"
     if dest.exists():
         log.info("[download] liar_train.csv already present, skipping.")
         return dest
-    log.info("[download] Pulling LIAR via direct Parquet ...")
+    log.info("[download] Pulling LIAR via direct Parquet (default/ shard) ...")
     try:
         from datasets import load_dataset  # type: ignore
         parquet_url = (
             "https://huggingface.co/datasets/ucsbnlp/liar/resolve/main/"
-            "data/train-00000-of-00001.parquet"
+            "default/train-00000-of-00001.parquet"
         )
         ds = load_dataset("parquet", data_files={"train": parquet_url}, split="train")
         ds.to_csv(str(dest))
@@ -204,23 +192,30 @@ def _pull_liar() -> Path:
 
 def _pull_ethics() -> Path:
     """
-    Download the Hendrycks ETHICS commonsense split directly from Parquet
-    without invoking the legacy ethics.py script.
+    Download the Hendrycks ETHICS commonsense split from the raw GitHub repo.
+
+    hendrycks/ethics on HuggingFace uses a legacy ethics.py script that
+    datasets>=2.21 refuses to execute.  The identical CSV lives in the
+    GitHub source repo at hendrycks/ethics and is freely accessible.
+    We fetch it directly with requests (no datasets library needed).
     """
     dest = _DATA_DIR / "ethics_qa.csv"
     if dest.exists():
         log.info("[download] ethics_qa.csv already present, skipping.")
         return dest
-    log.info("[download] Pulling ETHICS commonsense via direct Parquet ...")
+    log.info("[download] Pulling ETHICS commonsense from GitHub raw ...")
     try:
-        from datasets import load_dataset  # type: ignore
-        parquet_url = (
-            "https://huggingface.co/datasets/hendrycks/ethics/resolve/main/"
+        import requests  # type: ignore
+        url = (
+            "https://raw.githubusercontent.com/hendrycks/ethics/master/"
             "commonsense/cm_train.csv"
         )
-        ds = load_dataset("csv", data_files={"train": parquet_url}, split="train[:2000]")
-        ds.to_csv(str(dest))
-        log.info("[download] ETHICS saved %d rows to %s", len(ds), dest)
+        resp = requests.get(url, timeout=60)
+        resp.raise_for_status()
+        dest.write_bytes(resp.content)
+        # Count rows for confirmation
+        lines = resp.text.count("\n")
+        log.info("[download] ETHICS saved ~%d rows to %s", lines, dest)
     except Exception as exc:
         log.warning("[download] Failed to pull ETHICS: %s", exc)
     return dest
@@ -242,34 +237,43 @@ def pull_all_datasets() -> None:
 def _load_manipulation_data() -> List[Tuple[str, str]]:
     """
     Returns (text, manip_label) pairs from:
-      - JailbreakBench  → JAILBREAK_ATTEMPT
+      - JailbreakBench/artifacts  → JAILBREAK_ATTEMPT
       - LIAR politifact lies → COERCIVE
       - TriviaQA questions → NOT_MANIPULATIVE
       - dataset_logger JSONL (live labelled, if present)
     """
     samples: List[Tuple[str, str]] = []
 
-    # --- JailbreakBench: walk all .csv files under data/
-    jbb_dir = _DATA_DIR / "jailbreakbench" / "data"
+    # --- JailbreakBench/artifacts: walk all .csv files recursively
+    jbb_root = _DATA_DIR / "jailbreakbench"
     jbb_count = 0
-    if jbb_dir.exists():
-        for csv_path in jbb_dir.rglob("*.csv"):
+    if jbb_root.exists():
+        csv_files = list(jbb_root.rglob("*.csv"))
+        if not csv_files:
+            log.warning(
+                "[manip] No CSV files found under %s. "
+                "The artifacts repo may have changed structure.",
+                jbb_root,
+            )
+        for csv_path in csv_files:
             try:
                 with open(csv_path, newline="", encoding="utf-8") as f:
                     reader = csv.DictReader(f)
                     for row in reader:
-                        goal = row.get("Goal") or row.get("goal") or row.get("prompt") or ""
+                        goal = (
+                            row.get("Goal")
+                            or row.get("goal")
+                            or row.get("prompt")
+                            or row.get("jailbreak_prompt")
+                            or ""
+                        )
                         if goal.strip():
                             samples.append((goal.strip(), "JAILBREAK_ATTEMPT"))
                             jbb_count += 1
             except Exception:
                 pass
     else:
-        log.warning(
-            "[manip] JailbreakBench data dir not found: %s  "
-            "(git lfs pull may be required — see download warnings above)",
-            jbb_dir,
-        )
+        log.warning("[manip] JailbreakBench dir not found: %s", jbb_root)
     log.info("[manip] jailbreakbench: %d samples", jbb_count)
 
     # --- LIAR: map label to manipulation category
@@ -358,6 +362,7 @@ def _load_objectivity_data() -> List[Tuple[str, str]]:
             with open(ethics_path, newline="", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
+                    # GitHub raw CSV has columns: label, input
                     inp = row.get("input", "").strip()
                     if inp:
                         samples.append((inp, "VALUE_LADEN"))
@@ -570,12 +575,7 @@ def _build_feature_matrix(
     texts: List[str],
     embed_model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
 ) -> np.ndarray:
-    """Return (N, 384+17) feature matrix.
-
-    Encoding is performed on ``_DEVICE`` (CUDA when available, else CPU)
-    so the embedding step is GPU-accelerated on machines that have a
-    compatible GPU without any manual configuration.
-    """
+    """Return (N, 384+17) feature matrix."""
     from sentence_transformers import SentenceTransformer  # type: ignore
     log.info(
         "[features] encoding %d texts with %s on device=%s ...",
@@ -607,7 +607,6 @@ def train_manipulation_classifier(skip_if_exists: bool = False) -> Path:
 
     from sklearn.svm import LinearSVC          # type: ignore
     from sklearn.preprocessing import LabelEncoder  # type: ignore
-    from sklearn.pipeline import Pipeline      # type: ignore
     from sklearn.calibration import CalibratedClassifierCV  # type: ignore
 
     samples = _load_manipulation_data()
@@ -632,6 +631,19 @@ def train_manipulation_classifier(skip_if_exists: bool = False) -> Path:
     le = LabelEncoder()
     le.fit(MANIP_LABELS)
     y = le.transform(labels)
+
+    # Guard: need at least 2 distinct classes in the actual loaded data.
+    unique_classes = np.unique(y)
+    if len(unique_classes) < 2:
+        loaded_label_names = [MANIP_LABELS[c] for c in unique_classes.tolist()]
+        log.error(
+            "[train] ManipulationClassifier: only 1 class present in loaded data: %s.\n"
+            "        COERCIVE needs liar_train.csv and JAILBREAK_ATTEMPT needs "
+            "jailbreakbench CSVs.\n"
+            "        Delete stale CSVs and re-run without --skip-download.",
+            loaded_label_names,
+        )
+        return out_path
 
     X = _build_feature_matrix(texts)
 
@@ -680,6 +692,15 @@ def train_objectivity_classifier(skip_if_exists: bool = False) -> Path:
     le = LabelEncoder()
     le.fit(OBJ_LABELS)
     y = le.transform(labels)
+
+    unique_classes = np.unique(y)
+    if len(unique_classes) < 2:
+        log.error(
+            "[train] ObjectivityClassifier: only 1 class present: %s. "
+            "Need ethics_qa.csv and liar_train.csv.",
+            [OBJ_LABELS[c] for c in unique_classes.tolist()],
+        )
+        return out_path
 
     X = _build_feature_matrix(texts)
 
