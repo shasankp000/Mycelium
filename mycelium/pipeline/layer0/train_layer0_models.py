@@ -9,10 +9,9 @@ Offline trainer for the three Layer 0 sklearn classifiers.
 
 Dataset sources (auto-downloaded on first run, skipped if already present):
     training_data/jailbreakbench/   — JailbreakBench jailbreak prompts (git clone)
-    training_data/liar_train.csv    — LIAR dataset (ucsbnlp/liar on HuggingFace,
-                                       script-free Parquet mirror of the original)
+    training_data/liar_train.csv    — LIAR dataset  (ucsbnlp/liar Parquet, direct)
     training_data/trivia_qa.csv     — TriviaQA rc sample (HuggingFace datasets)
-    training_data/ethics_qa.csv     — Hendrycks ETHICS commonsense split
+    training_data/ethics_qa.csv     — Hendrycks ETHICS commonsense split (Parquet, direct)
     training_data/benign_prompts.jsonl — ~1000 normal questions (auto-generated
                                          from TriviaQA questions, relabelled)
 
@@ -40,6 +39,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import logging
 import os
@@ -50,6 +50,10 @@ from typing import Dict, List, Tuple
 
 import joblib
 import numpy as np
+
+# Raise the CSV field-size limit once at import time so TriviaQA's large
+# Wikipedia-passage context fields never hit the 128 KB default cap.
+csv.field_size_limit(sys.maxsize)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(message)s")
 log = logging.getLogger(__name__)
@@ -137,6 +141,21 @@ def _pull_jailbreakbench() -> Path:
          str(dest)],
         check=True,
     )
+    # Pull LFS objects (CSV files live in Git LFS).  Non-fatal if LFS is
+    # not installed — the missing-dir warning in the loader will guide user.
+    try:
+        subprocess.run(
+            ["git", "-C", str(dest), "lfs", "pull"],
+            check=True,
+            capture_output=True,
+        )
+        log.info("[download] JailbreakBench LFS pull complete.")
+    except Exception as exc:
+        log.warning(
+            "[download] git lfs pull failed (%s). "
+            "Install git-lfs and re-run if jailbreakbench samples are 0.",
+            exc,
+        )
     return dest
 
 
@@ -156,23 +175,65 @@ def _pull_hf_dataset(hf_name: str, config: str, split: str, dest: Path, **kwargs
     return dest
 
 
+def _pull_liar() -> Path:
+    """
+    Download the LIAR train split directly from Parquet without invoking
+    any legacy dataset script.
+
+    ucsbnlp/liar has Parquet shards at a predictable URL pattern; we load
+    them via data_files= so HuggingFace datasets never touches liar.py.
+    """
+    dest = _DATA_DIR / "liar_train.csv"
+    if dest.exists():
+        log.info("[download] liar_train.csv already present, skipping.")
+        return dest
+    log.info("[download] Pulling LIAR via direct Parquet ...")
+    try:
+        from datasets import load_dataset  # type: ignore
+        parquet_url = (
+            "https://huggingface.co/datasets/ucsbnlp/liar/resolve/main/"
+            "data/train-00000-of-00001.parquet"
+        )
+        ds = load_dataset("parquet", data_files={"train": parquet_url}, split="train")
+        ds.to_csv(str(dest))
+        log.info("[download] LIAR saved %d rows to %s", len(ds), dest)
+    except Exception as exc:
+        log.warning("[download] Failed to pull LIAR: %s", exc)
+    return dest
+
+
+def _pull_ethics() -> Path:
+    """
+    Download the Hendrycks ETHICS commonsense split directly from Parquet
+    without invoking the legacy ethics.py script.
+    """
+    dest = _DATA_DIR / "ethics_qa.csv"
+    if dest.exists():
+        log.info("[download] ethics_qa.csv already present, skipping.")
+        return dest
+    log.info("[download] Pulling ETHICS commonsense via direct Parquet ...")
+    try:
+        from datasets import load_dataset  # type: ignore
+        parquet_url = (
+            "https://huggingface.co/datasets/hendrycks/ethics/resolve/main/"
+            "commonsense/cm_train.csv"
+        )
+        ds = load_dataset("csv", data_files={"train": parquet_url}, split="train[:2000]")
+        ds.to_csv(str(dest))
+        log.info("[download] ETHICS saved %d rows to %s", len(ds), dest)
+    except Exception as exc:
+        log.warning("[download] Failed to pull ETHICS: %s", exc)
+    return dest
+
+
 def pull_all_datasets() -> None:
     _pull_jailbreakbench()
-    # ucsbnlp/liar is the official script-free Parquet re-upload of the LIAR
-    # dataset.  The original "liar" repo ID uses a legacy liar.py loading
-    # script that HuggingFace datasets>=2.21 refuses to execute.
-    _pull_hf_dataset(
-        "ucsbnlp/liar", None, "train",
-        _DATA_DIR / "liar_train.csv",
-    )
+    _pull_liar()
     _pull_hf_dataset(
         "trivia_qa", "rc", "train[:3000]",
         _DATA_DIR / "trivia_qa.csv",
     )
-    _pull_hf_dataset(
-        "hendrycks/ethics", "commonsense", "train[:2000]",
-        _DATA_DIR / "ethics_qa.csv",
-    )
+    _pull_ethics()
 
 # ---------------------------------------------------------------------------
 # Dataset loaders → (text, label) lists
@@ -186,7 +247,6 @@ def _load_manipulation_data() -> List[Tuple[str, str]]:
       - TriviaQA questions → NOT_MANIPULATIVE
       - dataset_logger JSONL (live labelled, if present)
     """
-    import csv, re
     samples: List[Tuple[str, str]] = []
 
     # --- JailbreakBench: walk all .csv files under data/
@@ -205,7 +265,11 @@ def _load_manipulation_data() -> List[Tuple[str, str]]:
             except Exception:
                 pass
     else:
-        log.warning("[manip] JailbreakBench data dir not found: %s", jbb_dir)
+        log.warning(
+            "[manip] JailbreakBench data dir not found: %s  "
+            "(git lfs pull may be required — see download warnings above)",
+            jbb_dir,
+        )
     log.info("[manip] jailbreakbench: %d samples", jbb_count)
 
     # --- LIAR: map label to manipulation category
@@ -266,7 +330,6 @@ def _load_objectivity_data() -> List[Tuple[str, str]]:
       - Ethics QA → VALUE_LADEN
       - LIAR subjective statements → SUBJECTIVE
     """
-    import csv
     samples: List[Tuple[str, str]] = []
 
     tqa_path = _DATA_DIR / "trivia_qa.csv"
@@ -339,7 +402,6 @@ def _load_assumption_data() -> List[Tuple[str, List[int]]]:
       - dataset_logger JSONL (assumption component)
     Auto-labels using rule signals from NLPPreprocessor.
     """
-    import csv
     from mycelium.pipeline.layer0.nlp_preprocessor import get_preprocessor
     pre = get_preprocessor()
     samples: List[Tuple[str, List[int]]] = []
@@ -573,7 +635,6 @@ def train_manipulation_classifier(skip_if_exists: bool = False) -> Path:
 
     X = _build_feature_matrix(texts)
 
-    # cv must not exceed n_samples; for normal runs this is always 5.
     cv_folds = min(5, n)
     log.info("[train] ManipulationClassifier: X=%s  classes=%s  cv=%d", X.shape, le.classes_, cv_folds)
     clf = CalibratedClassifierCV(
@@ -596,7 +657,6 @@ def train_objectivity_classifier(skip_if_exists: bool = False) -> Path:
 
     from sklearn.linear_model import LogisticRegression  # type: ignore
     from sklearn.preprocessing import LabelEncoder       # type: ignore
-    from sklearn.calibration import CalibratedClassifierCV  # type: ignore
 
     samples = _load_objectivity_data()
     if not samples:
@@ -652,7 +712,6 @@ def train_assumption_typer(skip_if_exists: bool = False) -> Path:
     y_list = [s[1] for s in samples]
     Y = np.array(y_list, dtype=np.int32)
 
-    # Skip columns that are all-zero (no positive examples yet)
     active_cols = [i for i in range(Y.shape[1]) if Y[:, i].sum() > 0]
     if not active_cols:
         log.warning("[train] assumption_typer: no positive examples for any type, skipping.")
