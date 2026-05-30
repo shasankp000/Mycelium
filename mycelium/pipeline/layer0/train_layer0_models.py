@@ -11,7 +11,8 @@ Dataset sources (auto-downloaded on first run, skipped if already present):
     training_data/jailbreakbench/   — JailbreakBench jailbreak prompts
                                        (cloned from JailbreakBench/artifacts)
     training_data/liar_train.csv    — LIAR dataset
-                                       (ucsbnlp/liar via HuggingFace datasets)
+                                       (ucsbnlp/liar via direct Parquet fetch,
+                                        bypasses broken liar.py loading script)
     training_data/trivia_qa.csv     — TriviaQA rc sample (HuggingFace datasets)
     training_data/ethics_qa.csv     — Hendrycks ETHICS commonsense
                                        (direct Parquet from
@@ -96,6 +97,15 @@ _ANTHROPIC_HH_JSONL_URL = (
     "/resolve/main/harmless-base/train.jsonl.gz"
 )
 
+# ucsbnlp/liar — direct Parquet at the commit where Arrow files were added.
+# The main branch still has liar.py which HF datasets refuses to execute,
+# so we bypass it by pinning to commit 110b00c (parquet-converter commit).
+_LIAR_PARQUET_COMMIT = "110b00c693ef1844bf3c59637a1b46e0d61389c2"
+_LIAR_TRAIN_PARQUET_URL = (
+    f"https://huggingface.co/datasets/ucsbnlp/liar"
+    f"/resolve/{_LIAR_PARQUET_COMMIT}/default/liar-train.parquet"
+)
+
 # ---------------------------------------------------------------------------
 # Device selection
 # ---------------------------------------------------------------------------
@@ -144,6 +154,51 @@ ASSUMPTION_TYPES = [
     "NORMATIVE_UNIVERSAL",
     "CAUSAL_PRESUPPOSITION",
 ]
+
+# ---------------------------------------------------------------------------
+# Regex heuristics for AssumptionTyper auto-labelling
+# These fire on patterns that nlp_preprocessor does not currently surface,
+# covering the three previously-zero types:
+#   FALSE_DICHOTOMY      — either/or, with us or against us, only two options
+#   VALUE_FRAME          — implicit value statements (must protect/preserve/
+#                          defend, our values/way of life, etc.)
+#   CAUSAL_PRESUPPOSITION — why-questions and explicit causal claims
+# ---------------------------------------------------------------------------
+
+_FALSE_DICHOTOMY_RE = re.compile(
+    r"\b("
+    r"either\s+\w[\w\s,]+\s+or\b"
+    r"|with\s+us\s+or\s+against\s+us"
+    r"|you(?:'re|re|\s+are)\s+(either|only)\b"
+    r"|only\s+two\s+(options|choices|paths|ways)"
+    r"|if\s+you(?:'re|re|\s+are)\s+not\s+\w+,?\s+you(?:'re|re|\s+are)"
+    r"|there(?:'s|\s+is)\s+no\s+(middle|third|other)\s+(ground|option|choice|way)"
+    r")",
+    re.IGNORECASE,
+)
+
+_VALUE_FRAME_RE = re.compile(
+    r"\b("
+    r"(?:must|have\s+to|need\s+to)\s+(?:protect|preserve|defend|uphold|safeguard)"
+    r"|our\s+(?:values|way\s+of\s+life|traditions?|heritage|culture|freedom|rights?)"
+    r"|(?:threatens?|undermines?|destroys?|erodes?)\s+our\s+\w+"
+    r"|(?:sacred|fundamental|core|cherished)\s+(?:values?|rights?|principles?|beliefs?)"
+    r"|(?:moral|ethical)\s+(?:duty|obligation|imperative|responsibility)"
+    r"|(?:true|real|genuine)\s+(?:freedom|justice|equality|democracy)"
+    r")",
+    re.IGNORECASE,
+)
+
+_CAUSAL_PRESUPPOSITION_RE = re.compile(
+    r"\b("
+    r"why\s+(?:did|does|do|has|have|would|will|is|are|was|were)\b"
+    r"|why\s+(?:can't|cannot|won't|wouldn't|didn't|doesn't|don't)\b"
+    r"|what\s+(?:caused|made|led\s+to|resulted\s+in)\b"
+    r"|(?:because\s+of|due\s+to|as\s+a\s+result\s+of|owing\s+to)\s+\w+"
+    r"|(?:caused|triggered|produced|brought\s+about)\s+(?:the|a|an|this|that)\b"
+    r")",
+    re.IGNORECASE,
+)
 
 # ---------------------------------------------------------------------------
 # Parquet download helper
@@ -228,23 +283,25 @@ def _pull_jailbreakbench() -> Path:
 
 def _pull_liar() -> Path:
     """
-    Download LIAR train split via HuggingFace datasets library (ucsbnlp/liar).
-    The dataset uses the standard Arrow/Parquet loader (no loading script),
-    so trust_remote_code is not needed.
-    Columns expected: statement, label (among others).
+    Download LIAR train split via direct Parquet fetch, bypassing the broken
+    liar.py loading script on the main branch of ucsbnlp/liar.
+
+    We pin to commit 110b00c693ef1844bf3c59637a1b46e0d61389c2 where HF's
+    auto-converter deposited the Arrow/Parquet files under default/.
+
+    Expected columns in the Parquet: id, label, statement, subject,
+    speaker, job_title, state_info, party_affiliation, ...
+    We only need 'statement' and 'label'.
     """
     dest = _DATA_DIR / "liar_train.csv"
     if dest.exists():
         log.info("[download] liar_train.csv already present, skipping.")
         return dest
-    log.info("[download] Pulling ucsbnlp/liar (train) via datasets ...")
-    try:
-        from datasets import load_dataset  # type: ignore
-        ds = load_dataset("ucsbnlp/liar", split="train")
-        ds.to_csv(str(dest))
-        log.info("[download] liar_train.csv: %d rows written.", len(ds))
-    except Exception as exc:
-        log.warning("[download] Failed to pull LIAR: %s", exc)
+
+    log.info("[download] Fetching LIAR train Parquet (commit %s) ...", _LIAR_PARQUET_COMMIT[:8])
+    ok = _fetch_parquet(_LIAR_TRAIN_PARQUET_URL, dest, "LIAR")
+    if not ok:
+        log.warning("[download] LIAR Parquet fetch failed — liar_train.csv will be absent.")
     return dest
 
 
@@ -272,8 +329,8 @@ def _pull_anthropic_hh() -> Path:
     field, and write up to 3 000 rows to anthropic_hh.csv.
 
     Schema of each JSON line:
-        {"chosen": "Human: ...\n\nAssistant: ...",
-         "rejected": "Human: ...\n\nAssistant: ..."}
+        {"chosen": "Human: ...\\n\\nAssistant: ...",
+         "rejected": "Human: ...\\n\\nAssistant: ..."}
     """
     dest = _DATA_DIR / "anthropic_hh.csv"
     if dest.exists():
@@ -525,7 +582,9 @@ def _load_assumption_data() -> List[Tuple[str, List[int]]]:
     Multi-hot vector has len == len(ASSUMPTION_TYPES).
     Sources:
       - trivia_qa.csv  → mostly empty vector (no assumptions)
-      - ethics_qa.csv  → auto-labelled via rule signals
+      - ethics_qa.csv  → auto-labelled via rule signals + regex heuristics
+      - liar_train.csv → auto-labelled (good source for FALSE_DICHOTOMY /
+                         CAUSAL_PRESUPPOSITION / VALUE_FRAME patterns)
       - dataset_logger JSONL (assumption component)
     """
     from mycelium.pipeline.layer0.nlp_preprocessor import get_preprocessor
@@ -533,27 +592,44 @@ def _load_assumption_data() -> List[Tuple[str, List[int]]]:
     samples: List[Tuple[str, List[int]]] = []
 
     def _auto_label(text: str) -> List[int]:
+        # --- nlp_preprocessor signals ---
         try:
             a = pre.analyse(text)
         except Exception:
-            return [0] * len(ASSUMPTION_TYPES)
+            a = None
+
         vec = [0] * len(ASSUMPTION_TYPES)
-        for trig in a.presupposition_triggers:
-            if trig.startswith("factive_verb:"):
-                vec[ASSUMPTION_TYPES.index("FACTIVE_PRESUPPOSITION")] = 1
-            elif trig.startswith("change_of_state:"):
-                vec[ASSUMPTION_TYPES.index("CHANGE_OF_STATE")] = 1
-            elif trig == "definite_superlative":
-                vec[ASSUMPTION_TYPES.index("EXISTENTIAL_PRESUPPOSITION")] = 1
-            elif trig == "cleft_construction":
-                vec[ASSUMPTION_TYPES.index("CLEFT_FOCUS")] = 1
-            elif trig == "additive_particle:also":
-                vec[ASSUMPTION_TYPES.index("ADDITIVE_PRESUPPOSITION")] = 1
-            elif trig == "why_causal_presupposition":
-                vec[ASSUMPTION_TYPES.index("CAUSAL_PRESUPPOSITION")] = 1
-        for sig in a.coercive_signals:
-            if sig.startswith("absolutist_quantifier:"):
-                vec[ASSUMPTION_TYPES.index("NORMATIVE_UNIVERSAL")] = 1
+
+        if a is not None:
+            for trig in a.presupposition_triggers:
+                if trig.startswith("factive_verb:"):
+                    vec[ASSUMPTION_TYPES.index("FACTIVE_PRESUPPOSITION")] = 1
+                elif trig.startswith("change_of_state:"):
+                    vec[ASSUMPTION_TYPES.index("CHANGE_OF_STATE")] = 1
+                elif trig == "definite_superlative":
+                    vec[ASSUMPTION_TYPES.index("EXISTENTIAL_PRESUPPOSITION")] = 1
+                elif trig == "cleft_construction":
+                    vec[ASSUMPTION_TYPES.index("CLEFT_FOCUS")] = 1
+                elif trig == "additive_particle:also":
+                    vec[ASSUMPTION_TYPES.index("ADDITIVE_PRESUPPOSITION")] = 1
+                elif trig == "why_causal_presupposition":
+                    vec[ASSUMPTION_TYPES.index("CAUSAL_PRESUPPOSITION")] = 1
+            for sig in a.coercive_signals:
+                if sig.startswith("absolutist_quantifier:"):
+                    vec[ASSUMPTION_TYPES.index("NORMATIVE_UNIVERSAL")] = 1
+
+        # --- regex heuristics for previously-zero types ---
+        if _FALSE_DICHOTOMY_RE.search(text):
+            vec[ASSUMPTION_TYPES.index("FALSE_DICHOTOMY")] = 1
+
+        if _VALUE_FRAME_RE.search(text):
+            vec[ASSUMPTION_TYPES.index("VALUE_FRAME")] = 1
+
+        # CAUSAL_PRESUPPOSITION: regex supplements the nlp_preprocessor signal
+        # (which only fires on "why_causal_presupposition" trigger)
+        if _CAUSAL_PRESUPPOSITION_RE.search(text):
+            vec[ASSUMPTION_TYPES.index("CAUSAL_PRESUPPOSITION")] = 1
+
         return vec
 
     tqa_path = _DATA_DIR / "trivia_qa.csv"
@@ -586,6 +662,26 @@ def _load_assumption_data() -> List[Tuple[str, List[int]]]:
                         samples.append((inp, _auto_label(inp)))
         except Exception as exc:
             log.warning("[assumption] Ethics load error: %s", exc)
+
+    # LIAR statements are rich in causal claims, dichotomies, and value frames
+    liar_path = _DATA_DIR / "liar_train.csv"
+    liar_assumption_count = 0
+    if liar_path.exists():
+        try:
+            with open(liar_path, newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    stmt = row.get("statement", "").strip()
+                    if stmt:
+                        vec = _auto_label(stmt)
+                        samples.append((stmt, vec))
+                        if any(vec):
+                            liar_assumption_count += 1
+        except Exception as exc:
+            log.warning("[assumption] LIAR load error: %s", exc)
+        log.info("[assumption] liar: %d samples with ≥1 active type", liar_assumption_count)
+    else:
+        log.warning("[assumption] liar_train.csv not found — FALSE_DICHOTOMY/VALUE_FRAME coverage may be low")
 
     logger_path = _ROOT / "training_data" / "dataset_log.jsonl"
     if logger_path.exists():
