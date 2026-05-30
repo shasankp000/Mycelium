@@ -107,6 +107,36 @@ _LIAR_TRAIN_PARQUET_URL = (
 )
 
 # ---------------------------------------------------------------------------
+# LIAR label mapping
+# ---------------------------------------------------------------------------
+# The Parquet-converted CSV stores labels as integer strings '0'-'5'.
+# Original LIAR encoding:
+#   0 = pants-fire   → COERCIVE          (blatant lie / extreme distortion)
+#   1 = false        → COERCIVE
+#   2 = barely-true  → COERCIVE          (misleading enough to count)
+#   3 = half-true    → NOT_MANIPULATIVE
+#   4 = mostly-true  → NOT_MANIPULATIVE
+#   5 = true         → NOT_MANIPULATIVE
+# String labels (from non-Parquet paths) are also handled for robustness.
+_LIAR_MANIP_MAP: dict[str, str] = {
+    "0": "COERCIVE",        # pants-fire
+    "1": "COERCIVE",        # false
+    "2": "COERCIVE",        # barely-true
+    "3": "NOT_MANIPULATIVE",  # half-true
+    "4": "NOT_MANIPULATIVE",  # mostly-true
+    "5": "NOT_MANIPULATIVE",  # true
+    # string fallbacks (non-Parquet paths)
+    "pants-fire":   "COERCIVE",
+    "false":        "COERCIVE",
+    "barely-true":  "COERCIVE",
+    "half-true":    "NOT_MANIPULATIVE",
+    "mostly-true":  "NOT_MANIPULATIVE",
+    "true":         "NOT_MANIPULATIVE",
+}
+# For objectivity: all LIAR statements are SUBJECTIVE regardless of truth rating
+_LIAR_OBJ_LABEL = "SUBJECTIVE"
+
+# ---------------------------------------------------------------------------
 # Device selection
 # ---------------------------------------------------------------------------
 
@@ -289,9 +319,11 @@ def _pull_liar() -> Path:
     We pin to commit 110b00c693ef1844bf3c59637a1b46e0d61389c2 where HF's
     auto-converter deposited the Arrow/Parquet files under default/.
 
-    Expected columns in the Parquet: id, label, statement, subject,
-    speaker, job_title, state_info, party_affiliation, ...
-    We only need 'statement' and 'label'.
+    Parquet columns: id, label, statement, subject, speaker, job_title,
+    state_info, party_affiliation, barely_true_counts, false_counts,
+    half_true_counts, mostly_true_counts, pants_on_fire_counts, context.
+    Labels are stored as integer strings '0'-'5' (not the human-readable
+    strings from the original TSV).
     """
     dest = _DATA_DIR / "liar_train.csv"
     if dest.exists():
@@ -446,14 +478,10 @@ def _load_manipulation_data() -> List[Tuple[str, str]]:
                 for row in reader:
                     stmt = row.get("statement", "").strip()
                     lbl  = row.get("label", "").strip().lower()
-                    if not stmt:
+                    if not stmt or lbl not in _LIAR_MANIP_MAP:
                         continue
-                    if lbl in {"pants-fire", "false"}:
-                        samples.append((stmt, "COERCIVE"))
-                        liar_count += 1
-                    elif lbl in {"half-true", "mostly-true", "true"}:
-                        samples.append((stmt, "NOT_MANIPULATIVE"))
-                        liar_count += 1
+                    samples.append((stmt, _LIAR_MANIP_MAP[lbl]))
+                    liar_count += 1
         except Exception as exc:
             log.warning("[manip] LIAR load error: %s", exc)
     else:
@@ -563,7 +591,7 @@ def _load_objectivity_data() -> List[Tuple[str, str]]:
                         break
                     stmt = row.get("statement", "").strip()
                     if stmt:
-                        samples.append((stmt, "SUBJECTIVE"))
+                        samples.append((stmt, _LIAR_OBJ_LABEL))
                         liar_count += 1
         except Exception as exc:
             log.warning("[obj] LIAR load error: %s", exc)
@@ -910,7 +938,6 @@ def train_objectivity_classifier(skip_if_exists: bool = False) -> Path:
 
     X = _build_feature_matrix(texts)
     log.info("[train] ObjectivityClassifier: X=%s  classes=%s", X.shape, le.classes_)
-    # multi_class removed in sklearn 1.5 — lbfgs uses multinomial softmax by default
     clf = LogisticRegression(
         C=1.0, max_iter=1000, class_weight="balanced", solver="lbfgs",
     )
