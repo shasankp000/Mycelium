@@ -28,10 +28,25 @@ Feature vector per sample:
     + [rule_signal_vector (one-hot, ~17 dims)]
 
 Model architecture:
-    ManipulationClassifier  — LinearSVC (multi-class, C=1.0)
-    ObjectivityClassifier   — LogisticRegression (multi-class, C=1.0)
-    AssumptionTyper         — MultiOutputClassifier(LogisticRegression)
-                               (multi-label: one binary clf per assumption type)
+    ManipulationClassifier  — CalibratedClassifierCV(
+                                LinearSVC(C=1.0, balanced),
+                                method='isotonic', cv=5)
+    ObjectivityClassifier   — CalibratedClassifierCV(
+                                LogisticRegression(C=1.0, balanced),
+                                method='isotonic', cv=5)
+    AssumptionTyper         — MultiOutputClassifier(
+                                CalibratedClassifierCV(
+                                  LogisticRegression, method='isotonic', cv=5))
+
+Calibration notes:
+    Isotonic regression is preferred over sigmoid (Platt) for:
+      * LinearSVC: decision margins are not monotonically related to
+        posterior probabilities, so sigmoid under-fits.
+      * Minority classes (JAILBREAK_ATTEMPT, AMBIGUOUS): sigmoid tends to
+        over-compress probability mass near 0.5; isotonic handles the
+        irregular calibration curves better.
+    Brier score is logged after each fit so calibration quality is
+    visible at train time without a separate eval step.
 
 Device selection:
     SentenceTransformer encoding runs on CUDA when torch.cuda.is_available(),
@@ -842,6 +857,51 @@ def _build_feature_matrix(
 
 
 # ---------------------------------------------------------------------------
+# Calibration eval helper
+# ---------------------------------------------------------------------------
+
+def _log_brier_score(
+    clf, X: np.ndarray, y: np.ndarray, label_encoder, name: str
+) -> None:
+    """
+    Compute and log the mean Brier score across all classes.
+
+    Brier score = mean squared error between predicted probabilities and
+    one-hot true labels.  Lower is better; 0.0 is perfect; 0.25 is the
+    score a completely uninformative (uniform) classifier achieves for a
+    binary task.  For multi-class, sklearn returns the per-class Brier
+    score — we log the mean.
+
+    A well-calibrated model should score < 0.10 on training data.
+    Scores > 0.20 after calibration suggest the calibration set is too
+    small or the base model is severely underfitting.
+    """
+    from sklearn.metrics import brier_score_loss
+    from sklearn.preprocessing import label_binarize
+    try:
+        classes = list(range(len(label_encoder.classes_)))
+        proba = clf.predict_proba(X)
+        Y_bin = label_binarize(y, classes=classes)
+        if Y_bin.shape[1] == 1:            # binary edge case
+            Y_bin = np.hstack([1 - Y_bin, Y_bin])
+        scores = [
+            brier_score_loss(Y_bin[:, i], proba[:, i])
+            for i in range(len(classes))
+        ]
+        mean_bs = float(np.mean(scores))
+        per_class = ", ".join(
+            f"{label_encoder.classes_[i]}={scores[i]:.4f}"
+            for i in range(len(classes))
+        )
+        log.info(
+            "[calibration] %s Brier score — mean=%.4f  per-class: %s",
+            name, mean_bs, per_class,
+        )
+    except Exception as exc:
+        log.warning("[calibration] Brier score computation failed for %s: %s", name, exc)
+
+
+# ---------------------------------------------------------------------------
 # Model trainers
 # ---------------------------------------------------------------------------
 
@@ -884,16 +944,28 @@ def train_manipulation_classifier(skip_if_exists: bool = False) -> Path:
         return out_path
 
     X = _build_feature_matrix(texts)
-    cv_folds = min(5, n)
-    log.info("[train] ManipulationClassifier: X=%s  classes=%s  cv=%d",
-             X.shape, le.classes_, cv_folds)
+    # Use min(5, n) folds but never more than the smallest class count to
+    # avoid StratifiedKFold errors when minority classes are tiny.
+    min_class_count = int(np.bincount(y).min())
+    cv_folds = max(2, min(5, min_class_count))
+    log.info(
+        "[train] ManipulationClassifier: X=%s  classes=%s  cv=%d",
+        X.shape, le.classes_, cv_folds,
+    )
+    # CalibratedClassifierCV wraps LinearSVC with isotonic regression.
+    # method='isotonic' is preferred over 'sigmoid' (Platt) for LinearSVC
+    # because decision margins are not monotone in posterior probability,
+    # causing sigmoid to systematically under-estimate extreme class
+    # probabilities.  Isotonic handles non-monotone calibration curves.
     clf = CalibratedClassifierCV(
         LinearSVC(C=1.0, max_iter=2000, class_weight="balanced"),
+        method="isotonic",
         cv=cv_folds,
     )
     clf.fit(X, y)
+    _log_brier_score(clf, X, y, le, "ManipulationClassifier")
 
-    joblib.dump({"model": clf, "label_encoder": le, "version": "1.0"}, out_path)
+    joblib.dump({"model": clf, "label_encoder": le, "version": "1.1"}, out_path)
     log.info("[train] Saved → %s", out_path)
     return out_path
 
@@ -906,6 +978,7 @@ def train_objectivity_classifier(skip_if_exists: bool = False) -> Path:
 
     from sklearn.linear_model import LogisticRegression
     from sklearn.preprocessing import LabelEncoder
+    from sklearn.calibration import CalibratedClassifierCV
 
     samples = _load_objectivity_data()
     if not samples:
@@ -937,13 +1010,28 @@ def train_objectivity_classifier(skip_if_exists: bool = False) -> Path:
         return out_path
 
     X = _build_feature_matrix(texts)
-    log.info("[train] ObjectivityClassifier: X=%s  classes=%s", X.shape, le.classes_)
-    clf = LogisticRegression(
-        C=1.0, max_iter=1000, class_weight="balanced", solver="lbfgs",
+    # LogisticRegression has native predict_proba but its probabilities are
+    # only Platt-scaled during fit — not post-hoc recalibrated against a
+    # held-out set.  For minority classes (AMBIGUOUS) with few examples,
+    # post-hoc isotonic calibration measurably tightens the Brier score.
+    min_class_count = int(np.bincount(y).min())
+    cv_folds = max(2, min(5, min_class_count))
+    log.info(
+        "[train] ObjectivityClassifier: X=%s  classes=%s  cv=%d",
+        X.shape, le.classes_, cv_folds,
+    )
+    clf = CalibratedClassifierCV(
+        LogisticRegression(
+            C=1.0, max_iter=1000, class_weight="balanced", solver="lbfgs",
+            multi_class="multinomial",
+        ),
+        method="isotonic",
+        cv=cv_folds,
     )
     clf.fit(X, y)
+    _log_brier_score(clf, X, y, le, "ObjectivityClassifier")
 
-    joblib.dump({"model": clf, "label_encoder": le, "version": "1.0"}, out_path)
+    joblib.dump({"model": clf, "label_encoder": le, "version": "1.1"}, out_path)
     log.info("[train] Saved → %s", out_path)
     return out_path
 
@@ -956,6 +1044,7 @@ def train_assumption_typer(skip_if_exists: bool = False) -> Path:
 
     from sklearn.linear_model import LogisticRegression
     from sklearn.multioutput import MultiOutputClassifier
+    from sklearn.calibration import CalibratedClassifierCV
 
     samples = _load_assumption_data()
     if not samples:
@@ -976,8 +1065,18 @@ def train_assumption_typer(skip_if_exists: bool = False) -> Path:
 
     X = _build_feature_matrix(texts)
     log.info("[train] AssumptionTyper: X=%s  active_types=%s", X.shape, active_types)
+    # Each per-type binary classifier is independently isotonic-calibrated so
+    # the multi-label probability outputs are individually calibrated rather
+    # than using raw LR sigmoid outputs.
+    n = len(texts)
+    # For multi-label binary classifiers the positive class may be rare;
+    # cv=3 is safer against small positive counts than cv=5.
     clf = MultiOutputClassifier(
-        LogisticRegression(C=1.0, max_iter=500, solver="lbfgs"),
+        CalibratedClassifierCV(
+            LogisticRegression(C=1.0, max_iter=500, solver="lbfgs"),
+            method="isotonic",
+            cv=3,
+        ),
         n_jobs=-1,
     )
     clf.fit(X, Y_active)
@@ -986,7 +1085,7 @@ def train_assumption_typer(skip_if_exists: bool = False) -> Path:
         "model": clf,
         "active_types": active_types,
         "all_types": ASSUMPTION_TYPES,
-        "version": "1.0",
+        "version": "1.1",
     }, out_path)
     log.info("[train] Saved → %s", out_path)
     return out_path
