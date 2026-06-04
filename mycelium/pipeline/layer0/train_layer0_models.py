@@ -9,11 +9,19 @@ Offline trainer for the three Layer 0 sklearn classifiers.
 
 Dataset sources (auto-downloaded on first run, skipped if already present):
     training_data/jailbreakbench/   — JailbreakBench jailbreak prompts
+                                       (cloned from JailbreakBench/artifacts)
     training_data/liar_train.csv    — LIAR dataset
-    training_data/trivia_qa.csv     — TriviaQA rc sample
+                                       (ucsbnlp/liar via direct Parquet fetch,
+                                        bypasses broken liar.py loading script)
+    training_data/trivia_qa.csv     — TriviaQA rc sample (HuggingFace datasets)
     training_data/ethics_qa.csv     — Hendrycks ETHICS commonsense
+                                       (direct Parquet from
+                                        lighteval/hendrycks_ethics mirror)
     training_data/anthropic_hh.csv  — Anthropic HH-RLHF harmless-base
-    training_data/benign_prompts.jsonl — ~1000 normal questions
+                                       (streamed from train.jsonl.gz,
+                                        VALUE_LADEN source)
+    training_data/benign_prompts.jsonl — ~1000 normal questions (auto-generated
+                                         from TriviaQA questions, relabelled)
 
 Feature vector per sample:
     [sentence_embedding (384-dim, all-MiniLM-L6-v2)]
@@ -30,17 +38,19 @@ Model architecture:
                                 CalibratedClassifierCV(
                                   LogisticRegression, method='isotonic', cv=5))
 
-Class balance targets (ObjectivityClassifier):
-    OBJECTIVE    ~2000  (trivia_qa factual questions)
-    SUBJECTIVE   ~800   (liar statements)
-    VALUE_LADEN  ~1500  (ethics, capped) + ~1500 (anthropic_hh, capped)
-                 → merged to ~2000 after dedup/cap
-    AMBIGUOUS    ~300   (auto-labelled via ambiguity markers)
+Calibration notes:
+    Isotonic regression is preferred over sigmoid (Platt) for:
+      * LinearSVC: decision margins are not monotonically related to
+        posterior probabilities, so sigmoid under-fits.
+      * Minority classes (JAILBREAK_ATTEMPT, AMBIGUOUS): sigmoid tends to
+        over-compress probability mass near 0.5; isotonic handles the
+        irregular calibration curves better.
+    Brier score is logged after each fit so calibration quality is
+    visible at train time without a separate eval step.
 
-    Previously the dataset had 5000+ VALUE_LADEN vs 2000 OBJECTIVE and
-    0 AMBIGUOUS, causing the classifier to pull every science question
-    containing evaluative-sounding words toward VALUE_LADEN →
-    MULTI_PERSPECTIVE.
+Device selection:
+    SentenceTransformer encoding runs on CUDA when torch.cuda.is_available(),
+    otherwise falls back to CPU.  All sklearn estimators are CPU-only.
 
 Usage:
     python -m mycelium.pipeline.layer0.train_layer0_models
@@ -65,6 +75,8 @@ from typing import List, Tuple
 import joblib
 import numpy as np
 
+# Raise the CSV field-size limit once at import time so TriviaQA's large
+# Wikipedia-passage context fields never hit the 128 KB default cap.
 csv.field_size_limit(sys.maxsize)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(message)s")
@@ -74,8 +86,8 @@ log = logging.getLogger(__name__)
 # Paths
 # ---------------------------------------------------------------------------
 
-_HERE = Path(__file__).resolve().parent
-_ROOT = _HERE.parent.parent.parent
+_HERE = Path(__file__).resolve().parent          # layer0/
+_ROOT = _HERE.parent.parent.parent               # project root
 _DATA_DIR   = _ROOT / "training_data"
 _MODELS_DIR = _ROOT / "models" / "layer0"
 
@@ -107,7 +119,6 @@ _LIAR_TRAIN_PARQUET_URL = (
 # ---------------------------------------------------------------------------
 # LIAR label mapping
 # ---------------------------------------------------------------------------
-
 _LIAR_MANIP_MAP: dict[str, str] = {
     "0": "COERCIVE",
     "1": "COERCIVE",
@@ -125,49 +136,52 @@ _LIAR_MANIP_MAP: dict[str, str] = {
 _LIAR_OBJ_LABEL = "SUBJECTIVE"
 
 # ---------------------------------------------------------------------------
-# Ambiguity markers (for auto-labelling AMBIGUOUS objectivity samples)
+# Device selection
 # ---------------------------------------------------------------------------
-# These patterns indicate genuine ambiguity rather than value-ladenness:
-# unclear referent, context-dependent meaning, either/or without presupposition.
 
-_AMBIGUITY_MARKERS_RE = re.compile(
-    r"\b("
-    r"depends\s+on\s+(the|your|how|what|where|who|context)"
-    r"|it(?:'s|\s+is)\s+(unclear|not\s+clear|ambiguous|debatable|uncertain)"
-    r"|in\s+(some|many|certain|various)\s+(contexts?|cases?|situations?|circumstances?)"
-    r"|(?:can|could|may|might)\s+(?:mean|refer\s+to|be\s+interpreted)"
-    r"|(?:what\s+(?:exactly|specifically)\s+(?:do\s+you|does\s+\w+)\s+mean)"
-    r"|(?:clarify|clarification|specify|more\s+(?:specific|precise|detail))"
-    r"|(?:which|what)\s+(?:type|kind|sort|form)\s+of\b"
-    r"|\bvague\b|\bimprecise\b|\bopen(?:-|\s+)ended\b"
-    r")",
-    re.IGNORECASE,
-)
+def _get_device() -> str:
+    try:
+        import torch
+        if torch.cuda.is_available():
+            dev = "cuda"
+            log.info("[device] CUDA available — using GPU: %s", torch.cuda.get_device_name(0))
+            return dev
+    except Exception:
+        pass
+    log.info("[device] CUDA not available — using CPU")
+    return "cpu"
 
-# Science / factual topic markers used to confirm a question is OBJECTIVE.
-# Presence of these words in combination with interrogative structure strongly
-# indicates a factual science question, not a value-laden one.
-_SCIENCE_TOPIC_RE = re.compile(
-    r"\b("
-    r"physics?|chemistry|chemical|biolog(?:y|ical)|math(?:ematics?|ematical)?"
-    r"|quantum|particle(?:s)?|atom(?:ic|s)?|molecul(?:e|ar|es)"
-    r"|electron(?:s|ic)?|proton(?:s)?|neutron(?:s)?"
-    r"|gravity|gravitational|magnetic|electro(?:magnetic|static)"
-    r"|thermodynamics?|entropy|energy|force(?:s)?|momentum"
-    r"|velocity|acceleration|wavelength|frequency|photon(?:s)?"
-    r"|nucleus|nuclear|radioactive|isotope"
-    r"|gene(?:tic|tics|s)?|cell(?:s|ular)?|protein(?:s)?"
-    r"|evolution|organism(?:s)?|species"
-    r"|temperature|pressure|volume|density|mass"
-    r"|equation(?:s)?|theorem(?:s)?|formula(?:e|s)?"
-    r"|element(?:s|al)?|compound(?:s)?|reaction(?:s)?"
-    r"|solar|planet(?:s|ary)?|star(?:s)?|galaxy|universe|cosmic"
-    r")",
-    re.IGNORECASE,
-)
+
+_DEVICE: str = _get_device()
 
 # ---------------------------------------------------------------------------
-# Regex heuristics for AssumptionTyper
+# Labels
+# ---------------------------------------------------------------------------
+
+MANIP_LABELS = [
+    "NOT_MANIPULATIVE",
+    "COERCIVE",
+    "LOADED_QUESTION",
+    "JAILBREAK_ATTEMPT",
+    "PRESUPPOSITION_INJECTION",
+]
+
+OBJ_LABELS = ["OBJECTIVE", "SUBJECTIVE", "VALUE_LADEN", "AMBIGUOUS"]
+
+ASSUMPTION_TYPES = [
+    "FACTIVE_PRESUPPOSITION",
+    "EXISTENTIAL_PRESUPPOSITION",
+    "CHANGE_OF_STATE",
+    "ADDITIVE_PRESUPPOSITION",
+    "CLEFT_FOCUS",
+    "FALSE_DICHOTOMY",
+    "VALUE_FRAME",
+    "NORMATIVE_UNIVERSAL",
+    "CAUSAL_PRESUPPOSITION",
+]
+
+# ---------------------------------------------------------------------------
+# Regex heuristics for AssumptionTyper auto-labelling
 # ---------------------------------------------------------------------------
 
 _FALSE_DICHOTOMY_RE = re.compile(
@@ -254,9 +268,7 @@ def _pull_jailbreakbench() -> Path:
             with open(json_path, encoding="utf-8") as f:
                 data = json.load(f)
             for entry in data.get("jailbreaks", []):
-                prompt = (
-                    entry.get("prompt") or entry.get("goal") or ""
-                ).strip()
+                prompt = (entry.get("prompt") or entry.get("goal") or "").strip()
                 if not prompt:
                     continue
                 label = "JAILBREAK_ATTEMPT" if entry.get("jailbroken") else "BENIGN"
@@ -282,7 +294,9 @@ def _pull_liar() -> Path:
     if dest.exists():
         log.info("[download] liar_train.csv already present, skipping.")
         return dest
-    _fetch_parquet(_LIAR_TRAIN_PARQUET_URL, dest, "LIAR")
+    ok = _fetch_parquet(_LIAR_TRAIN_PARQUET_URL, dest, "LIAR")
+    if not ok:
+        log.warning("[download] LIAR Parquet fetch failed — liar_train.csv will be absent.")
     return dest
 
 
@@ -303,8 +317,7 @@ def _pull_anthropic_hh() -> Path:
 
     import requests
 
-    log.info("[download] Fetching Anthropic HH-RLHF jsonl.gz from %s ...",
-             _ANTHROPIC_HH_JSONL_URL)
+    log.info("[download] Fetching Anthropic HH-RLHF jsonl.gz ...")
     try:
         resp = requests.get(_ANTHROPIC_HH_JSONL_URL, timeout=180)
         resp.raise_for_status()
@@ -367,33 +380,7 @@ def pull_all_datasets() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Labels
-# ---------------------------------------------------------------------------
-
-MANIP_LABELS = [
-    "NOT_MANIPULATIVE",
-    "COERCIVE",
-    "LOADED_QUESTION",
-    "JAILBREAK_ATTEMPT",
-    "PRESUPPOSITION_INJECTION",
-]
-
-OBJ_LABELS = ["OBJECTIVE", "SUBJECTIVE", "VALUE_LADEN", "AMBIGUOUS"]
-
-ASSUMPTION_TYPES = [
-    "FACTIVE_PRESUPPOSITION",
-    "EXISTENTIAL_PRESUPPOSITION",
-    "CHANGE_OF_STATE",
-    "ADDITIVE_PRESUPPOSITION",
-    "CLEFT_FOCUS",
-    "FALSE_DICHOTOMY",
-    "VALUE_FRAME",
-    "NORMATIVE_UNIVERSAL",
-    "CAUSAL_PRESUPPOSITION",
-]
-
-# ---------------------------------------------------------------------------
-# Dataset loaders
+# Dataset loaders → (text, label) lists
 # ---------------------------------------------------------------------------
 
 def _load_manipulation_data() -> List[Tuple[str, str]]:
@@ -415,6 +402,8 @@ def _load_manipulation_data() -> List[Tuple[str, str]]:
                     jbb_count += 1
         except Exception as exc:
             log.warning("[manip] JailbreakBench CSV load error: %s", exc)
+    else:
+        log.warning("[manip] jailbreakbench_train.csv not found — re-run without --skip-download")
     log.info("[manip] jailbreakbench: %d samples", jbb_count)
 
     liar_path = _DATA_DIR / "liar_train.csv"
@@ -432,6 +421,8 @@ def _load_manipulation_data() -> List[Tuple[str, str]]:
                     liar_count += 1
         except Exception as exc:
             log.warning("[manip] LIAR load error: %s", exc)
+    else:
+        log.warning("[manip] liar_train.csv not found — re-run without --skip-download")
     log.info("[manip] liar: %d samples", liar_count)
 
     tqa_path = _DATA_DIR / "trivia_qa.csv"
@@ -449,6 +440,8 @@ def _load_manipulation_data() -> List[Tuple[str, str]]:
                         tqa_count += 1
         except Exception as exc:
             log.warning("[manip] TriviaQA load error: %s", exc)
+    else:
+        log.warning("[manip] trivia_qa.csv not found — re-run without --skip-download")
     log.info("[manip] trivia_qa: %d samples", tqa_count)
 
     _append_from_logger(samples, "manipulation")
@@ -458,32 +451,21 @@ def _load_manipulation_data() -> List[Tuple[str, str]]:
 
 def _load_objectivity_data() -> List[Tuple[str, str]]:
     """
-    Build a balanced objectivity training dataset.
+    Returns (text, obj_label) pairs with a balanced class distribution.
 
-    Target class distribution:
-        OBJECTIVE    ~2000  (trivia_qa factual/science questions)
-        VALUE_LADEN  ~2000  (ethics capped at 1500 + anthropic capped at 1500,
-                             deduplicated and trimmed to 2000)
-        SUBJECTIVE   ~800   (liar statements)
-        AMBIGUOUS    ~300   (auto-labelled via ambiguity marker regex)
+    Target distribution:
+      OBJECTIVE   → TriviaQA questions (factual, unambiguous)
+      VALUE_LADEN → ethics_qa + anthropic_hh, capped to match OBJECTIVE count
+      SUBJECTIVE  → LIAR statements, capped
+      AMBIGUOUS   → auto-generated hedged questions from TriviaQA stems
 
-    The previous imbalance (5000+ VALUE_LADEN vs 2000 OBJECTIVE, 0 AMBIGUOUS)
-    caused every science question to be pulled toward VALUE_LADEN because
-    causal/evaluative vocabulary in physics questions overlaps with
-    ethics/opinion text.
+    Caps prevent VALUE_LADEN (the largest raw source) from dominating and
+    causing the classifier to label all physics questions as VALUE_LADEN.
     """
     samples: List[Tuple[str, str]] = []
-    seen_texts: set = set()
+    objective_texts: List[str] = []
 
-    def _add(text: str, label: str) -> bool:
-        key = text.lower().strip()
-        if key in seen_texts or not key:
-            return False
-        seen_texts.add(key)
-        samples.append((text, label))
-        return True
-
-    # --- OBJECTIVE: trivia_qa science + general factual questions ---
+    # --- OBJECTIVE: TriviaQA questions ---
     tqa_path = _DATA_DIR / "trivia_qa.csv"
     tqa_count = 0
     if tqa_path.exists():
@@ -491,27 +473,31 @@ def _load_objectivity_data() -> List[Tuple[str, str]]:
             with open(tqa_path, newline="", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 for i, row in enumerate(reader):
-                    if tqa_count >= 2000:
+                    if i >= 2000:
                         break
                     q = row.get("question", "").strip()
-                    if q and _add(q, "OBJECTIVE"):
+                    if q:
+                        samples.append((q, "OBJECTIVE"))
+                        objective_texts.append(q)
                         tqa_count += 1
         except Exception as exc:
             log.warning("[obj] TriviaQA load error: %s", exc)
     else:
-        log.warning("[obj] trivia_qa.csv not found")
+        log.warning("[obj] trivia_qa.csv not found — re-run without --skip-download")
     log.info("[obj] trivia_qa (OBJECTIVE): %d samples", tqa_count)
 
-    # --- VALUE_LADEN: ethics (cap at 1500) ---
+    obj_count = tqa_count  # use actual OBJECTIVE count as the cap
+    value_laden_cap = max(obj_count, 500)  # at least 500 even if TriviaQA is empty
+
+    # --- VALUE_LADEN: ethics_qa (capped) ---
     ethics_path = _DATA_DIR / "ethics_qa.csv"
     ethics_count = 0
-    _VALUE_LADEN_CAP = 1500
     if ethics_path.exists():
         try:
             with open(ethics_path, newline="", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    if ethics_count >= _VALUE_LADEN_CAP:
+                    if ethics_count >= min(1500, value_laden_cap // 2):
                         break
                     inp = (
                         row.get("input")
@@ -519,36 +505,37 @@ def _load_objectivity_data() -> List[Tuple[str, str]]:
                         or row.get("text")
                         or ""
                     ).strip()
-                    if inp and _add(inp, "VALUE_LADEN"):
+                    if inp:
+                        samples.append((inp, "VALUE_LADEN"))
                         ethics_count += 1
         except Exception as exc:
             log.warning("[obj] Ethics load error: %s", exc)
     else:
-        log.warning("[obj] ethics_qa.csv not found")
+        log.warning("[obj] ethics_qa.csv not found — re-run without --skip-download")
     log.info("[obj] ethics_qa (VALUE_LADEN): %d samples", ethics_count)
 
-    # --- VALUE_LADEN: anthropic_hh (cap at 1500, combined budget ~2000) ---
+    # --- VALUE_LADEN: anthropic_hh (capped to fill remainder up to value_laden_cap) ---
     hh_path = _DATA_DIR / "anthropic_hh.csv"
     hh_count = 0
-    # Remaining budget to VALUE_LADEN so combined <= ~2000 total
-    hh_cap = max(0, 2000 - ethics_count)
+    hh_cap = max(0, value_laden_cap - ethics_count)
     if hh_path.exists():
         try:
             with open(hh_path, newline="", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    if hh_count >= hh_cap:
+                    if hh_count >= min(500, hh_cap):
                         break
                     text = row.get("text", "").strip()
-                    if text and _add(text, "VALUE_LADEN"):
+                    if text:
+                        samples.append((text, "VALUE_LADEN"))
                         hh_count += 1
         except Exception as exc:
             log.warning("[obj] Anthropic HH load error: %s", exc)
     else:
-        log.warning("[obj] anthropic_hh.csv not found")
-    log.info("[obj] anthropic_hh (VALUE_LADEN): %d samples (cap=%d)", hh_count, hh_cap)
+        log.warning("[obj] anthropic_hh.csv not found — re-run without --skip-download")
+    log.info("[obj] anthropic_hh (VALUE_LADEN): %d samples (cap=%d)", hh_count, min(500, hh_cap))
 
-    # --- SUBJECTIVE: liar statements (cap at 800) ---
+    # --- SUBJECTIVE: LIAR (capped) ---
     liar_path = _DATA_DIR / "liar_train.csv"
     liar_count = 0
     if liar_path.exists():
@@ -556,60 +543,50 @@ def _load_objectivity_data() -> List[Tuple[str, str]]:
             with open(liar_path, newline="", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 for i, row in enumerate(reader):
-                    if liar_count >= 800:
+                    if i >= 800:
                         break
                     stmt = row.get("statement", "").strip()
-                    if stmt and _add(stmt, _LIAR_OBJ_LABEL):
+                    if stmt:
+                        samples.append((stmt, _LIAR_OBJ_LABEL))
                         liar_count += 1
         except Exception as exc:
             log.warning("[obj] LIAR load error: %s", exc)
     else:
-        log.warning("[obj] liar_train.csv not found")
+        log.warning("[obj] liar_train.csv not found — re-run without --skip-download")
     log.info("[obj] liar (SUBJECTIVE): %d samples", liar_count)
 
-    # --- AMBIGUOUS: auto-label via ambiguity markers from all sources ---
-    # Scan trivia_qa, ethics, and liar for sentences matching the ambiguity
-    # marker regex. Cap at 400 to avoid over-representing the class.
-    ambig_count = 0
-    _AMBIG_CAP = 400
-    ambig_sources = []
-    if (tqa_path := _DATA_DIR / "trivia_qa.csv").exists():
-        ambig_sources.append((tqa_path, "question"))
-    if (ethics_path := _DATA_DIR / "ethics_qa.csv").exists():
-        ambig_sources.append((ethics_path, "input"))
-    if (liar_path := _DATA_DIR / "liar_train.csv").exists():
-        ambig_sources.append((liar_path, "statement"))
-
-    for src_path, col in ambig_sources:
-        if ambig_count >= _AMBIG_CAP:
+    # --- AMBIGUOUS: auto-generate hedged variants of TriviaQA stems ---
+    # These are questions like "Could it be that X?", "Is it possible that X?"
+    # which are the exact forms that were being misclassified.
+    ambiguous_count = 0
+    _HEDGES = [
+        "Could it be that {q}?",
+        "Is it possible that {q}?",
+        "Might it be the case that {q}?",
+        "Some people think {q} — is this actually true?",
+        "Would you say that {q}?",
+        "Do you think {q}?",
+        "Is there any chance that {q}?",
+        "Can we say for certain that {q}?",
+    ]
+    ambig_target = min(400, obj_count // 5)  # ~20% of OBJECTIVE, up to 400
+    for i, q in enumerate(objective_texts):
+        if ambiguous_count >= ambig_target:
             break
-        try:
-            with open(src_path, newline="", encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    if ambig_count >= _AMBIG_CAP:
-                        break
-                    text = (row.get(col) or row.get("text") or "").strip()
-                    if text and _AMBIGUITY_MARKERS_RE.search(text):
-                        # Only label as AMBIGUOUS if not already labelled
-                        key = text.lower().strip()
-                        if key not in seen_texts:
-                            seen_texts.add(key)
-                            samples.append((text, "AMBIGUOUS"))
-                            ambig_count += 1
-        except Exception as exc:
-            log.warning("[obj] AMBIGUOUS auto-label error for %s: %s", src_path, exc)
-    log.info("[obj] auto-labelled AMBIGUOUS: %d samples", ambig_count)
+        # Strip trailing "?" and lowercase for clean stem
+        stem = q.rstrip("?").strip()
+        hedge = _HEDGES[i % len(_HEDGES)].format(q=stem)
+        samples.append((hedge, "AMBIGUOUS"))
+        ambiguous_count += 1
+    log.info("[obj] auto-labelled AMBIGUOUS: %d samples", ambiguous_count)
+
+    # Log final distribution
+    from collections import Counter
+    dist = Counter(lbl for _, lbl in samples)
+    log.info("[obj] final distribution: %s  total=%d", dict(dist), len(samples))
 
     _append_from_logger(samples, "objectivity")
-
-    # Log final class distribution
-    from collections import Counter
-    dist = Counter(label for _, label in samples)
-    log.info(
-        "[obj] final distribution: %s  total=%d",
-        dict(dist), len(samples),
-    )
+    log.info("[obj] total samples: %d", len(samples))
     return samples
 
 
@@ -700,6 +677,8 @@ def _load_assumption_data() -> List[Tuple[str, List[int]]]:
         except Exception as exc:
             log.warning("[assumption] LIAR load error: %s", exc)
         log.info("[assumption] liar: %d samples with ≥1 active type", liar_assumption_count)
+    else:
+        log.warning("[assumption] liar_train.csv not found")
 
     logger_path = _ROOT / "training_data" / "dataset_log.jsonl"
     if logger_path.exists():
@@ -757,7 +736,9 @@ def _append_from_logger(
 
 def _rule_signal_vector(text: str) -> np.ndarray:
     """
-    17-dim rule signal vector from NLPPreprocessor:
+    Build a sparse one-hot feature vector from rule signals extracted
+    by NLPPreprocessor.  Used alongside the sentence embedding.
+    Dimensions (17):
       [0]  jailbreak_structural
       [1]  forced_agreement_phrase
       [2]  modal_imperative
@@ -835,22 +816,43 @@ def _build_feature_matrix(
 def _log_brier_score(
     clf, X: np.ndarray, y: np.ndarray, label_encoder, name: str
 ) -> None:
+    """
+    Compute and log the mean Brier score across all classes.
+
+    Guards against the case where CalibratedClassifierCV silently drops
+    classes across CV folds when minority-class sample counts are very low,
+    leaving the fitted model with fewer classes than label_encoder.classes_.
+    When a mismatch is detected the Brier score is skipped with a clear
+    warning rather than crashing with an IndexError.
+    """
     from sklearn.metrics import brier_score_loss
     from sklearn.preprocessing import label_binarize
     try:
-        classes = list(range(len(label_encoder.classes_)))
         proba = clf.predict_proba(X)
+        n_model_classes = proba.shape[1]
+        n_label_classes  = len(label_encoder.classes_)
+
+        if n_model_classes != n_label_classes:
+            log.warning(
+                "[calibration] %s: model has %d classes but label_encoder has %d — "
+                "likely a minority class was dropped during CV. "
+                "Brier score skipped. Consider adding more samples for minority classes.",
+                name, n_model_classes, n_label_classes,
+            )
+            return
+
+        classes = list(range(n_label_classes))
         Y_bin = label_binarize(y, classes=classes)
         if Y_bin.shape[1] == 1:
             Y_bin = np.hstack([1 - Y_bin, Y_bin])
         scores = [
             brier_score_loss(Y_bin[:, i], proba[:, i])
-            for i in range(len(classes))
+            for i in range(n_label_classes)
         ]
         mean_bs = float(np.mean(scores))
         per_class = ", ".join(
             f"{label_encoder.classes_[i]}={scores[i]:.4f}"
-            for i in range(len(classes))
+            for i in range(n_label_classes)
         )
         log.info(
             "[calibration] %s Brier score — mean=%.4f  per-class: %s",
@@ -858,26 +860,6 @@ def _log_brier_score(
         )
     except Exception as exc:
         log.warning("[calibration] Brier score computation failed for %s: %s", name, exc)
-
-
-# ---------------------------------------------------------------------------
-# Device selection
-# ---------------------------------------------------------------------------
-
-def _get_device() -> str:
-    try:
-        import torch
-        if torch.cuda.is_available():
-            dev = "cuda"
-            log.info("[device] CUDA available — using GPU: %s", torch.cuda.get_device_name(0))
-            return dev
-    except Exception:
-        pass
-    log.info("[device] CUDA not available — using CPU")
-    return "cpu"
-
-
-_DEVICE: str = _get_device()
 
 
 # ---------------------------------------------------------------------------
@@ -901,7 +883,10 @@ def train_manipulation_classifier(skip_if_exists: bool = False) -> Path:
 
     n = len(samples)
     if n < _MIN_TRAIN_SAMPLES:
-        log.error("[train] ManipulationClassifier: only %d samples — need at least %d.", n, _MIN_TRAIN_SAMPLES)
+        log.error(
+            "[train] ManipulationClassifier: only %d samples — need at least %d.",
+            n, _MIN_TRAIN_SAMPLES,
+        )
         return out_path
 
     texts  = [s[0] for s in samples]
@@ -913,13 +898,19 @@ def train_manipulation_classifier(skip_if_exists: bool = False) -> Path:
 
     unique_classes = np.unique(y)
     if len(unique_classes) < 2:
-        log.error("[train] ManipulationClassifier: only 1 class present.")
+        log.error(
+            "[train] ManipulationClassifier: only 1 class present: %s.",
+            [MANIP_LABELS[c] for c in unique_classes.tolist()],
+        )
         return out_path
 
     X = _build_feature_matrix(texts)
     min_class_count = int(np.bincount(y).min())
     cv_folds = max(2, min(5, min_class_count))
-    log.info("[train] ManipulationClassifier: X=%s  classes=%s  cv=%d", X.shape, le.classes_, cv_folds)
+    log.info(
+        "[train] ManipulationClassifier: X=%s  classes=%s  cv=%d",
+        X.shape, le.classes_, cv_folds,
+    )
     clf = CalibratedClassifierCV(
         LinearSVC(C=1.0, max_iter=2000, class_weight="balanced"),
         method="isotonic",
@@ -950,7 +941,10 @@ def train_objectivity_classifier(skip_if_exists: bool = False) -> Path:
 
     n = len(samples)
     if n < _MIN_TRAIN_SAMPLES:
-        log.error("[train] ObjectivityClassifier: only %d samples — need at least %d.", n, _MIN_TRAIN_SAMPLES)
+        log.error(
+            "[train] ObjectivityClassifier: only %d samples — need at least %d.",
+            n, _MIN_TRAIN_SAMPLES,
+        )
         return out_path
 
     texts  = [s[0] for s in samples]
@@ -972,11 +966,15 @@ def train_objectivity_classifier(skip_if_exists: bool = False) -> Path:
     X = _build_feature_matrix(texts)
     min_class_count = int(np.bincount(y).min())
     cv_folds = max(2, min(5, min_class_count))
-    log.info("[train] ObjectivityClassifier: X=%s  classes=%s  cv=%d", X.shape, le.classes_, cv_folds)
+    log.info(
+        "[train] ObjectivityClassifier: X=%s  classes=%s  cv=%d",
+        X.shape, le.classes_, cv_folds,
+    )
+    # multi_class kwarg removed: deprecated and removed in sklearn 1.5+.
+    # lbfgs with >2 classes uses multinomial by default.
     clf = CalibratedClassifierCV(
         LogisticRegression(
             C=1.0, max_iter=1000, class_weight="balanced", solver="lbfgs",
-            multi_class="multinomial",
         ),
         method="isotonic",
         cv=cv_folds,
@@ -1043,15 +1041,26 @@ def train_assumption_typer(skip_if_exists: bool = False) -> Path:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Train Layer 0 classifiers for Mycelium.")
+    parser = argparse.ArgumentParser(
+        description="Train Layer 0 classifiers for Mycelium."
+    )
     parser.add_argument(
         "--models",
         nargs="+",
         choices=["manipulation", "objectivity", "assumption", "all"],
         default=["all"],
+        help="Which classifiers to train (default: all).",
     )
-    parser.add_argument("--skip-download", action="store_true")
-    parser.add_argument("--skip-if-exists", action="store_true")
+    parser.add_argument(
+        "--skip-download",
+        action="store_true",
+        help="Skip dataset download step.",
+    )
+    parser.add_argument(
+        "--skip-if-exists",
+        action="store_true",
+        help="Skip training if model file already present.",
+    )
     args = parser.parse_args()
 
     targets = args.models
