@@ -10,67 +10,45 @@ from mycelium.pipeline.layer0.objectivity_classifier import ObjectivityClassifie
 from mycelium.pipeline.layer0.value_assumption_extractor import ValueAssumptionExtractor
 
 # ---------------------------------------------------------------------------
-# Thresholds (single source of truth — also imported by manipulation_detector)
+# Thresholds
 # ---------------------------------------------------------------------------
 
-# Minimum confidence required to hard-REFUSE a request.
-# Below this threshold the manipulation signal is treated as ambiguous and
-# the request falls through to the objectivity classifier for a nuanced route.
 REFUSE_CONFIDENCE_THRESHOLD = 0.65
 
-# Labels that warrant a hard REFUSE when confidence >= threshold.
-# LOADED_QUESTION is intentionally excluded: a loaded question deserves a
-# balanced multi-perspective answer, not a hard block.
+# Hard-refuse labels: only COERCIVE and JAILBREAK_ATTEMPT warrant a hard block.
+# LOADED_QUESTION and PRESUPPOSITION_INJECTION get MULTI_PERSPECTIVE instead.
 _HARD_REFUSE_LABELS = {"JAILBREAK_ATTEMPT", "COERCIVE"}
+
+# Objectivity labels that map to MULTI_PERSPECTIVE, but only when there is
+# genuine value-ladenness — not just causal/evaluative vocabulary in
+# an otherwise factual science question.
+_VALUE_LADEN_OBJ_LABELS = {"VALUE_LADEN", "SUBJECTIVE"}
 
 
 class QuestionRouter:
     """
     Layer 0 router.
 
-    Runs the three NLP-backed components in sequence and routes to the
-    appropriate downstream pipeline stage.
+    Routing priority (highest to lowest):
+    1. Hard REFUSE — JAILBREAK_ATTEMPT / COERCIVE AND confidence >= 0.65
+    2. DST fusion result — when decisive (dominant BetP >= 0.45)
+    3. Rule-based fallback — when DST is unavailable or non-decisive
 
-    When trained sklearn models are available the routing decision is
-    backed by Dempster-Shafer Theory (DST) fusion of all three
-    classifier outputs (see ``layer0/dst_fusion.py``).  On cold-start
-    (models not yet trained) the existing rule-based routing logic is
-    used as a fallback.
+    Rule-based routing logic:
+    — REFUSE:            hard-refuse label + confidence >= threshold
+    — MULTI_PERSPECTIVE: LOADED_QUESTION, PRESUPPOSITION_INJECTION,
+                         or objectivity = VALUE_LADEN/SUBJECTIVE with
+                         no conflicting NOT_MANIPULATIVE + clean signal
+    — CLARIFICATION:     objectivity = AMBIGUOUS
+    — REASONING_PIPELINE: all clear
 
-    Routing logic
-    -------------
-    REFUSE
-        — ManipulationDetector fired with a HARD_REFUSE label
-          (JAILBREAK_ATTEMPT or COERCIVE) AND confidence >= 0.65.
-          Low-confidence hits fall through to the objectivity path.
-
-    MULTI_PERSPECTIVE
-        — ObjectivityClassifier returned VALUE_LADEN, OR
-        — ManipulationDetector returned LOADED_QUESTION (any confidence)
-          or a hard-refuse label below the confidence threshold.
-          A "loaded" question still deserves a balanced answer.
-
-    CLARIFICATION
-        — ObjectivityClassifier returned AMBIGUOUS
-
-    REASONING_PIPELINE
-        — all clear, proceed to deep reasoning
-
-    Metadata keys
-    -------------
-    REFUSE
-        matched_patterns, manipulation_label, rule_score, llm_used,
-        confidence, [dst_pignistic, dst_conflict_k, dst_uncertain]
-    MULTI_PERSPECTIVE
-        assumptions, objectivity_signals, llm_used,
-        manipulation_label (if from manipulation path),
-        [dst_pignistic, dst_conflict_k, dst_uncertain]
-    CLARIFICATION
-        confidence, objectivity_signals,
-        [dst_pignistic, dst_conflict_k, dst_uncertain]
-    REASONING_PIPELINE
-        confidence, objectivity_signals, assumptions,
-        [dst_pignistic, dst_conflict_k, dst_uncertain]
+    Factual-question guard:
+        If the objectivity classifier returns VALUE_LADEN but the manipulation
+        classifier returned NOT_MANIPULATIVE with zero coercive/manipulation
+        signals, the question is almost certainly a factual science/history
+        question that happens to contain causal vocabulary. In this case the
+        manipulation result takes precedence and the question is routed to
+        REASONING_PIPELINE, not MULTI_PERSPECTIVE.
     """
 
     def __init__(self) -> None:
@@ -78,23 +56,17 @@ class QuestionRouter:
         self._objectivity  = ObjectivityClassifier()
         self._assumptions  = ValueAssumptionExtractor()
 
-    # ------------------------------------------------------------------
-    # Public entry-point
-    # ------------------------------------------------------------------
-
     def route(self, question: str) -> Layer0Result:
-        """Route ``question`` to the appropriate downstream stage."""
-        manip           = self._manipulation.detect(question)
+        manip             = self._manipulation.detect(question)
         manip_proba, manip_labels = self._get_manip_proba(question)
 
-        obj             = self._objectivity.classify(question)
+        obj               = self._objectivity.classify(question)
         obj_proba, obj_labels = self._get_obj_proba(question)
 
         assumption_result = self._assumptions.extract(question)
         assumption_strings = assumption_result.assumption_strings
         n_assumptions = len(assumption_result.assumptions)
 
-        # --- Attempt DST fusion ---
         dst_meta = {}
         belief = self._dst_fuse(
             manip_proba, manip_labels,
@@ -109,26 +81,20 @@ class QuestionRouter:
                 "dst_sources":    belief.sources,
             }
 
-        # --- Determine final route ---
-        # Use DST dominant_route only when it is decisive (BetP >= 0.45).
-        # Otherwise fall back to rule-based logic which is more conservative
-        # and well-calibrated against the actual label semantics.
         if belief is not None and not belief.is_uncertain:
             route = belief.dominant_route
         else:
             route = self._rule_based_route(manip, obj)
 
-        # --- Build Layer0Result ---
         return self._build_result(route, manip, obj, assumption_strings, dst_meta)
 
     # ------------------------------------------------------------------
-    # Raw proba extraction helpers
+    # Raw proba extraction
     # ------------------------------------------------------------------
 
     def _get_manip_proba(
         self, text: str
     ) -> Tuple[Optional[np.ndarray], Optional[list]]:
-        """Return (proba_vector, label_order) from the manipulation model."""
         try:
             from mycelium.pipeline.model_registry import get_layer0_classifier, get_model
             from mycelium.pipeline.layer0.train_layer0_models import _rule_signal_vector
@@ -156,7 +122,6 @@ class QuestionRouter:
     def _get_obj_proba(
         self, text: str
     ) -> Tuple[Optional[np.ndarray], Optional[list]]:
-        """Return (proba_vector, label_order) from the objectivity model."""
         try:
             from mycelium.pipeline.model_registry import get_layer0_classifier, get_model
             from mycelium.pipeline.layer0.train_layer0_models import _rule_signal_vector
@@ -179,16 +144,10 @@ class QuestionRouter:
             return None, None
 
     # ------------------------------------------------------------------
-    # DST fusion wrapper
+    # DST fusion
     # ------------------------------------------------------------------
 
-    def _dst_fuse(
-        self,
-        manip_proba, manip_labels,
-        obj_proba,   obj_labels,
-        n_assumptions: int,
-    ):
-        """Run DST fusion; return Layer0BeliefState or None on any failure."""
+    def _dst_fuse(self, manip_proba, manip_labels, obj_proba, obj_labels, n_assumptions: int):
         try:
             from mycelium.pipeline.layer0.dst_fusion import fuse_layer0_classifiers
             return fuse_layer0_classifiers(
@@ -207,28 +166,42 @@ class QuestionRouter:
     # ------------------------------------------------------------------
 
     def _rule_based_route(self, manip, obj) -> str:
-        """Deterministic routing logic used when DST is unavailable or non-decisive.
-
-        Branch order matters — the confidence gate on REFUSE must be the
-        primary guard, not a secondary check after is_manipulative.
         """
-        # Hard REFUSE: only when the label is a hard-refuse type AND confidence
-        # is sufficient.  Everything else goes through the softer paths below.
+        Conservative rule-based routing used when DST is unavailable or
+        non-decisive.
+
+        Branch order is intentional — the confidence gate on REFUSE is
+        checked first. The factual-question guard prevents science/history
+        questions from being routed to MULTI_PERSPECTIVE purely because
+        the objectivity classifier sees causal vocabulary.
+        """
+        # 1. Hard REFUSE: only high-confidence hard-refuse labels.
         if manip.label in _HARD_REFUSE_LABELS and manip.confidence >= REFUSE_CONFIDENCE_THRESHOLD:
             return "REFUSE"
 
-        # Loaded / presupposition questions get a balanced answer, not a block.
+        # 2. Manipulation-driven MULTI_PERSPECTIVE: loaded or presupposition
+        #    questions get a balanced answer regardless of objectivity label.
         if manip.label in {"LOADED_QUESTION", "PRESUPPOSITION_INJECTION"}:
             return "MULTI_PERSPECTIVE"
 
-        # Hard-refuse label present but below confidence threshold — treat as
-        # ambiguous and give a balanced response.
+        # 3. Below-threshold hard-refuse: treat as ambiguous.
         if manip.label in _HARD_REFUSE_LABELS:
             return "MULTI_PERSPECTIVE"
 
-        # Objectivity classifier drives the remaining cases.
-        if obj.question_type == "VALUE_LADEN":
+        # 4. Objectivity-driven routing with factual-question guard.
+        #    If the objectivity classifier says VALUE_LADEN or SUBJECTIVE,
+        #    but the manipulation classifier returned NOT_MANIPULATIVE with
+        #    no coercive signals at all, this is almost certainly a factual
+        #    question that contains evaluative-sounding words (e.g. "why does
+        #    gravity work?" or "explain ferromagnetism").  Route to
+        #    REASONING_PIPELINE instead of MULTI_PERSPECTIVE.
+        if obj.question_type in _VALUE_LADEN_OBJ_LABELS:
+            if manip.label == "NOT_MANIPULATIVE" and not manip.matched_patterns:
+                # No manipulation signals at all — trust the factual-question
+                # interpretation from the manipulation classifier.
+                return "REASONING_PIPELINE"
             return "MULTI_PERSPECTIVE"
+
         if obj.question_type == "AMBIGUOUS":
             return "CLARIFICATION"
 
@@ -241,7 +214,6 @@ class QuestionRouter:
     def _build_result(
         self, route: str, manip, obj, assumption_strings, dst_meta: dict
     ) -> Layer0Result:
-        """Construct a Layer0Result for the given route."""
         if route == "REFUSE":
             return Layer0Result(
                 route="REFUSE",
@@ -283,7 +255,6 @@ class QuestionRouter:
                 },
             )
 
-        # REASONING_PIPELINE (default)
         return Layer0Result(
             route="REASONING_PIPELINE",
             response_type="DEFINITIVE_ANSWER",
