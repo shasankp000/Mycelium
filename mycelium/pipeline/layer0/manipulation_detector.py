@@ -12,6 +12,17 @@ Four-layer detection stack:
                • Otherwise fire the LLM when score is in the ambiguous band
                  [LOW_THRESH, HIGH_THRESH] OR spaCy was unavailable.
                • Every LLM call is logged to dataset_logger for future training.
+
+Confidence-gated refusal
+------------------------
+Only labels in _HARD_REFUSE_LABELS (JAILBREAK_ATTEMPT, COERCIVE) at
+confidence >= REFUSE_CONFIDENCE_THRESHOLD (0.65) set is_manipulative=True.
+
+LOADED_QUESTION and PRESUPPOSITION_INJECTION are softer signals; they set
+requires_soft_handling=True so the router can route them to MULTI_PERSPECTIVE
+instead of a hard REFUSE.  This prevents clean science/exploratory questions
+(e.g. "Is it possible to build a thermoelectric device?") from being blocked
+due to an interrogative_with_presupposition signal at low confidence.
 """
 
 from __future__ import annotations
@@ -24,6 +35,15 @@ from mycelium.pipeline.layer0.nlp_preprocessor import (
     SentenceAnalysis,
     get_preprocessor,
 )
+
+# -----------------------------------------------------------------------
+# Thresholds
+# -----------------------------------------------------------------------
+# Minimum confidence for a detection to be treated as a hard block.
+# Imported by router.py from this module so there is a single source of
+# truth.  Default: 0.65 — confident enough to refuse without false positives
+# on borderline presupposition signals.
+REFUSE_CONFIDENCE_THRESHOLD = 0.65
 
 _LOW_THRESH  = 0.25
 _HIGH_THRESH = 0.60
@@ -45,15 +65,46 @@ _VALID_LABELS = [
     "PRESUPPOSITION_INJECTION",
 ]
 
+# Labels that warrant a hard REFUSE when confidence >= threshold.
+# LOADED_QUESTION and PRESUPPOSITION_INJECTION deserve a nuanced response,
+# not a silent block.
+_HARD_REFUSE_LABELS = {"JAILBREAK_ATTEMPT", "COERCIVE"}
+
 
 @dataclass
 class ManipulationDetectionResult:
+    # True ONLY when label is in _HARD_REFUSE_LABELS AND
+    # confidence >= REFUSE_CONFIDENCE_THRESHOLD.  The router checks this
+    # flag to decide between a hard REFUSE vs. a soft MULTI_PERSPECTIVE route.
     is_manipulative: bool
     label: str = "NOT_MANIPULATIVE"
     matched_patterns: List[str] = field(default_factory=list)
     rule_score: float = 0.0
     llm_used: bool = False
     confidence: float = 0.0
+    # True when a soft manipulation signal was detected but confidence is
+    # below the hard-refuse threshold, or the label is LOADED_QUESTION /
+    # PRESUPPOSITION_INJECTION.  The router uses this to route to
+    # MULTI_PERSPECTIVE rather than letting the request through unexamined.
+    requires_soft_handling: bool = False
+
+
+def _is_hard_manipulative(label: str, confidence: float) -> bool:
+    """Return True only for hard-refuse labels above the confidence gate."""
+    return label in _HARD_REFUSE_LABELS and confidence >= REFUSE_CONFIDENCE_THRESHOLD
+
+
+def _requires_soft(label: str, confidence: float) -> bool:
+    """Return True for any detected manipulation that isn't a hard refuse."""
+    if label == "NOT_MANIPULATIVE":
+        return False
+    # Hard-refuse labels below threshold get soft handling.
+    if label in _HARD_REFUSE_LABELS and confidence < REFUSE_CONFIDENCE_THRESHOLD:
+        return True
+    # Soft labels always get soft handling regardless of confidence.
+    if label in {"LOADED_QUESTION", "PRESUPPOSITION_INJECTION"}:
+        return True
+    return False
 
 
 class ManipulationDetector:
@@ -75,7 +126,8 @@ class ManipulationDetector:
         if clf_result is not None:
             label, confidence = clf_result
             return ManipulationDetectionResult(
-                is_manipulative=(label != "NOT_MANIPULATIVE"),
+                is_manipulative=_is_hard_manipulative(label, confidence),
+                requires_soft_handling=_requires_soft(label, confidence),
                 label=label,
                 matched_patterns=matched,
                 rule_score=score,
@@ -88,13 +140,15 @@ class ManipulationDetector:
             return self._layer_d(text, analysis, score, matched)
 
         label = self._score_to_label(score, matched)
+        confidence = min(1.0, score) if label != "NOT_MANIPULATIVE" else 1.0 - score
         return ManipulationDetectionResult(
-            is_manipulative=(label != "NOT_MANIPULATIVE"),
+            is_manipulative=_is_hard_manipulative(label, confidence),
+            requires_soft_handling=_requires_soft(label, confidence),
             label=label,
             matched_patterns=matched,
             rule_score=score,
             llm_used=False,
-            confidence=min(1.0, score) if label != "NOT_MANIPULATIVE" else 1.0 - score,
+            confidence=confidence,
         )
 
     # ------------------------------------------------------------------
@@ -112,7 +166,6 @@ class ManipulationDetector:
             if artifact is None:
                 return None
             import numpy as np
-            # Pull the already-warmed encoder from the registry — never reload from disk.
             encoder = get_model(
                 "sentence-transformers/all-MiniLM-L6-v2",
                 model_type="sentence_transformer",
@@ -199,10 +252,12 @@ class ManipulationDetector:
         llm_response = self._call_llm(prompt)
         if llm_response is None:
             label = self._score_to_label(rule_score, matched)
+            confidence = 0.5
             return ManipulationDetectionResult(
-                is_manipulative=(label != "NOT_MANIPULATIVE"),
+                is_manipulative=_is_hard_manipulative(label, confidence),
+                requires_soft_handling=_requires_soft(label, confidence),
                 label=label, matched_patterns=matched,
-                rule_score=rule_score, llm_used=False, confidence=0.5,
+                rule_score=rule_score, llm_used=False, confidence=confidence,
             )
         label, confidence = self._parse_llm_response(llm_response)
         # --- Log for training ---
@@ -220,7 +275,8 @@ class ManipulationDetector:
         except Exception:
             pass
         return ManipulationDetectionResult(
-            is_manipulative=(label != "NOT_MANIPULATIVE"),
+            is_manipulative=_is_hard_manipulative(label, confidence),
+            requires_soft_handling=_requires_soft(label, confidence),
             label=label,
             matched_patterns=matched + [f"llm:{label}"],
             rule_score=rule_score, llm_used=True, confidence=confidence,

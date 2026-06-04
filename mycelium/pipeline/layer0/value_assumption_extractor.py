@@ -82,10 +82,22 @@ class ValueAssumptionExtractor:
     def _try_classifier(
         self, text: str, analysis: SentenceAnalysis
     ) -> Optional[List[Assumption]]:
-        """Return list of additional typed Assumptions from the sklearn model, or None."""
+        """Return list of additional typed Assumptions from the sklearn model, or None.
+
+        After running clf.predict(), the three regex heuristics from
+        train_layer0_models are applied to OR in any types the model may have
+        under-weighted — particularly FALSE_DICHOTOMY, VALUE_FRAME, and
+        CAUSAL_PRESUPPOSITION which are trained from regex-derived labels and
+        should fire consistently at inference time too.
+        """
         try:
             from mycelium.pipeline.model_registry import get_layer0_classifier, get_model
-            from mycelium.pipeline.layer0.train_layer0_models import _rule_signal_vector
+            from mycelium.pipeline.layer0.train_layer0_models import (
+                _rule_signal_vector,
+                _FALSE_DICHOTOMY_RE,
+                _VALUE_FRAME_RE,
+                _CAUSAL_PRESUPPOSITION_RE,
+            )
             artifact = get_layer0_classifier("assumption_typer")
             if artifact is None:
                 return None
@@ -101,7 +113,22 @@ class ValueAssumptionExtractor:
             X = np.hstack([emb, rule_vec])
             clf          = artifact["model"]
             active_types = artifact["active_types"]
-            preds = clf.predict(X)[0]  # multi-hot
+            preds = clf.predict(X)[0].tolist()  # multi-hot list
+
+            # --- Regex heuristic override ---
+            # These three types were trained from regex-derived labels, so the
+            # same regexes must fire at inference time to guarantee consistency.
+            def _set(atype: str) -> None:
+                if atype in active_types:
+                    preds[active_types.index(atype)] = 1
+
+            if _FALSE_DICHOTOMY_RE.search(text):
+                _set("FALSE_DICHOTOMY")
+            if _VALUE_FRAME_RE.search(text):
+                _set("VALUE_FRAME")
+            if _CAUSAL_PRESUPPOSITION_RE.search(text):
+                _set("CAUSAL_PRESUPPOSITION")
+
             extras: List[Assumption] = []
             for i, active in enumerate(preds):
                 if active:

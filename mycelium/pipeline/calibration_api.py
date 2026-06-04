@@ -1,114 +1,30 @@
-"""calibration_api.py
+"""calibration_api.py — backward-compatibility shim.
 
-FastAPI router that exposes async expert calibration endpoints.
+This module has been renamed to ``expert_system_init_api.py`` because its
+actual purpose — a fire-and-poll HTTP job-queue for UnifiedExpertSystem
+initialisation — has nothing to do with sklearn probability calibration.
 
-Previously the frontend held an open HTTP connection for the entire
-calibration pipeline (K-Medoids + OOD setup across all experts), which
-regularly timed out at the 300 s gateway limit even when the work was
-almost done.
+This shim re-exports everything under the old names so existing imports
+(app.include_router, tests, RESTRUCTURING_PLAN.md references) continue
+to work without any changes on the caller side.
 
-This module replaces that pattern with a fire-and-poll job model:
+For the actual sklearn classifier probability calibration, see:
+    mycelium.pipeline.layer0.probability_calibration
 
-  POST /api/calibrate/start
-    \u2192 starts UnifiedExpertSystem initialisation as a background task
-    \u2192 returns {job_id, status: "pending"} immediately (< 1 ms)
-
-  GET  /api/calibrate/status/{job_id}
-    \u2192 returns {job_id, status, progress, error}
-    \u2192 status: "pending" | "running" | "complete" | "error"
-    \u2192 frontend polls this every few seconds; no connection is ever held
-      open long enough to hit the timeout
-
-Usage in your main FastAPI app
-------------------------------
-    from mycelium.pipeline.calibration_api import calibration_router
-    app.include_router(calibration_router)
-
-The initialised UnifiedExpertSystem is stored on app.state.expert_system
-once the job completes so the rest of the application can access it via
-    request.app.state.expert_system
+This file may be removed once all callers have been updated to import
+from ``expert_system_init_api`` directly.
 """
 
-from __future__ import annotations
-
-import asyncio
-import uuid
-from typing import Dict
-
-from fastapi import APIRouter, BackgroundTasks, Request
-from fastapi.responses import JSONResponse
-
-calibration_router = APIRouter()
-
-_jobs: Dict[str, dict] = {}
-
-
-def _new_job() -> str:
-    job_id = str(uuid.uuid4())
-    _jobs[job_id] = {"status": "pending", "progress": 0, "error": None}
-    return job_id
-
-
-def _blocking_calibration(job_id: str, app_state) -> None:
-    """Synchronous calibration pipeline \u2014 runs inside a thread-pool executor."""
-    try:
-        _jobs[job_id]["status"] = "running"
-        _jobs[job_id]["progress"] = 5
-
-        from mycelium.pipeline.unified_expert_system import UnifiedExpertSystem  # noqa: PLC0415
-
-        _jobs[job_id]["progress"] = 10
-        system = UnifiedExpertSystem(
-            enable_calibration=True,
-            enable_ood_detection=True,
-        )
-        _jobs[job_id]["progress"] = 100
-
-        app_state.expert_system = system
-        _jobs[job_id]["status"] = "complete"
-
-    except Exception as exc:  # noqa: BLE001
-        _jobs[job_id]["status"] = "error"
-        _jobs[job_id]["error"] = str(exc)
-
-
-async def _run_calibration(job_id: str, app_state) -> None:
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, _blocking_calibration, job_id, app_state)
-
-
-@calibration_router.post("/api/calibrate/start", summary="Start expert calibration")
-async def start_calibration(
-    request: Request,
-    background_tasks: BackgroundTasks,
-) -> JSONResponse:
-    job_id = _new_job()
-    background_tasks.add_task(_run_calibration, job_id, request.app.state)
-    return JSONResponse({"job_id": job_id, "status": "pending"})
-
-
-@calibration_router.get(
-    "/api/calibrate/status/{job_id}",
-    summary="Poll calibration job status",
+from mycelium.pipeline.expert_system_init_api import (  # noqa: F401
+    expert_system_init_router as calibration_router,
+    start_init as start_calibration,
+    init_status as calibration_status,
+    expert_system_ready as calibration_ready,
 )
-async def calibration_status(job_id: str) -> JSONResponse:
-    job = _jobs.get(job_id)
-    if job is None:
-        return JSONResponse({"status": "not_found"}, status_code=404)
-    return JSONResponse(
-        {
-            "job_id": job_id,
-            "status": job["status"],
-            "progress": job["progress"],
-            "error": job.get("error"),
-        }
-    )
 
-
-@calibration_router.get(
-    "/api/calibrate/ready",
-    summary="Quick readiness check",
-)
-async def calibration_ready(request: Request) -> JSONResponse:
-    ready = getattr(request.app.state, "expert_system", None) is not None
-    return JSONResponse({"ready": ready})
+__all__ = [
+    "calibration_router",
+    "start_calibration",
+    "calibration_status",
+    "calibration_ready",
+]
