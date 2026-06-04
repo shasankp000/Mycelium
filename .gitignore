@@ -26,6 +26,8 @@ coverage.xml
 *.safetensors
 *.gguf
 *.onnx
+models/layer0/*.joblib
+training_data/*.csv
 
 # --- Expert model directories ------
 mycelium/pipeline/experts/*
