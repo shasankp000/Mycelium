@@ -31,9 +31,13 @@ Model architecture:
     ManipulationClassifier  — CalibratedClassifierCV(
                                 LinearSVC(C=1.0, balanced),
                                 method='isotonic', cv=5)
+                              Falls back to uncalibrated LinearSVC when any
+                              class has fewer than 2*cv_folds samples.
     ObjectivityClassifier   — CalibratedClassifierCV(
                                 LogisticRegression(C=1.0, balanced),
                                 method='isotonic', cv=5)
+                              Falls back to uncalibrated LR when any class
+                              has fewer than 2*cv_folds samples.
     AssumptionTyper         — MultiOutputClassifier(
                                 CalibratedClassifierCV(
                                   LogisticRegression, method='isotonic', cv=5))
@@ -47,6 +51,13 @@ Calibration notes:
         irregular calibration curves better.
     Brier score is logged after each fit so calibration quality is
     visible at train time without a separate eval step.
+
+    CalibratedClassifierCV silently drops classes that have zero samples in
+    any CV fold, producing a model with fewer output columns than expected.
+    _safe_calibrated_clf() prevents this by checking per-class counts before
+    wrapping: if any class has fewer than 2*cv_folds samples it logs a WARNING
+    and returns the base estimator unwrapped (sklearn's predict_proba is still
+    available via the solver, just uncalibrated).
 
 Device selection:
     SentenceTransformer encoding runs on CUDA when torch.cuda.is_available(),
@@ -68,6 +79,7 @@ import logging
 import re
 import subprocess
 import sys
+from collections import Counter
 from io import BytesIO
 from pathlib import Path
 from typing import List, Tuple
@@ -581,7 +593,6 @@ def _load_objectivity_data() -> List[Tuple[str, str]]:
     log.info("[obj] auto-labelled AMBIGUOUS: %d samples", ambiguous_count)
 
     # Log final distribution
-    from collections import Counter
     dist = Counter(lbl for _, lbl in samples)
     log.info("[obj] final distribution: %s  total=%d", dict(dist), len(samples))
 
@@ -810,8 +821,45 @@ def _build_feature_matrix(
 
 
 # ---------------------------------------------------------------------------
-# Calibration eval helper
+# Calibration helpers
 # ---------------------------------------------------------------------------
+
+def _safe_calibrated_clf(base_estimator, y: np.ndarray, cv_folds: int, method: str = "isotonic"):
+    """
+    Wrap *base_estimator* in CalibratedClassifierCV only when every class
+    has at least ``2 * cv_folds`` samples — the minimum required for each
+    fold to contain at least 2 examples of that class.
+
+    When the condition is not met, CalibratedClassifierCV silently drops the
+    minority class from the calibrated model's output, producing a model
+    whose predict_proba has fewer columns than there are known classes.  This
+    causes downstream IndexErrors (e.g. in Brier score computation and in the
+    DST mass-function builder).
+
+    If any class is below the threshold, the base estimator is returned
+    unwrapped with a clear WARNING so the operator knows calibration was
+    skipped for this run.  Adding more minority-class samples will
+    re-enable calibration on the next retrain.
+    """
+    from sklearn.calibration import CalibratedClassifierCV
+
+    min_required = 2 * cv_folds
+    counts = np.bincount(y)
+    deficient = [(i, int(c)) for i, c in enumerate(counts) if c < min_required]
+
+    if deficient:
+        log.warning(
+            "[calibration] Skipping CalibratedClassifierCV (method=%s, cv=%d): "
+            "%d class(es) have fewer than %d samples: %s. "
+            "The base estimator will be used uncalibrated. "
+            "Add more minority-class samples to enable calibration.",
+            method, cv_folds, len(deficient), min_required,
+            [(i, n) for i, n in deficient],
+        )
+        return base_estimator
+
+    return CalibratedClassifierCV(base_estimator, method=method, cv=cv_folds)
+
 
 def _log_brier_score(
     clf, X: np.ndarray, y: np.ndarray, label_encoder, name: str
@@ -874,7 +922,6 @@ def train_manipulation_classifier(skip_if_exists: bool = False) -> Path:
 
     from sklearn.svm import LinearSVC
     from sklearn.preprocessing import LabelEncoder
-    from sklearn.calibration import CalibratedClassifierCV
 
     samples = _load_manipulation_data()
     if not samples:
@@ -911,12 +958,24 @@ def train_manipulation_classifier(skip_if_exists: bool = False) -> Path:
         "[train] ManipulationClassifier: X=%s  classes=%s  cv=%d",
         X.shape, le.classes_, cv_folds,
     )
-    clf = CalibratedClassifierCV(
-        LinearSVC(C=1.0, max_iter=2000, class_weight="balanced"),
-        method="isotonic",
-        cv=cv_folds,
-    )
+
+    base = LinearSVC(C=1.0, max_iter=2000, class_weight="balanced")
+    clf = _safe_calibrated_clf(base, y, cv_folds, method="isotonic")
     clf.fit(X, y)
+
+    # Post-fit sanity check: ensure the fitted model covers all expected classes.
+    # An uncalibrated LinearSVC exposes decision_function, not predict_proba;
+    # CalibratedClassifierCV always exposes predict_proba.
+    if hasattr(clf, "predict_proba"):
+        n_fitted = clf.predict_proba(X[:1]).shape[1]
+        n_expected = len(le.classes_)
+        if n_fitted != n_expected:
+            raise RuntimeError(
+                f"ManipulationClassifier fitted with {n_fitted} output classes "
+                f"but LabelEncoder has {n_expected}. "
+                f"Add more minority-class samples and retrain."
+            )
+
     _log_brier_score(clf, X, y, le, "ManipulationClassifier")
 
     joblib.dump({"model": clf, "label_encoder": le, "version": "1.2"}, out_path)
@@ -932,7 +991,6 @@ def train_objectivity_classifier(skip_if_exists: bool = False) -> Path:
 
     from sklearn.linear_model import LogisticRegression
     from sklearn.preprocessing import LabelEncoder
-    from sklearn.calibration import CalibratedClassifierCV
 
     samples = _load_objectivity_data()
     if not samples:
@@ -970,16 +1028,24 @@ def train_objectivity_classifier(skip_if_exists: bool = False) -> Path:
         "[train] ObjectivityClassifier: X=%s  classes=%s  cv=%d",
         X.shape, le.classes_, cv_folds,
     )
+
     # multi_class kwarg removed: deprecated and removed in sklearn 1.5+.
-    # lbfgs with >2 classes uses multinomial by default.
-    clf = CalibratedClassifierCV(
-        LogisticRegression(
-            C=1.0, max_iter=1000, class_weight="balanced", solver="lbfgs",
-        ),
-        method="isotonic",
-        cv=cv_folds,
-    )
+    # lbfgs with >2 classes uses multinomial objective by default.
+    base = LogisticRegression(C=1.0, max_iter=1000, class_weight="balanced", solver="lbfgs")
+    clf = _safe_calibrated_clf(base, y, cv_folds, method="isotonic")
     clf.fit(X, y)
+
+    # Post-fit sanity check.
+    if hasattr(clf, "predict_proba"):
+        n_fitted = clf.predict_proba(X[:1]).shape[1]
+        n_expected = len(le.classes_)
+        if n_fitted != n_expected:
+            raise RuntimeError(
+                f"ObjectivityClassifier fitted with {n_fitted} output classes "
+                f"but LabelEncoder has {n_expected}. "
+                f"Add more minority-class samples and retrain."
+            )
+
     _log_brier_score(clf, X, y, le, "ObjectivityClassifier")
 
     joblib.dump({"model": clf, "label_encoder": le, "version": "1.2"}, out_path)
