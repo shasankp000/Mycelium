@@ -115,9 +115,6 @@ _OMEGA: FrozenSet[Route] = ALL_ROUTES
 # Label → focal-element maps
 # ---------------------------------------------------------------------------
 
-# Each label maps to a *singleton* focal element.  Labels that are
-# legitimately uncertain get mapped to _OMEGA by the mass-builder instead.
-
 _MANIP_LABEL_TO_ROUTE: Dict[str, Route] = {
     "NOT_MANIPULATIVE":         REASONING_PIPELINE,
     "LOADED_QUESTION":          MULTI_PERSPECTIVE,
@@ -134,14 +131,26 @@ _OBJ_LABEL_TO_ROUTE: Dict[str, Route] = {
 }
 
 # ---------------------------------------------------------------------------
-# Conflict threshold
+# Thresholds
 # ---------------------------------------------------------------------------
 
 # K >= this triggers graceful conflict handling (mass → Ω) instead of raising.
 CONFLICT_THRESHOLD: float = 0.90
 
-# Minimum ignorance mass always retained so the engine never over-commits.
+# Minimum ignorance mass always retained.
 _MIN_IGNORANCE: float = 0.02
+
+# Fraction of the proba-sum that is committed to singleton focal elements.
+# The remainder (1 - _COMMIT_SCALE) becomes ignorance, ensuring the DST
+# engine does not over-commit when classifiers are uncertain.
+# With e.g. 0.6 a perfectly-confident classifier (argmax proba = 1.0) still
+# leaves 0.40 ignorance, which makes the is_uncertain check meaningful.
+_COMMIT_SCALE: float = 0.6
+
+# Minimum pignistic probability the dominant route must have for the DST
+# result to be considered decisive.  Below this threshold is_uncertain is
+# set True and the router falls back to rule-based logic.
+_DECISIVE_BETP: float = 0.45
 
 # ---------------------------------------------------------------------------
 # Type aliases
@@ -172,8 +181,9 @@ class Layer0BeliefState:
         Total conflict mass K observed across all pairwise combinations.
         Values near 1.0 indicate the classifiers strongly disagree.
     is_uncertain : bool
-        True when the ignorance mass m(Ω) > 0.30, meaning the classifiers
-        collectively lack confidence in any single route.
+        True when the dominant route's BetP < _DECISIVE_BETP (0.45),
+        meaning the classifiers collectively lack confidence in any single
+        route.  When True the router falls back to rule-based logic.
     sources : list[str]
         Human-readable labels for the evidence sources that were fused.
     """
@@ -194,7 +204,6 @@ def _normalise(m: MassFunction) -> MassFunction:
     """Normalise a mass function so its values sum to exactly 1.0."""
     total = sum(m.values())
     if total < 1e-12:
-        # Degenerate: return pure ignorance
         return {_OMEGA: 1.0}
     return {k: v / total for k, v in m.items() if v > 0.0}
 
@@ -202,19 +211,12 @@ def _normalise(m: MassFunction) -> MassFunction:
 def _dempster_combine(m1: MassFunction, m2: MassFunction) -> Tuple[MassFunction, float]:
     """Dempster's rule of combination for two mass functions.
 
-    Parameters
-    ----------
-    m1, m2 : MassFunction
-        Two independent evidence sources.
-
     Returns
     -------
     combined : MassFunction
-        The combined mass function, normalised to sum to 1.0.
     k : float
-        The conflict mass K = Σ_{A∩B=∅} m1(A)·m2(B).
-        When K >= CONFLICT_THRESHOLD, conflicted mass is redirected to Ω
-        rather than raising, so the router always gets a result.
+        Conflict mass.  When K >= CONFLICT_THRESHOLD, conflicted mass is
+        redirected to Ω rather than raising.
     """
     unnorm: MassFunction = {}
     k = 0.0
@@ -228,15 +230,11 @@ def _dempster_combine(m1: MassFunction, m2: MassFunction) -> Tuple[MassFunction,
             intersection = focal_a & focal_b
             product = mass_a * mass_b
             if not intersection:
-                # Conflict mass
                 k += product
             else:
                 unnorm[intersection] = unnorm.get(intersection, 0.0) + product
 
     if k >= CONFLICT_THRESHOLD:
-        # Graceful degradation: redistribute all conflicted mass to Ω
-        # and log the event.  This keeps the router functional even when
-        # classifiers strongly disagree (e.g. first-boot before calibration).
         logger.warning(
             "DST conflict K=%.4f >= %.2f — redistributing conflict mass to Ω. "
             "Consider re-calibrating the Layer 0 classifiers.",
@@ -244,14 +242,12 @@ def _dempster_combine(m1: MassFunction, m2: MassFunction) -> Tuple[MassFunction,
         )
         unnorm[_OMEGA] = unnorm.get(_OMEGA, 0.0) + k
         k_reported = k
-        k = 0.0  # no longer need to normalise by (1-k) since we absorbed it
+        k = 0.0
     else:
         k_reported = k
 
     normaliser = 1.0 - k
     if normaliser < 1e-12:
-        # Shouldn't happen after the graceful-degradation branch above,
-        # but guard anyway.
         return {_OMEGA: 1.0}, k_reported
 
     combined: MassFunction = {
@@ -266,10 +262,6 @@ def _pignistic(m: MassFunction) -> Dict[Route, float]:
     """Pignistic probability transformation BetP.
 
     BetP(r) = Σ_{A ∋ r} m(A) / |A|
-
-    Distributes the mass of each focal element equally among its members.
-    Produces a classical probability distribution over the routes for
-    decision-making purposes.
     """
     bet_p: Dict[Route, float] = {r: 0.0 for r in ALL_ROUTES}
     for focal, mass in m.items():
@@ -277,7 +269,6 @@ def _pignistic(m: MassFunction) -> Dict[Route, float]:
         share = mass / size
         for route in focal:
             bet_p[route] = bet_p.get(route, 0.0) + share
-    # Normalise for floating-point safety
     total = sum(bet_p.values())
     if total > 1e-12:
         bet_p = {r: v / total for r, v in bet_p.items()}
@@ -295,32 +286,15 @@ def _build_manipulation_mass(
 ) -> Tuple[MassFunction, str]:
     """Convert a manipulation-classifier predict_proba vector to a MassFunction.
 
-    Strategy
-    --------
-    Each label l has probability p[l].  The mass it contributes to its
-    singleton focal element is scaled by p[l].  However, REFUSE is only
-    backed by *confident* coercive/jailbreak signals — if the combined
-    probability on REFUSE-route labels is below ``refuse_confidence_threshold``,
-    that mass is re-routed to MULTI_PERSPECTIVE (the safe soft-handling path)
-    rather than REFUSE.
+    The proba vector sums to 1.0 by definition (sklearn contract).  Committing
+    the full probability directly to singleton focal elements would leave only
+    _MIN_IGNORANCE (0.02) as ignorance mass, causing the DST engine to always
+    treat its own output as decisive — even when the classifier is outputting
+    a near-uniform distribution because it is undertrained.
 
-    The residual uncertainty mass (1 − Σ committed mass) goes to Ω.
-
-    Parameters
-    ----------
-    proba : np.ndarray shape (n_labels,)
-        Calibrated predict_proba output.
-    label_order : list[str]
-        Label names corresponding to each position in ``proba``, in the
-        same order as the LabelEncoder used during training.
-    refuse_confidence_threshold : float
-        Minimum combined probability on hard-refuse labels (COERCIVE,
-        JAILBREAK_ATTEMPT) needed to commit mass to {REFUSE}.
-        Below this threshold the mass goes to {MULTI_PERSPECTIVE} instead.
-
-    Returns
-    -------
-    MassFunction, source_label
+    Fix: scale committed mass by _COMMIT_SCALE (0.6) so a well-trained
+    classifier still drives the routing decision, but a confused classifier
+    (near-uniform proba) produces a meaningfully uncertain belief state.
     """
     route_mass: Dict[Route, float] = {r: 0.0 for r in ALL_ROUTES}
     refuse_candidate_mass = 0.0
@@ -329,22 +303,25 @@ def _build_manipulation_mass(
         route = _MANIP_LABEL_TO_ROUTE.get(label)
         if route is None:
             continue
+        # Scale down to leave room for ignorance
+        p_scaled = float(p) * _COMMIT_SCALE
         if route == REFUSE:
-            refuse_candidate_mass += float(p)
+            refuse_candidate_mass += p_scaled
         else:
-            route_mass[route] += float(p)
+            route_mass[route] += p_scaled
 
-    # Apply confidence gate on REFUSE
-    if refuse_candidate_mass >= refuse_confidence_threshold:
+    # Apply confidence gate on REFUSE using the *unscaled* combined probability
+    # so the threshold comparison is on the original model confidence.
+    raw_refuse_prob = sum(
+        float(p) for label, p in zip(label_order, proba)
+        if _MANIP_LABEL_TO_ROUTE.get(label) == REFUSE
+    )
+    if raw_refuse_prob >= refuse_confidence_threshold:
         route_mass[REFUSE] += refuse_candidate_mass
     else:
-        # Not confident enough to hard-refuse: treat as soft-handling
         route_mass[MULTI_PERSPECTIVE] += refuse_candidate_mass
 
-    # Committed mass is everything except the ignorance residual
     committed = sum(route_mass.values())
-    # Always retain a small ignorance floor so the mass function never
-    # fully forecloses the possibility of being wrong.
     ignorance = max(_MIN_IGNORANCE, 1.0 - committed)
 
     m: MassFunction = {}
@@ -362,16 +339,14 @@ def _build_objectivity_mass(
 ) -> Tuple[MassFunction, str]:
     """Convert an objectivity-classifier predict_proba vector to a MassFunction.
 
-    Each label maps directly to a singleton route focal element.
-    The AMBIGUOUS label maps to {CLARIFICATION}.
-    The residual uncertainty goes to Ω.
+    Same _COMMIT_SCALE dampening as the manipulation mass builder.
     """
     route_mass: Dict[Route, float] = {r: 0.0 for r in ALL_ROUTES}
 
     for label, p in zip(label_order, proba):
         route = _OBJ_LABEL_TO_ROUTE.get(label)
         if route is not None:
-            route_mass[route] += float(p)
+            route_mass[route] += float(p) * _COMMIT_SCALE
 
     committed = sum(route_mass.values())
     ignorance = max(_MIN_IGNORANCE, 1.0 - committed)
@@ -391,22 +366,13 @@ def _build_assumption_mass(
 ) -> Tuple[MassFunction, str]:
     """Build a soft MassFunction from the assumption-typer output.
 
-    The assumption typer outputs a multi-hot label vector (multiple
-    assumption types per query), not a probability distribution, so it
-    cannot contribute per-class probabilities to the routing frame in the
-    same way.  Instead we use *assumption count* as a soft signal:
-
-        - 0 assumptions → pure ignorance (mass entirely on Ω)
-        - 1+ assumptions → increasing mass on {MULTI_PERSPECTIVE},
-          saturating at ``max_assumptions``
-
-    This is intentionally conservative: the assumption typer should nudge
-    toward MULTI_PERSPECTIVE but never dominate the fusion result.
+    - 0 assumptions → pure ignorance (mass entirely on Ω)
+    - 1+ assumptions → increasing mass on {MULTI_PERSPECTIVE},
+      saturating at ``max_assumptions``
     """
     if n_assumptions <= 0:
         return {_OMEGA: 1.0}, "assumption_typer(0)"
 
-    # Linear ramp from 0.10 (1 assumption) to 0.40 (max_assumptions)
     strength = min(1.0, n_assumptions / max(max_assumptions, 1))
     multi_mass = 0.10 + 0.30 * strength
     ignorance  = max(_MIN_IGNORANCE, 1.0 - multi_mass)
@@ -430,47 +396,9 @@ def fuse_layer0_classifiers(
     n_assumptions:  int = 0,
     refuse_threshold: float = 0.65,
 ) -> Layer0BeliefState:
-    """Fuse all available Layer 0 classifier outputs into a routing decision.
-
-    This is the primary public entry-point.  The router calls this after
-    collecting raw ``predict_proba`` vectors from the three classifiers.
-
-    Parameters
-    ----------
-    manip_proba : np.ndarray or None
-        Calibrated predict_proba output from the manipulation classifier
-        (shape: ``(n_manip_labels,)``).  Pass ``None`` if the model is not
-        loaded (cold-start); its evidence is omitted from fusion.
-    manip_labels : list[str] or None
-        Label names in the same order as ``manip_proba`` (from LabelEncoder).
-    obj_proba : np.ndarray or None
-        Calibrated predict_proba output from the objectivity classifier.
-    obj_labels : list[str] or None
-        Label names in the same order as ``obj_proba``.
-    n_assumptions : int
-        Number of assumptions extracted by the assumption typer.  Set to 0
-        if the typer was not run.
-    refuse_threshold : float
-        Minimum combined probability on COERCIVE/JAILBREAK_ATTEMPT labels
-        required to commit mass to {REFUSE}.  Mirrors the router's
-        ``REFUSE_CONFIDENCE_THRESHOLD``.  Default: 0.65.
-
-    Returns
-    -------
-    Layer0BeliefState
-        Fusion result with dominant_route, pignistic_probs, raw mass function,
-        conflict_k, and is_uncertain flag.
-
-    Notes
-    -----
-    If *all* classifiers are unavailable (cold-start), the function returns
-    a pure-ignorance belief state that routes to REASONING_PIPELINE with
-    low certainty (is_uncertain=True), allowing the existing rule-based
-    router logic to take over without crashing.
-    """
+    """Fuse all available Layer 0 classifier outputs into a routing decision."""
     frames: List[Tuple[MassFunction, str]] = []
 
-    # --- Manipulation classifier ---
     if manip_proba is not None and manip_labels:
         try:
             m, label = _build_manipulation_mass(
@@ -482,7 +410,6 @@ def fuse_layer0_classifiers(
         except Exception as exc:
             logger.debug("DST: failed to build manipulation mass: %s", exc)
 
-    # --- Objectivity classifier ---
     if obj_proba is not None and obj_labels:
         try:
             m, label = _build_objectivity_mass(
@@ -493,14 +420,12 @@ def fuse_layer0_classifiers(
         except Exception as exc:
             logger.debug("DST: failed to build objectivity mass: %s", exc)
 
-    # --- Assumption typer (soft signal) ---
     try:
         m, label = _build_assumption_mass(n_assumptions)
         frames.append((m, label))
     except Exception as exc:
         logger.debug("DST: failed to build assumption mass: %s", exc)
 
-    # --- Cold-start guard ---
     if not frames:
         logger.warning(
             "DST fusion: no classifier evidence available — "
@@ -518,7 +443,6 @@ def fuse_layer0_classifiers(
             sources=[],
         )
 
-    # --- Sequential Dempster combination ---
     combined_m, total_k = frames[0][0], 0.0
     sources = [frames[0][1]]
 
@@ -527,13 +451,20 @@ def fuse_layer0_classifiers(
         total_k += k
         sources.append(src)
 
-    # --- Pignistic transformation → routing decision ---
     pignistic = _pignistic(combined_m)
     dominant  = max(pignistic, key=lambda r: pignistic[r])
 
-    # Uncertainty flag: ignorance mass > 30%
-    ignorance_mass = combined_m.get(_OMEGA, 0.0)
-    is_uncertain   = ignorance_mass > 0.30
+    # is_uncertain: the dominant route must win with BetP >= _DECISIVE_BETP (0.45).
+    # This replaces the old m(Ω) > 0.30 check which was never triggered because
+    # the ignorance mass was clamped to 0.02 by _MIN_IGNORANCE.
+    dominant_betp = pignistic.get(dominant, 0.0)
+    is_uncertain  = dominant_betp < _DECISIVE_BETP
+
+    if is_uncertain:
+        logger.debug(
+            "DST: dominant route %s has BetP=%.3f < %.2f — falling back to rule-based routing.",
+            dominant, dominant_betp, _DECISIVE_BETP,
+        )
 
     return Layer0BeliefState(
         dominant_route=dominant,
@@ -546,8 +477,7 @@ def fuse_layer0_classifiers(
 
 
 # ---------------------------------------------------------------------------
-# Convenience: build from already-computed ManipulationDetectionResult
-#              and ObjectivityResult (no raw proba needed from caller)
+# Convenience: build from already-computed results (no raw proba needed)
 # ---------------------------------------------------------------------------
 
 def fuse_from_results(
@@ -558,38 +488,14 @@ def fuse_from_results(
     n_assumptions:     int = 0,
     refuse_threshold:  float = 0.65,
 ) -> Layer0BeliefState:
-    """Build a belief state from high-level classifier results (no raw proba).
-
-    This convenience wrapper is useful when the router has already run
-    the classifiers but the raw ``predict_proba`` vectors were not
-    forwarded.  It synthesises minimal two-mass mass functions from the
-    label + confidence scalars:
-
-        m({dominant_route}) = confidence
-        m(Ω)               = 1 − confidence  (+ _MIN_IGNORANCE floor)
-
-    This is a degenerate but valid DST mass function that faithfully
-    represents a single deterministic classifier output with uncertainty.
-
-    Parameters
-    ----------
-    manip_label, manip_confidence
-        Label and confidence from ManipulationDetectionResult.
-    obj_label, obj_confidence
-        label and confidence from ObjectivityResult.
-    n_assumptions : int
-        Number of assumptions from ValueAssumptionExtractor.
-    refuse_threshold : float
-        Confidence gate for REFUSE routing.
-    """
+    """Build a belief state from high-level classifier results (no raw proba)."""
     def _scalar_mass(label: str, confidence: float, label_map: Dict[str, Route]) -> MassFunction:
         route = label_map.get(label)
         if route is None:
             return {_OMEGA: 1.0}
-        # Apply REFUSE confidence gate
         if route == REFUSE and confidence < refuse_threshold:
             route = MULTI_PERSPECTIVE
-        committed  = max(0.0, min(1.0 - _MIN_IGNORANCE, float(confidence)))
+        committed  = max(0.0, min(1.0 - _MIN_IGNORANCE, float(confidence) * _COMMIT_SCALE))
         ignorance  = max(_MIN_IGNORANCE, 1.0 - committed)
         return _normalise({
             frozenset([route]): committed,
@@ -597,7 +503,6 @@ def fuse_from_results(
         })
 
     frames: List[Tuple[MassFunction, str]] = []
-
     frames.append((_scalar_mass(manip_label, manip_confidence, _MANIP_LABEL_TO_ROUTE),
                    f"manipulation({manip_label})"))
     frames.append((_scalar_mass(obj_label, obj_confidence, _OBJ_LABEL_TO_ROUTE),
@@ -613,15 +518,15 @@ def fuse_from_results(
         total_k += k
         sources.append(src)
 
-    pignistic    = _pignistic(combined_m)
-    dominant     = max(pignistic, key=lambda r: pignistic[r])
-    ignorance_mass = combined_m.get(_OMEGA, 0.0)
+    pignistic      = _pignistic(combined_m)
+    dominant       = max(pignistic, key=lambda r: pignistic[r])
+    dominant_betp  = pignistic.get(dominant, 0.0)
 
     return Layer0BeliefState(
         dominant_route=dominant,
         pignistic_probs={r: round(p, 6) for r, p in pignistic.items()},
         mass_function=combined_m,
         conflict_k=round(total_k, 6),
-        is_uncertain=ignorance_mass > 0.30,
+        is_uncertain=dominant_betp < _DECISIVE_BETP,
         sources=sources,
     )

@@ -84,8 +84,6 @@ class QuestionRouter:
 
     def route(self, question: str) -> Layer0Result:
         """Route ``question`` to the appropriate downstream stage."""
-        # Run all three classifiers, collecting raw proba vectors when
-        # trained models are available.
         manip           = self._manipulation.detect(question)
         manip_proba, manip_labels = self._get_manip_proba(question)
 
@@ -112,7 +110,9 @@ class QuestionRouter:
             }
 
         # --- Determine final route ---
-        # Use DST dominant_route when available; fall back to rule-based logic.
+        # Use DST dominant_route only when it is decisive (BetP >= 0.45).
+        # Otherwise fall back to rule-based logic which is more conservative
+        # and well-calibrated against the actual label semantics.
         if belief is not None and not belief.is_uncertain:
             route = belief.dominant_route
         else:
@@ -142,7 +142,7 @@ class QuestionRouter:
                 device="cpu",
             )
             pre  = get_preprocessor()
-            _    = pre.analyse(text)  # warm-up / caching side-effect
+            _    = pre.analyse(text)
             emb  = encoder.encode([text], convert_to_numpy=True)
             rvec = _rule_signal_vector(text).reshape(1, -1)
             X    = np.hstack([emb, rvec])
@@ -203,21 +203,35 @@ class QuestionRouter:
             return None
 
     # ------------------------------------------------------------------
-    # Rule-based routing fallback (unchanged from original)
+    # Rule-based routing fallback
     # ------------------------------------------------------------------
 
     def _rule_based_route(self, manip, obj) -> str:
-        """Original deterministic routing logic used when DST is unavailable."""
-        if manip.is_manipulative:
+        """Deterministic routing logic used when DST is unavailable or non-decisive.
+
+        Branch order matters — the confidence gate on REFUSE must be the
+        primary guard, not a secondary check after is_manipulative.
+        """
+        # Hard REFUSE: only when the label is a hard-refuse type AND confidence
+        # is sufficient.  Everything else goes through the softer paths below.
+        if manip.label in _HARD_REFUSE_LABELS and manip.confidence >= REFUSE_CONFIDENCE_THRESHOLD:
             return "REFUSE"
-        if manip.label in _HARD_REFUSE_LABELS and manip.confidence < REFUSE_CONFIDENCE_THRESHOLD:
-            return "MULTI_PERSPECTIVE"
+
+        # Loaded / presupposition questions get a balanced answer, not a block.
         if manip.label in {"LOADED_QUESTION", "PRESUPPOSITION_INJECTION"}:
             return "MULTI_PERSPECTIVE"
+
+        # Hard-refuse label present but below confidence threshold — treat as
+        # ambiguous and give a balanced response.
+        if manip.label in _HARD_REFUSE_LABELS:
+            return "MULTI_PERSPECTIVE"
+
+        # Objectivity classifier drives the remaining cases.
         if obj.question_type == "VALUE_LADEN":
             return "MULTI_PERSPECTIVE"
         if obj.question_type == "AMBIGUOUS":
             return "CLARIFICATION"
+
         return "REASONING_PIPELINE"
 
     # ------------------------------------------------------------------
