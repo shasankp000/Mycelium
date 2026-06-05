@@ -292,6 +292,8 @@ class WorkflowMetrics:
 
 _trm_reasoner: Optional[Any] = None
 _question_router: Optional[QuestionRouter] = None
+_spectral_analyzer: Optional[Any] = None
+_multi_lens_router: Optional[MultiLensRouter] = None
 
 
 def _get_trm_reasoner() -> Optional[Any]:
@@ -343,6 +345,45 @@ def _get_question_router() -> QuestionRouter:
         _question_router = QuestionRouter()
         print("\u2705 Layer0 router initialized\n")
     return _question_router
+
+
+def _get_multi_lens_router(registered_domains: set) -> MultiLensRouter:
+    """Return the process-level singleton MultiLensRouter.
+
+    On first call, creates DynamicSignatureManager, syncs spectral signatures
+    for all registered domains, and constructs the MultiLensRouter.
+
+    On subsequent calls, performs an incremental re-sync only when new expert
+    domains have appeared since the last initialisation — avoiding a full
+    rebuild on every workflow invocation.
+    """
+    global _spectral_analyzer, _multi_lens_router
+
+    if _multi_lens_router is not None:
+        # Incremental re-sync: only rebuild if new domains have been registered
+        known_domains = set(_spectral_analyzer.get_available_domains())
+        new_domains = registered_domains - known_domains
+        if new_domains:
+            print(
+                f"\U0001f504 New expert domain(s) detected {new_domains} "
+                "\u2014 incremental spectral re-sync..."
+            )
+            sig_manager = DynamicSignatureManager(signature_dir="signatures")
+            _spectral_analyzer = sig_manager.sync_signatures(registered_domains)
+            _multi_lens_router._spectral_analyzer = _spectral_analyzer
+            _synced = len(_spectral_analyzer.get_available_domains())
+            print(f"\u2705 Spectral signatures re-synced ({_synced} domains loaded)\n")
+        return _multi_lens_router
+
+    # First-time initialisation
+    print("Syncing spectral signatures with registered expert domains...")
+    sig_manager = DynamicSignatureManager(signature_dir="signatures")
+    _spectral_analyzer = sig_manager.sync_signatures(registered_domains)
+    _synced_domains = len(_spectral_analyzer.get_available_domains())
+    print(f"\u2705 Spectral signatures synced ({_synced_domains} domains loaded)\n")
+
+    _multi_lens_router = MultiLensRouter(spectral_analyzer=_spectral_analyzer)
+    return _multi_lens_router
 
 
 def _sanitize_spectral_scores(spectral_scores: Any) -> Any:
@@ -609,11 +650,12 @@ def run_mycelium_workflow(
         detail="Checking for stale or missing .npy files",
         state="running",
     )
-    print("Syncing spectral signatures with registered expert domains...")
-    sig_manager = DynamicSignatureManager(signature_dir="signatures")
-    spectral_analyzer = sig_manager.sync_signatures(registered_domains)
-    _synced_domains = len(spectral_analyzer.get_available_domains())
-    print(f"\u2705 Spectral signatures synced ({_synced_domains} domains loaded)\n")
+
+    # Retrieve (or lazily create) the singleton MultiLensRouter.
+    # Performs a full build on first call; incremental re-sync on subsequent
+    # calls only when new expert domains have appeared.
+    router = _get_multi_lens_router(registered_domains)
+    _synced_domains = len(_spectral_analyzer.get_available_domains())
 
     emitter.emit(
         phase_name="graph_spectral_sync",
@@ -622,8 +664,6 @@ def run_mycelium_workflow(
         state="running",
         metadata={"synced_domains": _synced_domains},
     )
-
-    router = MultiLensRouter(spectral_analyzer=spectral_analyzer)
 
     if trm_reasoner is not None and TRMOODFallback is not None:
         try:
