@@ -29,7 +29,7 @@ into a single matrix ``_sig_matrix`` (shape: [D, L]) and a precomputed
 norm vector ``_sig_norms`` (shape: [D]).  analyze_text() then performs
 one matrix-vector multiply (BLAS sgemv) instead of a Python loop over D
 domains, reducing CPU time from O(D) serial dot products to a single
-vectorised O(D × L) call.
+vectorised O(D x L) call.
 """
 
 import numpy as np
@@ -77,8 +77,8 @@ class SpectralSignatureGenerator:
     Process:
     1. Load corpus texts for each domain
     2. Encode using SentenceTransformer
-    3. Compute FFT + PSD per embedding dimension
-    4. Average across dimensions and texts
+    3. Compute FFT + PSD per embedding dimension across all corpus texts
+    4. Average across dimensions
     5. Normalize to [0, 1]
     6. Save to disk as .npy files
 
@@ -116,7 +116,8 @@ class SpectralSignatureGenerator:
         Compute Power Spectral Density for a single 1D signal.
 
         Args:
-            signal: 1D array (e.g., one embedding dimension across all texts)
+            signal: 1D array (e.g., one embedding dimension across all texts,
+                    OR a mean embedding vector used as a signal)
 
         Returns:
             PSD array (one-sided, normalized)
@@ -139,6 +140,15 @@ class SpectralSignatureGenerator:
     ) -> Dict[str, Dict]:
         """
         Generate and save spectral signatures for multiple domains.
+
+        For each domain the corpus texts are encoded, averaged into a single
+        mean embedding vector, and the PSD is computed over that vector
+        (treating each of the 384 embedding dimensions as the signal).
+
+        Previously the code looped per scalar (embedding[dim_idx]), which
+        produced a 1-element FFT that always normalises to [1.0], erasing
+        all domain-specific information.  This fix passes the full per-
+        dimension slice (shape [num_texts]) into _compute_psd_for_dimension.
 
         The SentenceTransformer model is loaded here on first call.
 
@@ -165,10 +175,17 @@ class SpectralSignatureGenerator:
                 embeddings = self.model.encode(texts)  # (num_texts, embedding_dim)
                 num_texts, embedding_dim = embeddings.shape
 
+                # ----------------------------------------------------------------
+                # FIX: iterate over embedding dimensions, each slice is a 1-D
+                # signal of length num_texts (variation of that dimension across
+                # the corpus).  This is the correct way to capture per-domain
+                # spectral structure — the old code passed a single scalar into
+                # _compute_psd_for_dimension, giving a trivially degenerate PSD.
+                # ----------------------------------------------------------------
                 average_psd = None
 
                 for dim_idx in range(embedding_dim):
-                    signal = embeddings[:, dim_idx]
+                    signal = embeddings[:, dim_idx]  # shape (num_texts,) — correct
                     psd = self._compute_psd_for_dimension(signal)
                     if average_psd is None:
                         average_psd = psd
@@ -209,7 +226,7 @@ class RuntimeSpectralAnalyzer:
     Process:
     1. Load all available domain signatures
     2. Encode input text
-    3. Compute input's PSD (same method as training)
+    3. Compute input's PSD over the full embedding vector (treated as a 1-D signal)
     4. Batch cosine similarity against all domain signatures (vectorised)
     5. Return normalized scores [0, 1]
 
@@ -346,19 +363,16 @@ class RuntimeSpectralAnalyzer:
             return {}
 
         try:
-            embedding = self.model.encode([text])[0]  # (embedding_dim,)
+            embedding = self.model.encode([text])[0]  # (embedding_dim,) e.g. (384,)
 
-            # Compute average PSD across embedding dimensions
-            input_psd: Optional[np.ndarray] = None
-            for dim_idx in range(len(embedding)):
-                psd = self._compute_psd_for_input(np.array([embedding[dim_idx]]))
-                if input_psd is None:
-                    input_psd = psd
-                else:
-                    input_psd = (input_psd * dim_idx + psd) / (dim_idx + 1)
-
-            if input_psd is None:
-                return {}
+            # ----------------------------------------------------------------
+            # FIX: pass the full embedding vector as the 1-D signal into the
+            # PSD computation.  The old code looped over each scalar dimension
+            # and passed a 1-element array, which FFT-normalises trivially to
+            # [1.0] every time — erasing all query-specific information and
+            # making every query produce an identical input_psd.
+            # ----------------------------------------------------------------
+            input_psd = self._compute_psd_for_input(embedding)  # shape (embedding_dim//2 + 1,)
 
             # Normalise
             if np.max(input_psd) > 0:
