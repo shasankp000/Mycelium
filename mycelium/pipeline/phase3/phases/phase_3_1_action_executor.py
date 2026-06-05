@@ -17,7 +17,7 @@ Example:
     ...     ActionExecutionPipeline,
     ... )
     >>> from mycelium.pipeline.phase3.utils.types import FinalDecisionResult
-    >>> decision = FinalDecisionResult(action="create_new", domain="chemistry")
+    >>> decision = FinalDecisionResult(action="create_new_expert", domain="chemistry")
     >>> pipeline = ActionExecutionPipeline()
     >>> result = pipeline.execute(decision)
     >>> print(result.status)
@@ -41,10 +41,16 @@ from mycelium.pipeline.phase3.utils.types import (
 
 logger = logging.getLogger(__name__)
 
-_VALID_ACTIONS = frozenset({"create_new", "use_existing", "create_patch"})
+# Canonical action names used internally by ActionExecutor.
+_VALID_ACTIONS = frozenset({"create_new", "create_new_expert", "use_existing", "create_patch"})
 _VALID_PATCH_TYPES = frozenset(
     {"parameter_update", "retraining", "augmentation"}
 )
+
+# Aliases: any name in the key set is normalised to the value before dispatch.
+_ACTION_ALIAS: Dict[str, str] = {
+    "create_new_expert": "create_new",
+}
 
 
 # ------------------------------------------------------------------
@@ -354,13 +360,28 @@ class ActionExecutor:
     ) -> ActionResult:
         """Execute the action recommended by Phase 2.6.
 
+        Accepts both the canonical action names (``create_new``,
+        ``use_existing``, ``create_patch``) and the alias
+        ``create_new_expert`` emitted by Phase 2.6 synthesis.
+
         Args:
             final_decision_result: Decision output from Phase 2.6.
 
         Returns:
             An ``ActionResult`` with status ``'success'`` or ``'failed'``.
         """
-        action = final_decision_result.action
+        # Normalise aliased action names before any further processing.
+        raw_action = final_decision_result.action
+        action = _ACTION_ALIAS.get(raw_action, raw_action)
+        if action != raw_action:
+            logger.debug(
+                "Action alias resolved: '%s' -> '%s'", raw_action, action
+            )
+            import dataclasses
+            final_decision_result = dataclasses.replace(
+                final_decision_result, action=action
+            )
+
         logger.info("Executing action: %s", action)
         start = time.perf_counter()
 
@@ -405,6 +426,10 @@ class ActionExecutor:
 
     def validate_action_feasibility(self, action: str) -> bool:
         """Return ``True`` when *action* is in the valid set.
+
+        Aliased names (e.g. ``create_new_expert``) are accepted because
+        ``_VALID_ACTIONS`` includes them explicitly, and
+        ``execute_action`` additionally normalises them before dispatch.
 
         Args:
             action: Action string to validate.
@@ -526,12 +551,6 @@ class ActionExecutor:
                 verified_answer = pc_result.verified_answer
 
                 # Step 4 — degrade gracefully when verified_answer is empty.
-                # This happens when both reasoners time out or return empty
-                # strings (e.g. Qwen3.5 cold-start exceeded the old 60 s
-                # budget).  Rather than returning an empty string — which
-                # upstream callers (run_workflow.py) interpret as "retry" —
-                # we surface the best partial answer available so the
-                # pipeline terminates cleanly on this invocation.
                 if not verified_answer:
                     fallback = pc_result.trm_answer or pc_result.p6_answer
                     if fallback:
@@ -543,9 +562,6 @@ class ActionExecutor:
                             "trm" if pc_result.trm_answer else "p6",
                         )
                     else:
-                        # Both reasoners returned nothing — mark degraded but
-                        # keep verified_answer as empty string; the
-                        # conversation LLM will receive an explicit signal.
                         degraded = True
                         logger.warning(
                             "PostCheck: both TRM and P6 returned empty answers "
@@ -580,15 +596,11 @@ class ActionExecutor:
         return ActionResult(
             action_type="use_existing",
             status="success",
-            # Always a non-empty string so callers never treat this as a
-            # sentinel that requires re-invocation of the phase.
             executed_action=f"Routed to expert={expert_name}",
             metadata={
                 "routing": routing,
                 "verified_answer": verified_answer,
                 "post_check": post_check_meta,
-                # Explicit flag callers can inspect instead of testing
-                # verified_answer emptiness.
                 "post_check_degraded": degraded,
             },
             rollback_available=False,

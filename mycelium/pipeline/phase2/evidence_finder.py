@@ -32,7 +32,7 @@ from mycelium.pipeline.phase2.evidence_types import (
     RetrievalMethod,
 )
 from mycelium.pipeline.predicates.predicate_store import PredicateStore
-from mycelium.pipeline.predicates.predicate_types import PredicateFrame
+from mycelium.pipeline.predicates.predicate_types import PredicateEntity, PredicateFrame
 
 
 # ---------------------------------------------------------------------------
@@ -58,23 +58,51 @@ class _Retriever(Protocol):
 # Query builder
 # ---------------------------------------------------------------------------
 
+def _entity_text(value: Any) -> str:
+    """Safely extract a plain string from a field that may be a
+    ``PredicateEntity`` dataclass, a raw string, or None.
+
+    PredicateFrame.subject and PredicateFrame.object are typed as
+    ``PredicateEntity | str``.  Passing a PredicateEntity directly to
+    ``str.join()`` raised:
+        TypeError: sequence item 0: expected str instance, PredicateEntity found
+    This helper centralises the extraction so _build_query stays readable.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, PredicateEntity):
+        return value.text or ""
+    return str(value)
+
+
 def _build_query(frame: PredicateFrame) -> str:
     """Construct a keyword search query from the semantic fields of a frame.
 
-    Uses subject, predicate_verb, object_concept when present.
-    Falls back to the first 12 tokens of raw_text if those fields are empty.
-    Always returns a non-empty string.
+    Extracts plain-string representations of subject, relation verb, and
+    object.  Both subject and object may be ``PredicateEntity`` instances
+    or raw strings; the relation is carried by ``frame.relation.lemma``.
+
+    Falls back to the first 12 tokens of raw_text if all three fields are
+    empty.  Always returns a non-empty string.
     """
-    parts = []
-    if getattr(frame, "subject", None):
-        parts.append(frame.subject)
-    if getattr(frame, "predicate_verb", None):
-        parts.append(frame.predicate_verb)
-    if getattr(frame, "object_concept", None):
-        parts.append(frame.object_concept)
+    parts: List[str] = []
+
+    subject_text = _entity_text(getattr(frame, "subject", None))
+    if subject_text:
+        parts.append(subject_text)
+
+    # The relation verb lives on frame.relation.lemma, not frame.predicate_verb.
+    relation = getattr(frame, "relation", None)
+    relation_text = (relation.lemma if relation is not None else "") or ""
+    if relation_text:
+        parts.append(relation_text)
+
+    object_text = _entity_text(getattr(frame, "object", None))
+    if object_text:
+        parts.append(object_text)
 
     if parts:
-        return " ".join(p for p in parts if p).strip()
+        return " ".join(parts).strip()
 
     # Fallback: first 12 words of raw_text
     words = frame.raw_text.split()
