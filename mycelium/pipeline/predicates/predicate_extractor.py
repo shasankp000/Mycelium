@@ -64,7 +64,11 @@ _EXISTENTIAL_SIGNALS = frozenset([
     "number", "instance", "case", "example",
 ])
 
-_DEFINITIONAL_COPULAS = frozenset(["be", "define", "mean", "refer", "constitute", "comprise"])
+# NOTE: "be" is intentionally excluded from _DEFINITIONAL_COPULAS.
+# A bare copula ("Paris is the capital") is FACTIVE, not DEFINITIONAL.
+# Only verbs whose primary semantic role is to assign membership,
+# meaning, or constitution belong here.
+_DEFINITIONAL_COPULAS = frozenset(["define", "mean", "refer", "constitute", "comprise"])
 
 _UNIVERSAL_QUANTIFIERS = frozenset(["all", "every", "each", "always", "never", "no", "none"])
 _EXISTENTIAL_QUANTIFIERS = frozenset(["some", "many", "few", "several", "most", "often"])
@@ -300,7 +304,11 @@ class PredicateExtractor:
         if lemma_set & _EXISTENTIAL_SIGNALS:
             return PredicateType.EXISTENTIAL
 
-        # 7. DEFINITIONAL: copula 'be' / 'define' as predicate with no causal meaning
+        # 7. DEFINITIONAL: explicit definitional verb as predicate
+        # NOTE: "be" is NOT in _DEFINITIONAL_COPULAS — bare copula sentences
+        # fall through to FACTIVE (step 8). Only verbs like "define", "mean",
+        # "constitute", etc. that semantically assign membership or meaning
+        # qualify here.
         if pred_lemma.lower() in _DEFINITIONAL_COPULAS:
             return PredicateType.DEFINITIONAL
 
