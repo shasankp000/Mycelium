@@ -15,14 +15,12 @@ Four-layer detection stack:
 
 Confidence-gated refusal
 ------------------------
-Only labels in _HARD_REFUSE_LABELS (JAILBREAK_ATTEMPT, COERCIVE) at
-confidence >= REFUSE_CONFIDENCE_THRESHOLD (0.65) set is_manipulative=True.
+Only labels in _HARD_REFUSE_LABELS (JAILBREAK_ATTEMPT, COERCIVE, FEAR_MONGERING)
+at confidence >= REFUSE_CONFIDENCE_THRESHOLD (0.65) set is_manipulative=True.
 
-LOADED_QUESTION and PRESUPPOSITION_INJECTION are softer signals; they set
-requires_soft_handling=True so the router can route them to MULTI_PERSPECTIVE
-instead of a hard REFUSE.  This prevents clean science/exploratory questions
-(e.g. "Is it possible to build a thermoelectric device?") from being blocked
-due to an interrogative_with_presupposition signal at low confidence.
+LOADED_QUESTION, PRESUPPOSITION_INJECTION, and MISLEADING_FRAMING are softer
+signals; they set requires_soft_handling=True so the router can route them to
+MULTI_PERSPECTIVE instead of a hard REFUSE.
 """
 
 from __future__ import annotations
@@ -39,10 +37,6 @@ from mycelium.pipeline.layer0.nlp_preprocessor import (
 # -----------------------------------------------------------------------
 # Thresholds
 # -----------------------------------------------------------------------
-# Minimum confidence for a detection to be treated as a hard block.
-# Imported by router.py from this module so there is a single source of
-# truth.  Default: 0.65 — confident enough to refuse without false positives
-# on borderline presupposition signals.
 REFUSE_CONFIDENCE_THRESHOLD = 0.65
 
 _LOW_THRESH  = 0.25
@@ -63,38 +57,47 @@ _VALID_LABELS = [
     "LOADED_QUESTION",
     "JAILBREAK_ATTEMPT",
     "PRESUPPOSITION_INJECTION",
+    "FEAR_MONGERING",
+    "MISLEADING_FRAMING",
 ]
 
 # Labels that warrant a hard REFUSE when confidence >= threshold.
-# LOADED_QUESTION and PRESUPPOSITION_INJECTION deserve a nuanced response,
-# not a silent block.
-_HARD_REFUSE_LABELS = {"JAILBREAK_ATTEMPT", "COERCIVE"}
+# LOADED_QUESTION, PRESUPPOSITION_INJECTION, and MISLEADING_FRAMING deserve
+# a nuanced response, not a silent block.
+_HARD_REFUSE_LABELS = {"JAILBREAK_ATTEMPT", "COERCIVE", "FEAR_MONGERING"}
 
 
 @dataclass
 class ManipulationDetectionResult:
-    # True ONLY when label is in _HARD_REFUSE_LABELS AND
-    # confidence >= REFUSE_CONFIDENCE_THRESHOLD.  The router checks this
-    # flag to decide between a hard REFUSE vs. a soft MULTI_PERSPECTIVE route.
+    """Result of the four-layer manipulation detection stack.
+
+    Fields
+    ------
+    is_manipulative
+        True ONLY when label is in _HARD_REFUSE_LABELS AND
+        confidence >= REFUSE_CONFIDENCE_THRESHOLD.  The router checks this
+        flag to decide between a hard REFUSE vs. a soft MULTI_PERSPECTIVE route.
+    explanation
+        Optional human-readable explanation string.  Defaults to empty string.
+        Used by tests and the LLM arbiter layer to surface reasoning.
+    requires_soft_handling
+        True when a soft manipulation signal was detected but confidence is
+        below the hard-refuse threshold, or the label is LOADED_QUESTION /
+        PRESUPPOSITION_INJECTION / MISLEADING_FRAMING.
+    """
     is_manipulative: bool
     label: str = "NOT_MANIPULATIVE"
     matched_patterns: List[str] = field(default_factory=list)
     rule_score: float = 0.0
     llm_used: bool = False
     confidence: float = 0.0
-    # True when a soft manipulation signal was detected but confidence is
-    # below the hard-refuse threshold, or the label is LOADED_QUESTION /
-    # PRESUPPOSITION_INJECTION.  The router uses this to route to
-    # MULTI_PERSPECTIVE rather than letting the request through unexamined.
+    explanation: str = ""
     requires_soft_handling: bool = False
 
 
 # ---------------------------------------------------------------------------
 # Backward-compatibility alias
 # ---------------------------------------------------------------------------
-# ManipulationDetectionResult was previously exported as ManipulationResult.
-# Several integration tests and external consumers still import by the old
-# name.  This alias keeps them working without a mass-rename.
 ManipulationResult = ManipulationDetectionResult
 
 
@@ -111,7 +114,7 @@ def _requires_soft(label: str, confidence: float) -> bool:
     if label in _HARD_REFUSE_LABELS and confidence < REFUSE_CONFIDENCE_THRESHOLD:
         return True
     # Soft labels always get soft handling regardless of confidence.
-    if label in {"LOADED_QUESTION", "PRESUPPOSITION_INJECTION"}:
+    if label in {"LOADED_QUESTION", "PRESUPPOSITION_INJECTION", "MISLEADING_FRAMING"}:
         return True
     return False
 
