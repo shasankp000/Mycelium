@@ -80,7 +80,14 @@ def _build_query(frame: PredicateFrame) -> str:
 
     Extracts plain-string representations of subject, relation verb, and
     object.  Both subject and object may be ``PredicateEntity`` instances
-    or raw strings; the relation is carried by ``frame.relation.lemma``.
+    or raw strings.
+
+    Relation verb resolution order:
+      1. frame.relation.lemma   — present when the frame was built by the
+         full NLP pipeline (PredicateEntity relation object).
+      2. frame.predicate_verb   — present on PredicateFrame dataclass when
+         no separate relation object was attached (common in tests and in
+         frames produced by the extractor before graph hydration).
 
     Falls back to the first 12 tokens of raw_text if all three fields are
     empty.  Always returns a non-empty string.
@@ -91,9 +98,12 @@ def _build_query(frame: PredicateFrame) -> str:
     if subject_text:
         parts.append(subject_text)
 
-    # The relation verb lives on frame.relation.lemma, not frame.predicate_verb.
+    # Relation verb: prefer frame.relation.lemma, fall back to frame.predicate_verb.
     relation = getattr(frame, "relation", None)
-    relation_text = (relation.lemma if relation is not None else "") or ""
+    if relation is not None:
+        relation_text = (relation.lemma if hasattr(relation, "lemma") else str(relation)) or ""
+    else:
+        relation_text = getattr(frame, "predicate_verb", "") or ""
     if relation_text:
         parts.append(relation_text)
 
