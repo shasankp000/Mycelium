@@ -12,6 +12,7 @@ Tests the complete workflow:
 """
 
 import json
+import os
 from mycelium.pipeline.unified_expert_system import UnifiedExpertSystem
 from mycelium.pipeline.expert_filter import ExpertFilter
 from mycelium.pipeline.layer1_router import extract_tags_llama, normalize_tags
@@ -107,7 +108,10 @@ def test_expert_workflow(test_sentences):
                 'precheck_confidence': decision_confidence
             })
 
-    with open('evaluation_data/inference_validation_results.json', 'w', encoding='utf-8') as f:
+    output_dir = 'evaluation_data'
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, 'inference_validation_results.json')
+    with open(output_path, 'w', encoding='utf-8') as f:
         use_existing_cases = [r for r in results if r.get('decision') == 'use_existing_expert']
         correct = sum(1 for r in use_existing_cases if r.get('alignment') == 'CORRECT')
         mismatches = sum(1 for r in use_existing_cases if r.get('alignment') == 'MISMATCH')
