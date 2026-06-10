@@ -133,9 +133,14 @@ class PredicateNegator:
 
         NORMATIVE frames (falsifiable=False) are silently skipped.
         Frames that already have a negated_form are skipped (idempotent).
+        Frames that are themselves already negated (negated=True) are also
+        skipped — we do not produce negations-of-negations. This ensures
+        negate_store() is safe to call multiple times on the same store.
         """
         for frame in list(store.falsifiable()):
-            if frame.negated_form is not None:
+            # Skip if already processed (has a negated_form) OR if this
+            # frame is itself a negated product of a prior negate_store() call.
+            if frame.negated_form is not None or frame.negated:
                 continue
             negated = self.negate(frame)
             if negated is None:
