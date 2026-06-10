@@ -68,6 +68,11 @@ class QuantifierScope(str, Enum):
     AMBIGUOUS = "AMBIGUOUS"
     """Scope unclear from surface form; treated as SCOPED at runtime."""
 
+    UNSCOPED = "UNSCOPED"
+    """No quantification signal present in the surface form.
+    Used by pre-v0.2.1 extractor path and older test fixtures.
+    Treated identically to AMBIGUOUS at runtime."""
+
 
 class RefutationBurden(str, Enum):
     """How hard it is to refute this predicate.
@@ -90,44 +95,64 @@ class RefutationBurden(str, Enum):
 
 
 class EpistemicBurden(str, Enum):
-    """Epistemic difficulty of establishing the truth of a predicate claim.
+    """Epistemic difficulty of establishing or scoring the truth of a predicate claim.
 
     Spec ref: implementation spec v0.2.1 — Section 4.1 (burden stratification).
 
-    Distinct from RefutationBurden (which concerns *dis*proof).
-    EpistemicBurden models how much positive evidence is needed to *support*
-    the claim, and governs EvidenceFinder search depth and tool selection.
+    Two vocabularies coexist here:
 
-    Read by:
-      - EvidenceFinder: to set retrieval depth and early-halt thresholds.
-      - EvidenceScorer: to weight evidence bundles by claim difficulty.
-      - DomainToolPlanner: to select appropriate tool chains per claim type.
+    Scorer multiplier vocabulary (used by EvidenceScorer and test_evidence_scorer):
+      NONE          — no burden adjustment; multiplier = 1.0
+      SCOPE_BOUNDED — scope-restricted claim;  multiplier = 0.85
+      REBUTTAL      — rebuttal-class claim;     multiplier = 1.10 (capped at 1.0)
+      EXHAUSTIVE    — exhaustive check needed;  multiplier = 0.90
+      MODAL         — modal/possibility claim;  multiplier = 0.70 * ModalCertainty
+
+    Retrieval-depth vocabulary (used by EvidenceFinder and DomainToolPlanner):
+      EMPIRICAL     — directly verifiable; lowest search depth
+      INFERENTIAL   — requires inference across sources; medium depth
+      INTERPRETIVE  — requires theoretical framing; high depth
+      NORMATIVE     — value judgement; skip retrieval entirely
+      CONTESTED     — factually contested; force multi-perspective retrieval
+
+    TRM v2 will unify these into a single vocabulary.  Until then both sets
+    are present so both scorer tests and finder tests can import from here.
     """
 
+    # --- Scorer multiplier vocabulary ---
+    NONE = "NONE"
+    """No burden adjustment. EvidenceScorer multiplier = 1.0."""
+
+    SCOPE_BOUNDED = "SCOPE_BOUNDED"
+    """Scope-restricted claim. EvidenceScorer multiplier = 0.85."""
+
+    REBUTTAL = "REBUTTAL"
+    """Rebuttal-class claim (high-value counter-evidence). Multiplier = 1.10, capped at 1.0."""
+
+    EXHAUSTIVE = "EXHAUSTIVE"
+    """Exhaustive-check required claim. EvidenceScorer multiplier = 0.90."""
+
+    MODAL = "MODAL"
+    """Modal/possibility claim. EvidenceScorer multiplier = 0.70 * ModalCertainty value."""
+
+    # --- Retrieval-depth vocabulary ---
     EMPIRICAL = "EMPIRICAL"
     """Claim is directly verifiable by observation or measurement.
-    E.g. 'Water boils at 100°C at sea level'.
-    Lowest search depth — one high-quality source suffices."""
+    E.g. 'Water boils at 100°C at sea level'. Lowest search depth."""
 
     INFERENTIAL = "INFERENTIAL"
     """Claim requires inference across multiple sources.
-    E.g. 'Smoking causes lung cancer' (causal, statistical chain required).
-    Medium search depth — requires corroboration across ≥2 independent sources."""
+    E.g. 'Smoking causes lung cancer'. Medium search depth."""
 
     INTERPRETIVE = "INTERPRETIVE"
-    """Claim requires interpretation of evidence under a theoretical frame.
-    E.g. 'The French Revolution accelerated secularisation'.
-    High search depth — requires historical/theoretical source triangulation."""
+    """Claim requires interpretation under a theoretical frame.
+    E.g. 'The French Revolution accelerated secularisation'. High search depth."""
 
     NORMATIVE = "NORMATIVE"
-    """Claim is a value judgement; no evidence chain can fully establish it.
-    E.g. 'Democracy is the best system'.
-    EvidenceFinder skips retrieval for NORMATIVE epistemic burden.
-    Maps 1-to-1 with PredicateType.NORMATIVE and RefutationBurden.NON_FALSIFIABLE."""
+    """Claim is a value judgement. EvidenceFinder skips retrieval entirely."""
 
     CONTESTED = "CONTESTED"
     """Claim is factually contested across credible sources.
-    E.g. 'Moderate alcohol consumption is beneficial'.
     Forces multi-perspective retrieval and disables early-halt."""
 
 
@@ -253,36 +278,52 @@ class PredicateFrame:
     PredicateStore, and referenced across the full pipeline including
     retrieval, contradiction, stabilization, replay, and patch propagation.
 
+    Two construction paths coexist:
+
+    v0.2.1 structured path (preferred):
+        subject: PredicateEntity
+        relation: PredicateRelation
+        object: PredicateEntity | str
+
+    Pre-v0.2.1 flat path (used by older tests and extractor code):
+        raw_text: str
+        subject: str
+        predicate_verb: str
+        object_concept: str
+
+    TRM v2 will migrate all callers to the structured path.
+
     Identity
     --------
     predicate_id is a deterministic SHA-256 digest of (surface_form +
     predicate_type + domain_hint), computed at construction time via
     `make_predicate_id()`. This guarantees replay-stable identity.
-
-    Provenance
-    ----------
-    Every structural transform (negation, scope narrowing, etc.) MUST:
-    - append a TransformationRecord to transformation_history
-    - increment semantic_revision
-    - set derived_from to include the parent predicate_id
-    - set generated_by_phase to the component name
     """
 
     # -- Identity --
     predicate_id: str
     """Stable deterministic identifier. Use make_predicate_id() to generate."""
 
-    surface_form: str
-    """Original sentence span that produced this predicate."""
+    surface_form: str = ""
+    """Original sentence span that produced this predicate (v0.2.1 path)."""
 
     # -- Semantic type --
-    predicate_type: PredicateType
+    predicate_type: PredicateType = PredicateType.FACTIVE
 
-    # -- Core structure --
-    subject: PredicateEntity
-    relation: PredicateRelation
-    object: PredicateEntity | str
-    """Either a structured entity or a raw string for clause-level objects."""
+    # -- v0.2.1 structured path --
+    subject: object = None  # PredicateEntity | str | None
+    relation: Optional["PredicateRelation"] = None
+    object: object = None   # PredicateEntity | str | None
+
+    # -- Pre-v0.2.1 flat path (older tests / extractor) --
+    raw_text: Optional[str] = None
+    """Alias for surface_form used by pre-v0.2.1 test fixtures."""
+
+    predicate_verb: Optional[str] = None
+    """Flat verb string; pre-v0.2.1 alternative to relation.lemma."""
+
+    object_concept: Optional[str] = None
+    """Flat object string; pre-v0.2.1 alternative to object."""
 
     # -- Polarity and scope --
     negated: bool = False
@@ -307,11 +348,10 @@ class PredicateFrame:
 
     refutation_burden: RefutationBurden = RefutationBurden.SCOPE_BOUNDED
 
-    # -- Epistemic burden (v0.2.1) --
+    # -- Epistemic burden (v0.2.1 + scorer vocabulary) --
     epistemic_burden: Optional[EpistemicBurden] = None
-    """How much positive evidence is needed to support this claim.
-    Set by PredicateExtractor or EvidenceFinder based on predicate_type
-    and domain context. None means not yet classified."""
+    """Governs EvidenceFinder search depth and EvidenceScorer multiplier.
+    None means not yet classified (scorer treats as NONE)."""
 
     # -- Negated form (set by PredicateNegator) --
     negated_form: Optional["PredicateFrame"] = None
