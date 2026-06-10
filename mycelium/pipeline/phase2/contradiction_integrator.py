@@ -12,7 +12,7 @@ PredicateFrames are semantic IR objects, not graph nodes.
 
 This module bridges the two by:
   1. Wrapping PredicateFrame pairs into lightweight stub IRNodes that
-     satisfy ContradictionClassifier’s duck-type interface.
+     satisfy ContradictionClassifier's duck-type interface.
   2. Running classify() on each (original, negated_form) pair.
   3. Populating contradiction_trace and stabilization_notes on each
      ScoredBundle in-place, so EvidenceDSTAdapter and DSTFusion have
@@ -49,7 +49,7 @@ logger.addHandler(logging.NullHandler())
 # ---------------------------------------------------------------------------
 
 class _SemanticSignatureStub:
-    """Minimal stub satisfying ContradictionClassifier’s sig interface.
+    """Minimal stub satisfying ContradictionClassifier's sig interface.
 
     ContradictionClassifier reads:
         sig.predicate_family    (str)   — Stage 2, 3, 5, 6
@@ -88,7 +88,7 @@ class _SemanticSignatureStub:
 
 
 class _TemporalStateStub:
-    """Minimal stub satisfying ContradictionClassifier’s temporal interface.
+    """Minimal stub satisfying ContradictionClassifier's temporal interface.
 
     ContradictionClassifier Stage 1 reads:
         ts.type               (str)  — "UNKNOWN" skips temporal gate
@@ -105,7 +105,7 @@ class _TemporalStateStub:
 
 
 class _ConfidenceStateStub:
-    """Minimal stub satisfying ContradictionClassifier’s confidence interface.
+    """Minimal stub satisfying ContradictionClassifier's confidence interface.
 
     ContradictionClassifier Stage 7 reads:
         cs.overall_confidence (float)
@@ -215,11 +215,14 @@ class ContradictionIntegrator:
         severities: List[float] = []
 
         for bundle in scored_bundles:
-            # Ensure forward-compat fields exist on ScoredBundle
+            # Ensure forward-compat fields exist on ScoredBundle.
+            # Use setattr() so this works on both dataclass instances and
+            # plain SimpleNamespace objects (object.__setattr__ raises
+            # AttributeError on SimpleNamespace which has no __slots__).
             if not hasattr(bundle, "contradiction_trace"):
-                object.__setattr__(bundle, "contradiction_trace", [])
+                setattr(bundle, "contradiction_trace", [])
             if not hasattr(bundle, "stabilization_notes"):
-                object.__setattr__(bundle, "stabilization_notes", [])
+                setattr(bundle, "stabilization_notes", [])
             # Also ensure lists are mutable (not frozen)
             if bundle.contradiction_trace is None:
                 bundle.contradiction_trace = []
@@ -293,7 +296,7 @@ class ContradictionIntegrator:
             stab_note = (
                 f"Contradiction ({ctype}, sev={result.severity:.3f}) detected "
                 f"for predicate {predicate_id}. "
-                f"Downstream stabilization should treat this bundle’s "
+                f"Downstream stabilization should treat this bundle's "
                 f"net_confidence as an upper bound only."
             )
             bundle.stabilization_notes.append(stab_note)
