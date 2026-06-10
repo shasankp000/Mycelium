@@ -89,6 +89,48 @@ class RefutationBurden(str, Enum):
     """Cannot be refuted by evidence (NORMATIVE). Skip retrieval entirely."""
 
 
+class EpistemicBurden(str, Enum):
+    """Epistemic difficulty of establishing the truth of a predicate claim.
+
+    Spec ref: implementation spec v0.2.1 — Section 4.1 (burden stratification).
+
+    Distinct from RefutationBurden (which concerns *dis*proof).
+    EpistemicBurden models how much positive evidence is needed to *support*
+    the claim, and governs EvidenceFinder search depth and tool selection.
+
+    Read by:
+      - EvidenceFinder: to set retrieval depth and early-halt thresholds.
+      - EvidenceScorer: to weight evidence bundles by claim difficulty.
+      - DomainToolPlanner: to select appropriate tool chains per claim type.
+    """
+
+    EMPIRICAL = "EMPIRICAL"
+    """Claim is directly verifiable by observation or measurement.
+    E.g. 'Water boils at 100°C at sea level'.
+    Lowest search depth — one high-quality source suffices."""
+
+    INFERENTIAL = "INFERENTIAL"
+    """Claim requires inference across multiple sources.
+    E.g. 'Smoking causes lung cancer' (causal, statistical chain required).
+    Medium search depth — requires corroboration across ≥2 independent sources."""
+
+    INTERPRETIVE = "INTERPRETIVE"
+    """Claim requires interpretation of evidence under a theoretical frame.
+    E.g. 'The French Revolution accelerated secularisation'.
+    High search depth — requires historical/theoretical source triangulation."""
+
+    NORMATIVE = "NORMATIVE"
+    """Claim is a value judgement; no evidence chain can fully establish it.
+    E.g. 'Democracy is the best system'.
+    EvidenceFinder skips retrieval for NORMATIVE epistemic burden.
+    Maps 1-to-1 with PredicateType.NORMATIVE and RefutationBurden.NON_FALSIFIABLE."""
+
+    CONTESTED = "CONTESTED"
+    """Claim is factually contested across credible sources.
+    E.g. 'Moderate alcohol consumption is beneficial'.
+    Forces multi-perspective retrieval and disables early-halt."""
+
+
 class ModalCertainty(float, Enum):
     """Certainty level implied by a modal auxiliary.
 
@@ -264,6 +306,12 @@ class PredicateFrame:
     """False for NORMATIVE predicates. EvidenceFinder skips non-falsifiable frames."""
 
     refutation_burden: RefutationBurden = RefutationBurden.SCOPE_BOUNDED
+
+    # -- Epistemic burden (v0.2.1) --
+    epistemic_burden: Optional[EpistemicBurden] = None
+    """How much positive evidence is needed to support this claim.
+    Set by PredicateExtractor or EvidenceFinder based on predicate_type
+    and domain context. None means not yet classified."""
 
     # -- Negated form (set by PredicateNegator) --
     negated_form: Optional["PredicateFrame"] = None

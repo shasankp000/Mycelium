@@ -89,6 +89,15 @@ class ManipulationDetectionResult:
     requires_soft_handling: bool = False
 
 
+# ---------------------------------------------------------------------------
+# Backward-compatibility alias
+# ---------------------------------------------------------------------------
+# ManipulationDetectionResult was previously exported as ManipulationResult.
+# Several integration tests and external consumers still import by the old
+# name.  This alias keeps them working without a mass-rename.
+ManipulationResult = ManipulationDetectionResult
+
+
 def _is_hard_manipulative(label: str, confidence: float) -> bool:
     """Return True only for hard-refuse labels above the confidence gate."""
     return label in _HARD_REFUSE_LABELS and confidence >= REFUSE_CONFIDENCE_THRESHOLD
