@@ -142,6 +142,18 @@ except Exception:
     ConflictError = None
     _DST_AVAILABLE = False
 
+# ---------------------------------------------------------------------------
+# DomainToolPlanner — optional import (pre-TRM v2 items 2+4)
+# Guarded so the pipeline degrades gracefully if tool_registry is absent.
+# ---------------------------------------------------------------------------
+try:
+    from mycelium.pipeline.domain_tool_planner import get_planner as _get_planner, ToolCall as _ToolCall
+    _PLANNER_AVAILABLE = True
+except Exception:
+    _get_planner = None  # type: ignore[assignment]
+    _ToolCall = None  # type: ignore[assignment]
+    _PLANNER_AVAILABLE = False
+
 _GRAPH_STORE_DIR: str = _cfg.graph_store_persistence_dir()
 _GRAPH_STORE_DECAY_ON_LOAD: bool = _cfg.graph_store_run_decay_on_load()
 _os.makedirs(_GRAPH_STORE_DIR, exist_ok=True)
@@ -497,6 +509,58 @@ def _extract_shadow_signal(routing_context: Any) -> Optional[Dict[str, Any]]:
     return None
 
 
+# ---------------------------------------------------------------------------
+# Item 3: domain_store_search stub fallback helper
+# ---------------------------------------------------------------------------
+# When the planner emits a domain_store_search ToolCall but TRM v2 shards
+# are not yet built, the tool returns {"status": "stub"}.  This helper
+# re-issues the call as web_search and annotates the result so the trace
+# log makes the substitution visible.
+# ---------------------------------------------------------------------------
+
+def _resolve_tool_call_result(
+    tool_call: Any,
+    evidence_finder: Any,
+    domain_hint: str,
+) -> Optional[Dict[str, Any]]:
+    """
+    Execute a single ToolCall and return its result dict.
+    If the tool is domain_store_search and returns status=='stub',
+    transparently fall back to web_search and annotate the result.
+
+    Returns None if the tool call cannot be resolved (no evidence finder,
+    unknown tool name, etc.).  Never raises.
+    """
+    if tool_call is None or evidence_finder is None:
+        return None
+    tool_name: str = getattr(tool_call, "tool", "") or ""
+    query: str = getattr(tool_call, "query", "") or ""
+
+    # domain_store_search stub shim (Item 3)
+    if tool_name == "domain_store_search":
+        try:
+            # Attempt the real call first — when TRM v2 lands this will
+            # return real chunks and the stub branch never fires.
+            from mycelium.pipeline.mcp_tools_server import _TOOL_FN
+            result = _TOOL_FN["domain_store_search"](query)
+            if result.get("status") == "stub":
+                # Fall back to web_search; annotate for trace transparency
+                fallback_result = _TOOL_FN["web_search"](query)
+                fallback_result["fallback_from"] = "domain_store_search"
+                fallback_result["stub_reason"] = result.get("note", "")
+                return fallback_result
+            return result
+        except Exception as _e:
+            return {"status": "error", "note": str(_e), "source": "domain_store_search"}
+
+    # All other tools: delegate to evidence_finder's primary/fallback retriever
+    # via a raw query.  This path is used only when the planner emits a tool
+    # that is not domain_store_search (e.g. web_search, academic_search).
+    # The evidence_finder already handles those internally; we return None
+    # here to signal "no additional action needed — finder handles it".
+    return None
+
+
 def run_mycelium_workflow(
     sentences: Sequence[str],
     trace_id: Optional[str] = None,
@@ -651,9 +715,6 @@ def run_mycelium_workflow(
         state="running",
     )
 
-    # Retrieve (or lazily create) the singleton MultiLensRouter.
-    # Performs a full build on first call; incremental re-sync on subsequent
-    # calls only when new expert domains have appeared.
     router = _get_multi_lens_router(registered_domains)
     _synced_domains = len(_spectral_analyzer.get_available_domains())
 
@@ -721,7 +782,6 @@ def run_mycelium_workflow(
     )
     print("\u2705 Expert filter initialized with auto-clustering\n")
 
-    # Retrieve (or lazily create) the singleton QuestionRouter
     question_router = _get_question_router()
 
     emitter.emit(
@@ -780,12 +840,13 @@ def run_mycelium_workflow(
                     "selected_domain": "unknown",
                     "decision_confidence": 0.0,
                     "shadow_signal": None,
-                    # Stage 9: not reached for L0-handled sentences
                     "predicate_store": None,
                     "evidence_result": None,
                     "scored_evidence": None,
-                    # Stage 10: not reached for L0-handled sentences
                     "evidence_dst": None,
+                    # Items 1–4: not reached for L0-handled sentences
+                    "contradiction_result": None,
+                    "tool_plan": None,
                 }
             )
             continue
@@ -1075,7 +1136,11 @@ def run_mycelium_workflow(
         _predicate_store_summary: Optional[Dict[str, Any]] = None
         _evidence_result_summary: Optional[Dict[str, Any]] = None
         _scored_evidence_summary: Optional[Dict[str, Any]] = None
-        _evidence_confidence: float = 0.0  # injected into depth_cfg copy below
+        _evidence_confidence: float = 0.0
+
+        # Item 4: predicate_type_list extracted here and propagated to
+        # Stage 9B (planner) and Stage 9D (contradiction classifier).
+        _predicate_type_list: List[str] = []
 
         if _PREDICATE_PIPELINE_AVAILABLE and _PredicatePipeline is not None:
             try:
@@ -1089,30 +1154,100 @@ def run_mycelium_workflow(
                 _pred_pipeline = _PredicatePipeline()
                 _predicate_store = _pred_pipeline.run(text)
                 _predicate_store_summary = _predicate_store.summary()
+
+                # Item 4: extract predicate type names for planner routing
+                _predicate_type_list = list({
+                    f.predicate_type.name
+                    for f in _predicate_store
+                    if hasattr(f, "predicate_type") and f.predicate_type is not None
+                })
+
                 emitter.emit(
                     phase_name="predicate_extraction",
                     message="Predicate extraction complete",
                     detail=(
                         f"total={_predicate_store_summary.get('total', 0)} "
-                        f"falsifiable={_predicate_store_summary.get('falsifiable', 0)}"
+                        f"falsifiable={_predicate_store_summary.get('falsifiable', 0)} "
+                        f"types={_predicate_type_list}"
                     ),
                     state="running",
-                    metadata=_predicate_store_summary,
+                    metadata={
+                        **_predicate_store_summary,
+                        "predicate_types": _predicate_type_list,
+                    },
                 )
             except Exception as _pred_err:
                 print(f"\u26a0\ufe0f  PredicatePipeline failed: {_pred_err}")
                 _predicate_store = None
                 _predicate_store_summary = None
+                _predicate_type_list = []
 
         # -------------------------------------------------------------------
         # Stage 9B — Evidence retrieval (Milestone C / Stage 7)
+        # Item 2: DomainToolPlanner called with predicate_type_list;
+        #   PlannerTrace forwarded to SSE event bus.
+        # Item 3: domain_store_search stub fallback resolved here.
         # -------------------------------------------------------------------
+        _tool_plan_summary: Optional[Dict[str, Any]] = None
+
         if (
             _EVIDENCE_FINDER_AVAILABLE
             and _get_evidence_finder is not None
             and _predicate_store is not None
         ):
             try:
+                # Item 2: build tool plan before calling evidence finder
+                if _PLANNER_AVAILABLE and _get_planner is not None:
+                    _planner = _get_planner()
+                    _decision_type = str(
+                        getattr(routing_context, "classification", "") or ""
+                    )
+                    _tool_calls = _planner.plan(
+                        query=text,
+                        domains=relevant_domains,
+                        decision_type=_decision_type,
+                        predicate_types=_predicate_type_list or None,
+                        use_domain_store=False,  # TRM v2 shards not yet built
+                    )
+                    _trace = _planner.last_trace
+                    if _trace is not None:
+                        _tool_plan_summary = {
+                            "selected_tools": _trace.selected_tools,
+                            "routing_reason": _trace.routing_reason,
+                            "predicate_types": _trace.predicate_types,
+                            "domains": _trace.domains[:4],
+                            "use_domain_store": _trace.use_domain_store,
+                        }
+                        emitter.emit(
+                            phase_name="tool_plan",
+                            message="Tool plan resolved",
+                            detail=(
+                                f"tools={_trace.selected_tools} "
+                                f"reason={_trace.routing_reason}"
+                            ),
+                            state="running",
+                            metadata=_tool_plan_summary,
+                        )
+
+                    # Item 3: resolve any domain_store_search stubs before
+                    # evidence finder runs.  Results are attached as metadata
+                    # to the tool plan summary; the evidence finder itself
+                    # is not modified.
+                    _stub_resolutions: List[Dict[str, Any]] = []
+                    for _tc in _tool_calls:
+                        _res = _resolve_tool_call_result(
+                            _tc,
+                            _get_evidence_finder(),
+                            domain_hint=relevant_domains[0] if relevant_domains else "general",
+                        )
+                        if _res is not None:
+                            _stub_resolutions.append({
+                                "tool": _tc.tool,
+                                "result": _res,
+                            })
+                    if _stub_resolutions and _tool_plan_summary is not None:
+                        _tool_plan_summary["stub_resolutions"] = _stub_resolutions
+
                 emitter.emit(
                     phase_name="evidence_retrieval",
                     message="Retrieving evidence for predicate frames...",
@@ -1146,8 +1281,6 @@ def run_mycelium_workflow(
 
         # -------------------------------------------------------------------
         # Stage 9C — Evidence scoring (Milestone C / Stage 8)
-        # weighted_confidence is injected as a read-only hint into the
-        # depth_cfg copy used for this sentence's Phase 2 call only.
         # -------------------------------------------------------------------
         _scored_evidence: Any = None
         if (
@@ -1182,16 +1315,110 @@ def run_mycelium_workflow(
                 _evidence_confidence = 0.0
 
         # -------------------------------------------------------------------
+        # Stage 9D — Contradiction classification (Item 1)
+        #
+        # Runs cross-pair classification over every (frame_i, frame_j)
+        # combination from the PredicateStore.  Requires:
+        #   - _CONTRADICTION_AVAILABLE  (ContradictionClassifier importable)
+        #   - _predicate_store is not None  (Stage 9A succeeded)
+        #   - The store contains at least 2 frames
+        #
+        # Output injected into:
+        #   - _sentence_depth_cfg["contradiction_result"] as the highest-
+        #     severity ClassificationResult dict (worst-case signal for TRM)
+        #   - all_sentence_data["contradiction_result"] for trace log
+        #
+        # Fully guarded: any failure is silent and leaves
+        # _contradiction_summary = None.  Pipeline continues unchanged.
+        # -------------------------------------------------------------------
+        _contradiction_summary: Optional[Dict[str, Any]] = None
+
+        if (
+            _CONTRADICTION_AVAILABLE
+            and contradiction_classifier is not None
+            and _predicate_store is not None
+        ):
+            try:
+                _frames = list(_predicate_store)
+                if len(_frames) >= 2:
+                    emitter.emit(
+                        phase_name="contradiction_check",
+                        message="Running contradiction classifier...",
+                        detail=f"{len(_frames)} frames → {len(_frames) * (len(_frames) - 1) // 2} pairs",
+                        state="running",
+                        metadata={
+                            "sentence_index": idx,
+                            "frame_count": len(_frames),
+                            "predicate_types": _predicate_type_list,
+                        },
+                    )
+
+                    _pair_results: List[Dict[str, Any]] = []
+                    _worst_severity: float = 0.0
+                    _worst_result: Optional[Any] = None
+
+                    for _i in range(len(_frames)):
+                        for _j in range(_i + 1, len(_frames)):
+                            _fa = _frames[_i]
+                            _fb = _frames[_j]
+                            # ContradictionClassifier.classify() takes IRNodes;
+                            # PredicateFrames expose the same attribute surface
+                            # (label, semantic_signature, temporal_state,
+                            # confidence_state) so they satisfy the duck-type
+                            # contract without adaptation.
+                            try:
+                                _cr = contradiction_classifier.classify(_fa, _fb)
+                                _pair_results.append({
+                                    "frame_a": _fa.predicate_id,
+                                    "frame_b": _fb.predicate_id,
+                                    "contradiction_type": _cr.contradiction_type,
+                                    "severity": round(_cr.severity, 4),
+                                    "confidence": round(_cr.confidence, 4),
+                                    "scope": _cr.scope,
+                                    "stage_reached": _cr.stage_reached,
+                                    "explanation": _cr.explanation,
+                                })
+                                if _cr.severity > _worst_severity:
+                                    _worst_severity = _cr.severity
+                                    _worst_result = _cr
+                            except Exception as _pair_err:
+                                # Per-pair failure is silently skipped
+                                pass
+
+                    if _pair_results:
+                        _contradiction_summary = {
+                            "pairs_evaluated": len(_pair_results),
+                            "worst_type": (
+                                _worst_result.contradiction_type
+                                if _worst_result else "NON_CONTRADICTORY_DIVERGENCE"
+                            ),
+                            "worst_severity": round(_worst_severity, 4),
+                            "worst_scope": (
+                                _worst_result.scope if _worst_result else "LOCAL"
+                            ),
+                            "worst_stage": (
+                                _worst_result.stage_reached if _worst_result else 8
+                            ),
+                            "pair_details": _pair_results,
+                        }
+                        emitter.emit(
+                            phase_name="contradiction_check",
+                            message="Contradiction check complete",
+                            detail=(
+                                f"worst={_contradiction_summary['worst_type']} "
+                                f"severity={_contradiction_summary['worst_severity']} "
+                                f"pairs={len(_pair_results)}"
+                            ),
+                            state="running",
+                            metadata=_contradiction_summary,
+                        )
+
+            except Exception as _contra_err:
+                print(f"\u26a0\ufe0f  ContradictionClassifier failed: {_contra_err}")
+                _contradiction_summary = None
+
+        # -------------------------------------------------------------------
         # Stage 10 — DSTFusion adapter (Phase D Step 10)
-        # Converts ScoredEvidence → EvidenceDSTResult (structured DSTFrame).
-        # The result is:
-        #   1. Emitted as 'evidence_dst_fusion' SSE event (surfaces MODAL
-        #      ceiling annotations explicitly for the UI)
-        #   2. Injected as read-only 'evidence_dst' hint into
-        #      _sentence_depth_cfg for Phase 2 CalibrationPipeline
-        #   3. Stored in all_sentence_data as 'evidence_dst'
-        # Fully guarded: any failure leaves _evidence_dst_summary=None and
-        # the pipeline continues unchanged.
         # -------------------------------------------------------------------
         _evidence_dst_summary: Optional[Dict[str, Any]] = None
         if (
@@ -1226,18 +1453,26 @@ def run_mycelium_workflow(
                 _evidence_dst_summary = None
 
         # -------------------------------------------------------------------
-        # Build a per-sentence depth_cfg copy with the evidence confidence
-        # and DST hints so Phase 2.5 CalibrationPipeline can read them.
-        # We never mutate the shared depth_cfg dict.
+        # Build per-sentence depth_cfg with evidence + contradiction hints
+        # Items 1 & 10: contradiction_result and evidence_dst injected here
+        # so Phase 2 CalibrationPipeline and TRM v2 can read them.
         # -------------------------------------------------------------------
         _sentence_depth_cfg: Dict[str, Any] = dict(depth_cfg)
         if _evidence_confidence > 0.0:
             _sentence_depth_cfg["evidence_confidence"] = round(_evidence_confidence, 6)
         if _evidence_dst_summary is not None:
             _sentence_depth_cfg["evidence_dst"] = _evidence_dst_summary
+        # Item 1: inject worst-case contradiction signal
+        if _contradiction_summary is not None:
+            _sentence_depth_cfg["contradiction_result"] = {
+                "worst_type": _contradiction_summary["worst_type"],
+                "worst_severity": _contradiction_summary["worst_severity"],
+                "worst_scope": _contradiction_summary["worst_scope"],
+                "pairs_evaluated": _contradiction_summary["pairs_evaluated"],
+            }
 
         # -------------------------------------------------------------------
-        # End Stage 10 / Stage 9 — resume existing pipeline unchanged
+        # Remainder of pipeline — unchanged
         # -------------------------------------------------------------------
 
         emitter.emit(
@@ -1411,6 +1646,9 @@ def run_mycelium_workflow(
                 "scored_evidence": _scored_evidence_summary,
                 # Stage 10 — DST belief fusion (Phase D Step 10)
                 "evidence_dst": _evidence_dst_summary,
+                # Items 1–4: new fields
+                "contradiction_result": _contradiction_summary,
+                "tool_plan": _tool_plan_summary,
             }
         )
 
