@@ -12,7 +12,9 @@ Tests:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone, UTC
+# NOTE: `UTC` was added to `datetime` in Python 3.11.  Import `timezone`
+# instead and use `timezone.utc` so this module runs on Python 3.9+.
+from datetime import datetime, timezone
 
 
 from mycelium.pipeline.sandbox_models import (
@@ -170,7 +172,7 @@ class TestCalculatorTool:
 class TestSandboxManagerStub:
     def test_stub_result_shape(self):
         task = SandboxTask(trace_id="t-1", user_query="test")
-        result = SandboxManager._stub_result(task, datetime.now(UTC))
+        result = SandboxManager._stub_result(task, datetime.now(timezone.utc))
         assert isinstance(result, SandboxResult)
         assert result.steps == []
         assert (

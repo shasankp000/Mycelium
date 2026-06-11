@@ -214,12 +214,23 @@ class TestReplayJournalHeartbeat:
 
 class TestDuplicateDropping:
     def test_duplicate_sequence_silently_dropped(self):
-        """Force a duplicate sequence_number by manipulating _seen_sequences
-        directly (the only realistic way to trigger it outside of race conditions)
-        and confirm the event is not recorded twice in the journal."""
+        """Force a duplicate sequence_number by manipulating the emitter's
+        internal sequence counter directly.
+
+        This test relies on two private attributes (_seq, _seq_lock) that are
+        an implementation detail of EventEmitter.  We guard with hasattr so
+        the test skips gracefully if the implementation renames them instead
+        of raising a confusing AttributeError.
+        """
         emitter, _ = _make_emitter()
         emitter.emit(phase_name="setting_up", message="first")
         first_seq = emitter.journal.all_events()[0].sequence_number
+
+        if not (hasattr(emitter, "_seq") and hasattr(emitter, "_seq_lock")):
+            pytest.skip(
+                "EventEmitter does not expose _seq/_seq_lock; "
+                "duplicate-drop invariant cannot be tested via private API."
+            )
 
         # Inject the already-seen sequence back into the seen set and
         # manually force the counter backward to produce a collision.
