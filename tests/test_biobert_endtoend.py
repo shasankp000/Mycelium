@@ -169,6 +169,9 @@ def test_with_biobert_samples():
     inference_cases = sum(1 for r in results if r.get("predicted_class") is not None)
 
     output_file = "evaluation_data/biobert_endtoend_validation.json"
+    # Ensure the output directory exists before writing (mirrors the pattern
+    # in test_expert_inference_clean.py).
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(
             {
