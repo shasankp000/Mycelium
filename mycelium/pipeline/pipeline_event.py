@@ -82,7 +82,7 @@ PHASE_REGISTRY: Dict[str, tuple[int, str]] = {
     # ── Post-processing ─────────────────────────────────────────────────────
     "graph_clustering":        (15, "public"),
     # ── Sandbox ─────────────────────────────────────────────────────────────
-    "sandbox_plan":            (15, "public"),
+    "sandbox_plan":            (16, "public"),
     "sandbox_summary":         (20, "public"),
     # ── Answer generation ───────────────────────────────────────────────────
     "conversation":            (21, "public"),
