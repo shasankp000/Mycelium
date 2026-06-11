@@ -21,7 +21,7 @@ const TYPEWRITER_TEXTS = [
   'Intelligence distributed like mycelium — resilient, adaptive, no single point of failure.',
 ];
 
-export const PROMPT_SUGGESTIONS = [
+export const PROMPT_SUGGESTIONS: readonly string[] = [
   'Does coffee cause cancer?',
   'Is string theory scientifically proven?',
   'What are the effects of universal basic income?',
