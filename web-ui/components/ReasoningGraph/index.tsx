@@ -16,7 +16,7 @@ import styles from '../../styles/ReasoningGraph.module.css';
 import type { GraphBuilderState } from '../../hooks/useGraphBuilder';
 import type { StabilizationControls } from '../../hooks/useGraphStabilization';
 import type {
-  GraphNode, GraphEdge, LayoutMode, GraphSnapshot, GraphDiff,
+  GraphNode, GraphEdge, LayoutMode, GraphSnapshot, GraphDiff, SubgraphZone,
 } from '../../types/graph';
 import { NODE_COLORS, CLUSTER_THRESHOLDS } from '../../types/graph';
 import { SubgraphControls }     from './SubgraphControls';
@@ -241,7 +241,7 @@ function clusterLargeGraph(
     const syntheticCluster: GraphNode = {
       id:          clusterId,
       label:       `×${members.length}`,
-      kind:        'cluster',
+      kind:        'cluster_node',
       zone:        members[0].zone,
       state:       'done',
       layerDepth:  members[0].layerDepth,
@@ -251,6 +251,8 @@ function clusterLargeGraph(
       isCluster:   true,
       color:       'rgba(165,180,252,0.6)',
       timestamp:   Date.now(),
+      metadata:    {},
+      sequenceNumber: 0,
     };
     outNodes.push(syntheticCluster);
 
@@ -259,9 +261,9 @@ function clusterLargeGraph(
       id:        `${clusterId}_stub`,
       source:    clusterId,
       target:    members[0].id,
-      kind:      'cluster_edge',
       thickness: 0.5,
       opacity:   0.2,
+      sequenceNumber: 0,
     });
 
     for (const m of members) collapsedIds.add(m.id);
@@ -322,6 +324,17 @@ export function ReasoningGraph({
 
   // Phase 5: large-graph bypass toggle
   const [bypassLargeGuard, setBypassLargeGuard] = useState(false);
+  const [activeZones, setActiveZones] = useState<Set<SubgraphZone>>(
+    new Set(['pipeline', 'reasoning', 'evidence'] as SubgraphZone[]),
+  );
+  const handleToggleZone = useCallback((zone: SubgraphZone) => {
+    setActiveZones((prev) => {
+      const next = new Set(prev);
+      if (next.has(zone)) { if (next.size > 1) next.delete(zone); }
+      else next.add(zone);
+      return next;
+    });
+  }, []);
 
   // Phase 5: diff state
   const [activeDiff, setActiveDiff]   = useState<GraphDiff | null>(null);
@@ -342,16 +355,16 @@ export function ReasoningGraph({
 
   // Mobile node cap — slice to mobileMaxNodes, preferring high-confidence nodes
   const visibleNodes = React.useMemo(() => {
-    let nodes = zoneFilter === 'all'
+    let nodes = activeZones.size === 3
       ? displayNodes
-      : displayNodes.filter((n) => n.zone === zoneFilter);
+      : displayNodes.filter((n) => activeZones.has(n.zone));
     if (isMobile && nodes.length > CLUSTER_THRESHOLDS.mobileMaxNodes) {
       nodes = [...nodes]
         .sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))
         .slice(0, CLUSTER_THRESHOLDS.mobileMaxNodes);
     }
     return nodes;
-  }, [displayNodes, zoneFilter, isMobile]);
+  }, [displayNodes, activeZones, isMobile]);
 
   // Edges that connect visible nodes only
   const visibleNodeIds = React.useMemo(
@@ -561,21 +574,14 @@ export function ReasoningGraph({
         </div>
 
         <div className={styles.headerControls}>
-          <SubgraphControls />
+          <SubgraphControls activeZones={activeZones} onToggleZone={handleToggleZone} />
           <LayoutToolbar
             current={layoutMode}
+            stabState={lifecycle === 'frozen' ? 'frozen' : lifecycle === 'stabilising' ? 'cooling' : lifecycle === 'streaming' ? 'active' : 'idle'}
             onChange={onLayoutChange}
+            onResume={stabilization.resumeSimulation}
           />
-          {isFrozen && (
-            <button
-              className={styles.resumeBtn}
-              onClick={stabilization.resumeSimulation}
-              aria-label="Resume physics simulation (Space)"
-              title="Resume simulation [Space]"
-            >
-              ⟳ Resume
-            </button>
-          )}
+
           <button
             className={styles.closeBtn}
             onClick={onClose}
@@ -723,7 +729,6 @@ export function ReasoningGraph({
             {selectedNode && (
               <NodeDetailDrawer
                 node={selectedNode}
-                snapshot={snapshot}
                 onClose={() => setSelectedNode(null)}
               />
             )}

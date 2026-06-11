@@ -53,19 +53,31 @@ const MAX_INPUT_CHARS = 2000;
 // ---------------------------------------------------------------------------
 
 const PHASE_META: Record<string, { label: string; progress: number }> = {
-  setting_up:            { label: 'Setting up environment…',            progress: 5  },
-  environment_ready:     { label: 'Environment ready',                  progress: 12 },
-  routing:               { label: 'Running reasoning pipeline…',       progress: 20 },
-  graph_routing:         { label: 'Semantic graph routing complete',    progress: 30 },
-  graph_expert_init:     { label: 'Initialising expert graph…',        progress: 22 },
-  graph_coverage_report: { label: 'Expert coverage assessed',           progress: 33 },
-  heartbeat:             { label: 'Thinking…',                         progress: 25 },
-  expert_decision:       { label: 'Expert decision resolved',           progress: 35 },
-  sandbox_plan:          { label: 'Planning sandbox tools…',           progress: 45 },
-  sandbox_summary:       { label: 'Sandbox complete',                   progress: 80 },
-  conversation:          { label: 'Generating answer…',               progress: 90 },
-  done:                  { label: 'Done',                               progress: 100 },
-  error:                 { label: 'Error',                              progress: 100 },
+  setting_up:                { label: 'Setting up environment…',            progress: 5  },
+  environment_ready:         { label: 'Environment ready',                  progress: 12 },
+  routing:                   { label: 'Running reasoning pipeline…',       progress: 20 },
+  graph_layer0:              { label: 'Layer 0 classification…',           progress: 18 },
+  graph_routing:             { label: 'Semantic graph routing complete',    progress: 30 },
+  graph_expert_init:         { label: 'Initialising expert graph…',        progress: 22 },
+  graph_spectral_sync:       { label: 'Spectral signatures synced',        progress: 24 },
+  graph_router_ready:        { label: 'Router initialised',                progress: 26 },
+  heartbeat:                 { label: 'Thinking…',                         progress: 28 },
+  graph_dfs_step:            { label: 'Exploring domain…',                 progress: 32 },
+  graph_trm_decision:        { label: 'TRM routing decision…',             progress: 36 },
+  promote_shadow_domain:     { label: 'Promoting shadow domain…',          progress: 38 },
+  graph_tool_start:          { label: 'Tool invocation started…',          progress: 42 },
+  graph_tool_done:           { label: 'Tool invocation complete',          progress: 44 },
+  expert_decision:           { label: 'Expert decision resolved',          progress: 50 },
+  graph_synthesis_start:     { label: 'Expert synthesis starting…',        progress: 52 },
+  predicate_extraction:      { label: 'Extracting predicates…',            progress: 55 },
+  evidence_dst_fusion:       { label: 'Fusing evidence (DST)…',            progress: 60 },
+  contradiction_integration: { label: 'Integrating contradiction signal…', progress: 65 },
+  evidence_dst_done:         { label: 'Evidence fusion complete',          progress: 68 },
+  sandbox_plan:              { label: 'Planning sandbox tools…',           progress: 45 },
+  sandbox_summary:           { label: 'Sandbox complete',                   progress: 80 },
+  conversation:              { label: 'Generating answer…',               progress: 90 },
+  done:                      { label: 'Done',                               progress: 100 },
+  error:                     { label: 'Error',                              progress: 100 },
 };
 
 function phaseLabel(phase: string): string {
@@ -138,7 +150,10 @@ const THINKING_ICONS: Record<ThinkingEventKind, string> = {
   heartbeat:             '◌',
   graph_routing:         '✦',
   graph_expert_init:     '⬡',
-  graph_coverage_report: '▤',
+  graph_dfs_step:        '⇢',
+  graph_trm_decision:    '⊕',
+  promote_shadow_domain: '◈',
+  graph_synthesis_start: '⬟',
 };
 
 const THINKING_KIND_LABEL: Record<ThinkingEventKind, string> = {
@@ -146,7 +161,10 @@ const THINKING_KIND_LABEL: Record<ThinkingEventKind, string> = {
   heartbeat:             'Thinking',
   graph_routing:         'Graph routing',
   graph_expert_init:     'Expert init',
-  graph_coverage_report: 'Coverage',
+  graph_dfs_step:        'DFS step',
+  graph_trm_decision:    'TRM decision',
+  promote_shadow_domain: 'Shadow promoted',
+  graph_synthesis_start: 'Synthesis',
 };
 
 function ThinkingPanel({ events }: { events: ThinkingEvent[] }) {

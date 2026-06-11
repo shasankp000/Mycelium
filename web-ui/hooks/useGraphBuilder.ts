@@ -89,7 +89,7 @@ export function useGraphBuilder(
 
         // Build edge to previous node in same zone (simple sequential DAG)
         let updatedEdges = prev.edges;
-        if (lastNodeRef.current && lastNodeRef.current.zone === newNode.zone) {
+        if (lastNodeRef.current) { // cross-zone edges allowed — zone gate removed (Bug #9)
           const newEdge = buildEdgeFromNodes(
             lastNodeRef.current,
             newNode,

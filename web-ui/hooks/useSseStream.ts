@@ -113,8 +113,8 @@ export function useSseStream({
           clearSseTimeout();
           sseRetryCount.current = 0;
           onError(event.detail || 'Unknown SSE error', text);
-        } else {
-          // Phase 4: route every non-terminal event to the graph builder
+        } else if (!isSandboxPhase(event.phase)) {
+          // Phase 4: route every non-terminal, non-sandbox event to the graph builder
           onGraphEvent?.(event);
         }
       } catch { /* malformed SSE frame — ignore */ }

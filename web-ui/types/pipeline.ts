@@ -71,7 +71,7 @@ export interface HistoryTrace {
   timestamp: string;
   user_query: string;
   run_summary: MyceliumRunSummary;
-  sandbox_result?: Record<string, unknown>;
+  sandbox_result?: SandboxResult;
 }
 
 export interface LiveToolEvent {
@@ -117,7 +117,10 @@ export type ThinkingEventKind =
   | 'heartbeat'
   | 'graph_routing'
   | 'graph_expert_init'
-  | 'graph_coverage_report';
+  | 'graph_dfs_step'
+  | 'graph_trm_decision'
+  | 'promote_shadow_domain'
+  | 'graph_synthesis_start';
 
 export interface ThinkingEvent {
   id: number;
@@ -135,7 +138,10 @@ export const THINKING_PHASES = new Set<string>([
   'heartbeat',
   'graph_routing',
   'graph_expert_init',
-  'graph_coverage_report',
+  'graph_dfs_step',
+  'graph_trm_decision',
+  'promote_shadow_domain',
+  'graph_synthesis_start',
 ]);
 
 // ---------------------------------------------------------------------------

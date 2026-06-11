@@ -7,8 +7,10 @@
 import styles from '../styles/Home.module.css';
 import type { PipelineTrace } from '../types/pipeline';
 
-function fmtDuration(ms: number) {
-  return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms.toFixed(0)}ms`;
+function fmtDuration(rawMs: number) {
+  // Guard: backend may emit float-seconds instead of ms on older runs
+  const ms = rawMs > 0 && rawMs < 2 ? rawMs * 1000 : rawMs;
+  return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms)}ms`;
 }
 
 export function TracePanel({ trace }: { trace: PipelineTrace }) {
