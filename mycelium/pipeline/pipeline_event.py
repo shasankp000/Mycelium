@@ -75,12 +75,12 @@ PHASE_REGISTRY: Dict[str, tuple[int, str]] = {
     "graph_reasoning_chain":   (10, "internal"),
     # ── Decision ────────────────────────────────────────────────────────────
     "expert_decision":         (11, "public"),
-    "graph_unified_decision":  (11, "public"),
+    "graph_unified_decision":  (12, "public"),
     # ── Validation ──────────────────────────────────────────────────────────
-    "graph_validation_check":  (12, "internal"),
-    "graph_phase3":            (13, "public"),
+    "graph_validation_check":  (13, "internal"),
+    "graph_phase3":            (14, "public"),
     # ── Post-processing ─────────────────────────────────────────────────────
-    "graph_clustering":        (14, "public"),
+    "graph_clustering":        (15, "public"),
     # ── Sandbox ─────────────────────────────────────────────────────────────
     "sandbox_plan":            (15, "public"),
     "sandbox_summary":         (20, "public"),
@@ -99,13 +99,14 @@ PHASE_REGISTRY: Dict[str, tuple[int, str]] = {
     "evidence_scoring":            (25, "public"),
     "evidence_dst_fusion":         (26, "public"),
     "contradiction_integration":   (27, "public"),
-    "promote_shadow_domain":        (28, "public"),
-    "graph_trm_decision":           (29, "public"),
+    "evidence_dst_done":            (28, "public"),
+    "promote_shadow_domain":        (29, "public"),
+    "graph_trm_decision":           (30, "public"),
     # High-frequency per-step phases — coalesced before SSE emission
-    "graph:dfs_step":              (30, "internal"),
-    "graph:tool_start":            (31, "internal"),
-    "graph:tool_done":             (32, "internal"),
-    "graph:synthesis_start":       (33, "public"),
+    "graph_dfs_step":              (31, "internal"),
+    "graph_tool_start":            (32, "internal"),
+    "graph_tool_done":             (33, "internal"),
+    "graph_synthesis_start":       (34, "public"),
 }
 
 # Heartbeat messages (public, no phase advancement)

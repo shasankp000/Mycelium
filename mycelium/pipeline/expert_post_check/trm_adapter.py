@@ -57,6 +57,8 @@ SYSTEM_PROMPT = (
 
 # Regex to strip Qwen3 internal <think>...</think> blocks from output
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+# Matches an unclosed <think> block (Ollama token-limit truncation).
+_THINK_UNCLOSED_RE = re.compile(r"<think>.*$", re.DOTALL)
 
 
 @dataclass
@@ -108,6 +110,19 @@ class TRMAdapter:
         try:
             raw = self._call_ollama(prompt)
             answer = self._extract_answer(raw)
+            if not answer:
+                logger.warning(
+                    "TRM-slot(%s): empty answer after think-block strip "
+                    "-- returning zero-confidence result",
+                    self._model,
+                )
+                return ReasoningResult(
+                    answer="",
+                    confidence=0.0,
+                    latency_ms=(time.perf_counter() - start) * 1000.0,
+                    source=f"ollama/{self._model}",
+                    raw={**raw, "error": "think_block_consumed_full_response"},
+                )
             confidence = self._heuristic_confidence(answer)
             latency_ms = (time.perf_counter() - start) * 1000.0
             logger.info(
@@ -234,6 +249,9 @@ class TRMAdapter:
         raw_len = len(content)
         # Remove internal chain-of-thought blocks emitted by Qwen3 thinking mode
         content = _THINK_RE.sub("", content).strip()
+        # Strip unclosed <think> block (Ollama token-limit truncation).
+        if "<think>" in content:
+            content = _THINK_UNCLOSED_RE.sub("", content).strip()
         stripped_len = len(content)
         logger.debug(
             "TRM _extract_answer: raw_len=%d stripped_len=%d empty=%s",

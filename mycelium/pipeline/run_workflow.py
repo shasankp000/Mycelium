@@ -200,6 +200,25 @@ def _adapt_phase2_to_p3(p2: Any, original_text: str = "") -> P3FinalDecisionResu
                 val = p2.get(attr)
             if val is not None:
                 return val
+        # Guard: never return an empty string when the caller expects a
+        # numeric or boolean type (inferred from the default's type).
+        # This prevents silent TypeError when downstream code does
+        # arithmetic on a field that was absent from p2.
+        if default == "" and not isinstance(default, (int, float, bool)):
+            return default  # string fields: "" is a valid sentinel
+        return default  # numeric/bool fields: caller-supplied default is returned as-is
+
+    def _get_num(*attrs: str, default: float = 0.0) -> float:
+        """Typed variant of _get for numeric fields — always returns float."""
+        for attr in attrs:
+            val = getattr(p2, attr, None)
+            if val is None and isinstance(p2, dict):
+                val = p2.get(attr)
+            if val is not None:
+                try:
+                    return float(val)
+                except (TypeError, ValueError):
+                    pass
         return default
 
     reasoning_raw = _get("reasoning_chain", "reasoning", default=[])
@@ -232,8 +251,7 @@ def _adapt_phase2_to_p3(p2: Any, original_text: str = "") -> P3FinalDecisionResu
                 metadata["original_query"] = metadata[fallback_key]
                 break
 
-    raw_conf = _get("confidence", "expert_confidence", default=0.5)
-    p2_confidence = float(raw_conf if raw_conf is not None else 0.5)
+    p2_confidence: float = _get_num("confidence", "expert_confidence", default=0.5)
 
     return P3FinalDecisionResult(
         decision=_get("decision_label", "prediction", "final_decision", "decision"),
@@ -953,7 +971,7 @@ def run_mycelium_workflow(
         )
         for _step_idx, _domain in enumerate(relevant_domains):
             emitter.emit(
-                phase_name="graph:dfs_step",
+                phase_name="graph_dfs_step",
                 message=f"Domain explored: {_domain}",
                 detail=f"step {_step_idx + 1}/{len(relevant_domains)}",
                 state="running",
@@ -1476,7 +1494,7 @@ def run_mycelium_workflow(
         # -------------------------------------------------------------------
 
         emitter.emit(
-            phase_name="graph:tool_start",
+            phase_name="graph_tool_start",
             message="Starting Phase 2 validation",
             detail="Expert scoring + confidence calibration",
             state="running",
@@ -1497,7 +1515,7 @@ def run_mycelium_workflow(
         _prev_phase2_result = phase2_result
 
         emitter.emit(
-            phase_name="graph:tool_done",
+            phase_name="graph_tool_done",
             message="Phase 2 validation complete",
             detail="",
             state="running",
@@ -1513,7 +1531,7 @@ def run_mycelium_workflow(
         p3_input = _adapt_phase2_to_p3(phase2_result, original_text=text)
 
         emitter.emit(
-            phase_name="graph:tool_start",
+            phase_name="graph_tool_start",
             message="Starting Phase 3 reasoning pipeline",
             detail=f"phase3_passes={phase3_passes}",
             state="running",
@@ -1535,7 +1553,7 @@ def run_mycelium_workflow(
             _p3_latencies = dict(getattr(phase3_result, "phase_latencies", {}) or {})
 
         emitter.emit(
-            phase_name="graph:tool_done",
+            phase_name="graph_tool_done",
             message="Phase 3 reasoning complete",
             detail="",
             state="running",
@@ -1546,7 +1564,7 @@ def run_mycelium_workflow(
         )
 
         emitter.emit(
-            phase_name="graph:synthesis_start",
+            phase_name="graph_synthesis_start",
             message="Expert synthesis starting",
             detail=f"Arbitrating across {len(filtered_experts)} expert(s)",
             state="running",
