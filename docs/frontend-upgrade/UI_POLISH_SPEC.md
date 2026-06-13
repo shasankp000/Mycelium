@@ -1,7 +1,8 @@
+
 # Mycelium UI Polish Spec — TRM v0.2 Visual Layer
 **Document:** `docs/frontend-upgrade/UI_POLISH_SPEC.md`  
 **Branch target:** `web-ui-prototype`  
-**Scope:** Cosmetic / UI polish only — zero functional changes. No new data flows, no new hooks, no changes to SSE routing. Typography, colour tokens, spacing, component micro-interactions, and theme system only.  
+**Scope:** Cosmetic / UI polish only — zero functional changes. No new data flows, no new hooks, no changes to SSE routing. Typography, colour tokens, spacing, component micro-interactions, theme system, and landing page only.  
 **Status:** Pre-implementation draft — approve before any CSS edits land.
 
 ---
@@ -14,6 +15,7 @@ The current stylesheet (`Home.module.css`, `ReasoningGraph.module.css`, `ChatBub
 2. **Systematised** — every hardcoded hex replaced by a CSS custom property.  
 3. **Typographically upgraded** — loaded font instead of system fallback stack.  
 4. **Micro-interaction polished** — transitions, focus rings, live-state animations consistent across every component.
+5. **Landing page** — a purpose-built entry screen that replaces the current direct-to-calibration flow and reflects the active theme.
 
 ---
 
@@ -540,7 +542,411 @@ textarea:focus-visible {
 
 ---
 
-## 5. Migration Strategy
+## 5. Landing Page
+
+### 5.1 Purpose & Routing
+
+The landing page is the **default entry point** for the frontend. On first visit (or when no active session is detected), `pages/index.tsx` renders `<LandingPage />` instead of the calibration gate or chat view. The landing page is a marketing/orientation surface — it describes what Mycelium is, offers a clear CTA to enter the app, and reflects the active theme via CSS tokens.
+
+**Routing logic** (to be implemented in `pages/index.tsx`):
+
+```ts
+// Replace the current default export logic:
+export default function Page() {
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    // User has previously entered the app — skip landing
+    const hasVisited = localStorage.getItem('mycelium-visited');
+    setReady(true);
+    if (hasVisited) router.replace('/app');
+  }, []);
+
+  if (!ready) return null;  // avoid FOWT
+  return <LandingPage />;
+}
+```
+
+The landing "Enter" CTA sets `localStorage.setItem('mycelium-visited', '1')` then routes to `/app` (the existing chat/calibration view, moved to `pages/app.tsx`). A "Come back later" / direct `/app` URL skips the landing.
+
+> **Note:** This routing change is the _only_ functional delta introduced by this spec. It is still purely cosmetic in impact — no data flow, no SSE changes. The `/app` page is the existing `index.tsx` renamed.
+
+---
+
+### 5.2 Layout Structure
+
+The landing page is a single full-viewport screen (`100dvh`) with no scroll on desktop. On mobile it scrolls naturally. Three vertical zones:
+
+```
+┌──────────────────────────────────────────────┐
+│  NAV BAR  (logo left · ThemeSwitcher right)  │  ~56px
+├──────────────────────────────────────────────┤
+│                                              │
+│                                              │
+│              HERO ZONE                       │  flex-1, centered
+│   wordmark · tagline · CTA · pill badges     │
+│                                              │
+│                                              │
+├──────────────────────────────────────────────┤
+│  FOOTER  (version · links · subtle text)     │  ~44px
+└──────────────────────────────────────────────┘
+```
+
+No feature-grid section. No cards. No scroll-driven animations. The landing is intentionally minimal — a single confident screen, not a marketing page.
+
+---
+
+### 5.3 Component: `LandingPage.tsx`
+
+**File location:** `web-ui/components/LandingPage.tsx`  
+**CSS module:** `web-ui/styles/LandingPage.module.css`
+
+#### 5.3.1 Navbar
+
+```
+[  Mycelium wordmark (left)  ]   [ ThemeSwitcher · GitHub icon ]
+```
+
+- Wordmark: `font-family: var(--font-display)`, `font-size: var(--text-lg)`, `color: var(--c-text-primary)`, letter-spacing `-0.02em`. No logo image — pure text mark for now.
+- Right slot: `ThemeSwitcher` (§4.2) + optional GitHub icon link (`Lucide Github`, 18px, `var(--c-text-faint)` → `var(--c-text-muted)` on hover).
+- Background: `var(--c-bg-base)`, `border-bottom: 1px solid var(--c-border-hairline)`.
+- Height: `56px`, `padding-inline: clamp(1.5rem, 4vw, 3rem)`.
+
+#### 5.3.2 Hero Zone
+
+Centred vertically and horizontally inside `flex-1`. Max content width `640px`.
+
+**Elements (top to bottom):**
+
+1. **Status pill** — a small badge above the wordmark:  
+   ```
+   ◉  Research Preview
+   ```
+   - Pill shape (`--radius-pill`), `background: var(--c-accent-subtle)`, `border: 1px solid var(--c-accent-active)`.
+   - Dot: `var(--c-accent-base)`, animated with a slow `2s ease-in-out infinite` pulse (scale 1→1.15→1).
+   - Text: `var(--c-accent-base)`, `font-size: var(--text-sm)`.
+
+2. **Wordmark / hero headline:**  
+   ```
+   Mycelium
+   ```
+   - `font-family: var(--font-display)`, `font-size: var(--text-hero)`, `font-weight: 600`.
+   - `color: var(--c-text-primary)`, letter-spacing `-0.03em`, `line-height: 1`.
+   - No gradient text. No glow. Plain text, max typographic weight. (Arc theme exception: see §5.4.)
+
+3. **Tagline:**  
+   ```
+   Multi-path reasoning for questions that matter.
+   ```
+   - `font-size: var(--text-xl)`, `color: var(--c-text-muted)`, `font-weight: 400`.
+   - `max-width: 38ch`, `text-align: center`.
+
+4. **CTA button:**  
+   ```
+   [ Start reasoning → ]
+   ```
+   - Primary button: `background: var(--c-accent-base)`, `color: var(--c-text-inverse)`.
+   - `padding: 0.75rem 2rem`, `border-radius: var(--radius-pill)`, `font-size: var(--text-md)`.
+   - Hover: `background: var(--c-accent-hover)`, `transform: translateY(-1px)`.
+   - Transition: `background var(--dur-fast) var(--ease-spring), transform var(--dur-fast) var(--ease-spring)`.
+   - On click: sets `localStorage.setItem('mycelium-visited', '1')` → `router.push('/app')`.
+
+5. **Mode pills row** — three small read-only pill badges describing the available modes:  
+   ```
+   ○ Quick   ○ Smart   ○ Researcher
+   ```
+   - Inline-flex row, `gap: 0.5rem`.
+   - Each pill: `background: var(--c-bg-1)`, `border: 1px solid var(--c-border-hairline)`, `border-radius: var(--radius-pill)`.
+   - Text: `var(--c-text-faint)`, `font-size: var(--text-xs)`.
+   - These are decorative — no click behaviour.
+
+#### 5.3.3 Footer
+
+```
+v0.1.x-prototype  ·  web-ui-prototype  ·  MIT
+```
+
+- `font-size: var(--text-xs)`, `color: var(--c-text-faint)`.
+- `border-top: 1px solid var(--c-border-hairline)`, height `44px`.
+- Version string pulled from `process.env.NEXT_PUBLIC_APP_VERSION` (fallback: `"dev"`).
+
+---
+
+### 5.4 Theme-Specific Landing Treatments
+
+The landing page reads all colours from tokens, so theme switching is automatic. The following per-theme enhancements go beyond token substitution:
+
+#### `amoled`
+- Hero background: pure `#000000` — no gradient, no noise. The headline contrast is maximum.
+- CTA hover: teal glow `box-shadow: 0 0 18px color-mix(in oklch, #4f98a3 35%, transparent)`.
+
+#### `anthropic`
+- Hero zone gets a very subtle warm radial gradient behind the headline:  
+  `background: radial-gradient(ellipse 70% 50% at 50% 60%, #2a1508 0%, transparent 70%)`  
+  This sits on `--c-bg-base` and is barely perceptible — warmth, not decoration.
+- CTA gets the terracotta-to-amber signature:  
+  `background: linear-gradient(135deg, #d97757, #c4623f)`.
+- Status pill dot: terracotta `#d97757`.
+- Tagline `color: #9e9b93` (warm muted).
+
+#### `apple`
+- CTA: solid `#0a84ff`, pill-shaped. On hover: `backdrop-filter: blur(4px)` on a frosted inner highlight.
+- Hero background: a very faint `radial-gradient(ellipse 60% 40% at 50% 55%, rgba(10,132,255,0.06) 0%, transparent 70%)` — Apple's glow-behind-headline signature.
+- Mode pills: `backdrop-filter: blur(8px)` for a macOS vibrancy feel.
+
+#### `arc`
+- Hero headline gets a subtle gradient text fill:  
+  `background: linear-gradient(135deg, #e8e4f4 0%, #9b7ff4 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;`  
+  This is the one place gradient text is acceptable — it is the Arc identity marker and applied only to the single wordmark.
+- Hero background: `radial-gradient(ellipse 60% 40% at 50% 55%, rgba(155,127,244,0.08) 0%, transparent 70%)`.
+- CTA: `background: linear-gradient(135deg, #9b7ff4, #7c5fe8)` — Arc gradient pill.
+- Status pill dot: `#9b7ff4`, stronger pulse animation (scale 1→1.25→1).
+
+---
+
+### 5.5 `LandingPage.module.css` Scaffold
+
+```css
+/* LandingPage.module.css */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  background: var(--c-bg-base);
+  color: var(--c-text-primary);
+  font-family: var(--font-body);
+}
+
+/* Navbar */
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 56px;
+  padding-inline: clamp(1.5rem, 4vw, 3rem);
+  border-bottom: 1px solid var(--c-border-hairline);
+  position: sticky;
+  top: 0;
+  background: var(--c-bg-base);
+  z-index: 10;
+}
+
+.navWordmark {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--c-text-primary);
+}
+
+.navActions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* Hero */
+.hero {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: clamp(2rem, 6vw, 5rem) clamp(1.5rem, 4vw, 3rem);
+  gap: 1.5rem;
+  position: relative;
+}
+
+/* Theme-specific background overlay — sits behind hero content */
+.heroBg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* All direct hero children sit above heroBg */
+.hero > *:not(.heroBg) {
+  position: relative;
+  z-index: 1;
+}
+
+/* Status pill */
+.statusPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.75rem;
+  background: var(--c-accent-subtle);
+  border: 1px solid var(--c-accent-active);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-sm);
+  color: var(--c-accent-base);
+}
+
+.statusDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--c-accent-base);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1);    opacity: 1; }
+  50%       { transform: scale(1.2); opacity: 0.7; }
+}
+
+/* Headline */
+.headline {
+  font-family: var(--font-display);
+  font-size: var(--text-hero);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--c-text-primary);
+  margin: 0;
+}
+
+/* Tagline */
+.tagline {
+  font-size: var(--text-xl);
+  color: var(--c-text-muted);
+  font-weight: 400;
+  max-width: 38ch;
+  line-height: 1.4;
+  margin: 0;
+}
+
+/* CTA */
+.cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 2rem;
+  background: var(--c-accent-base);
+  color: var(--c-text-inverse);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-md);
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-spring),
+    transform   var(--dur-fast) var(--ease-spring),
+    box-shadow  var(--dur-fast) var(--ease-spring);
+}
+
+.cta:hover {
+  background: var(--c-accent-hover);
+  transform: translateY(-1px);
+}
+
+.cta:active {
+  transform: translateY(0);
+  background: var(--c-accent-active);
+}
+
+/* Mode pills row */
+.modePills {
+  display: inline-flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.modePill {
+  padding: 0.25rem 0.75rem;
+  background: var(--c-bg-1);
+  border: 1px solid var(--c-border-hairline);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
+  color: var(--c-text-faint);
+}
+
+/* Footer */
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  height: 44px;
+  border-top: 1px solid var(--c-border-hairline);
+  font-size: var(--text-xs);
+  color: var(--c-text-faint);
+}
+
+.footerDot {
+  opacity: 0.4;
+}
+
+/* Mobile */
+@media (max-width: 480px) {
+  .hero    { gap: 1.25rem; }
+  .tagline { font-size: var(--text-lg); }
+  .cta     { width: 100%; justify-content: center; }
+}
+```
+
+---
+
+### 5.6 Theme-Specific Overrides (CSS)
+
+Add these blocks to `globals.css` after the theme token blocks. They target the landing page's named elements via the `[data-theme]` root selector:
+
+```css
+/* anthropic: warm radial behind hero */
+[data-theme="anthropic"] .landingHeroBg {
+  background: radial-gradient(ellipse 70% 50% at 50% 60%, #2a1508 0%, transparent 70%);
+}
+
+/* apple: blue radial glow */
+[data-theme="apple"] .landingHeroBg {
+  background: radial-gradient(ellipse 60% 40% at 50% 55%, rgba(10,132,255,0.06) 0%, transparent 70%);
+}
+
+/* apple: vibrancy on mode pills */
+[data-theme="apple"] .landingModePill {
+  backdrop-filter: blur(8px) saturate(150%);
+  -webkit-backdrop-filter: blur(8px) saturate(150%);
+}
+
+/* arc: purple radial glow */
+[data-theme="arc"] .landingHeroBg {
+  background: radial-gradient(ellipse 60% 40% at 50% 55%, rgba(155,127,244,0.08) 0%, transparent 70%);
+}
+
+/* arc: gradient wordmark — only on landing headline */
+[data-theme="arc"] .landingHeadline {
+  background: linear-gradient(135deg, #e8e4f4 0%, #9b7ff4 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* amoled: CTA glow on hover */
+[data-theme="amoled"] .landingCta:hover {
+  box-shadow: 0 0 18px color-mix(in oklch, #4f98a3 35%, transparent);
+}
+
+/* anthropic: terracotta CTA gradient */
+[data-theme="anthropic"] .landingCta {
+  background: linear-gradient(135deg, #d97757, #c4623f);
+}
+
+/* arc: gradient CTA pill */
+[data-theme="arc"] .landingCta {
+  background: linear-gradient(135deg, #9b7ff4, #7c5fe8);
+}
+```
+
+> **Implementation note:** The `.landingHeroBg`, `.landingHeadline`, `.landingCta`, and `.landingModePill` CSS class names map to the corresponding elements in `LandingPage.tsx`. Because Next.js CSS Modules scope class names, pass them as `styles.heroBg` etc. from the module and use a global selector override only for the theme-specific gradient effects that cannot be expressed purely through tokens. The recommended approach is `composes: heroBg from './LandingPage.module.css'` with a `data-landing` attribute on the root div, then target `[data-theme="arc"] [data-landing] .heroBg` in `globals.css`.
+
+---
+
+## 6. Migration Strategy
 
 ### Phase 1 — Token extraction (no visual change)
 - Extract all hex values from `Home.module.css` into `globals.css` `[data-theme="amoled"]`.
@@ -565,9 +971,16 @@ textarea:focus-visible {
 - `ModeSelector` token pass.
 - `ReasoningGraph` token pass.
 
+### Phase 5 — Landing page
+- Create `pages/app.tsx` (rename of existing `pages/index.tsx`).
+- Create `components/LandingPage.tsx` + `styles/LandingPage.module.css`.
+- Update `pages/index.tsx` to routing shell (§5.1).
+- Add theme-specific `globals.css` overrides (§5.6).
+- QA: all four themes, desktop + mobile (375px).
+
 ---
 
-## 6. Out of Scope
+## 7. Out of Scope
 
 The following are **explicitly excluded** from this spec and belong in functional iteration tickets:
 - Any change to component props, hooks, state, or data flow.
@@ -576,21 +989,27 @@ The following are **explicitly excluded** from this spec and belong in functiona
 - Light mode / bright-background themes (none of the four themes above are light — Mycelium is a terminal-adjacent tool).
 - Accessibility audit beyond focus ring standardisation (separate ticket).
 - Animation changes to the ReasoningGraph SVG/Canvas layer.
+- Landing page content changes (copy, feature list, social proof) — those belong in a product spec.
+- Auth / user account flows on the landing page.
 
 ---
 
-## 7. File Locations
+## 8. File Locations
 
 ```
 web-ui/
   styles/
-    globals.css                  ← token blocks for all 4 themes + scrollbar + focus
+    globals.css                  ← token blocks for all 4 themes + scrollbar + focus + landing overrides
     Home.module.css              ← token substitution + type tokens
     ChatBubble.module.css        ← token substitution + disabled state
     ModeSelector.module.css      ← token substitution + timing tokens
     ReasoningGraph.module.css    ← token substitution
+    LandingPage.module.css       ← new file (Phase 5)
   components/
     ThemeSwitcher.tsx            ← new file (Phase 3)
+    LandingPage.tsx              ← new file (Phase 5)
   pages/
-    _document.tsx                ← font <link> preconnect + theme init script
+    index.tsx                   ← routing shell only (Phase 5 refactor)
+    app.tsx                     ← renamed from index.tsx (Phase 5)
+    _document.tsx               ← font <link> preconnect + theme init script
 ```
