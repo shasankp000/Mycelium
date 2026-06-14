@@ -277,3 +277,17 @@ textarea:focus-visible {
 [data-theme="arc"] .landingCta {
   background: linear-gradient(135deg, #9b7ff4, #7c5fe8);
 }
+
+/* ============================================================
+   ARCHITECTURE PAGE — SCROLL REVEAL
+   (must live in globals, not a CSS Module — pure selector rule)
+   ============================================================ */
+.arch-reveal {
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 500ms ease, transform 500ms ease;
+}
+.arch-visible {
+  opacity: 1;
+  transform: none;
+}

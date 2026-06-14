@@ -165,17 +165,6 @@
   margin-bottom: var(--space-6);
 }
 
-/* ── Scroll reveal ───────────────────────────────────────────── */
-:global(.arch-reveal) {
-  opacity: 0;
-  transform: translateY(16px);
-  transition: opacity 500ms ease, transform 500ms ease;
-}
-:global(.arch-visible) {
-  opacity: 1;
-  transform: none;
-}
-
 /* ── Comparison table ────────────────────────────────────────── */
 .comparisonTable {
   display: grid;
