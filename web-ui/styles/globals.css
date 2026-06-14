@@ -1,11 +1,279 @@
+/* Theme initialisation — must be first in <head> (see _document.tsx) */
+
+/* ============================================================
+   FONT TOKENS
+   ============================================================ */
+:root {
+  --font-body:    'Geist', 'Inter', system-ui, sans-serif;
+  --font-mono:    'Geist Mono', 'Fira Code', 'SF Mono', monospace;
+  --font-display: 'Geist', 'Inter', system-ui, sans-serif;
+}
+
+/* ============================================================
+   TYPOGRAPHY SCALE (theme-independent)
+   ============================================================ */
+:root {
+  --text-xs:   clamp(0.6875rem, 0.65rem + 0.2vw, 0.75rem);
+  --text-sm:   clamp(0.75rem,   0.7rem  + 0.25vw, 0.8125rem);
+  --text-base: clamp(0.8125rem, 0.78rem + 0.3vw,  0.875rem);
+  --text-md:   clamp(0.875rem,  0.85rem + 0.25vw, 0.9375rem);
+  --text-lg:   clamp(1rem,      0.95rem + 0.5vw,  1.125rem);
+  --text-xl:   clamp(1.375rem,  1.2rem  + 0.8vw,  1.6rem);
+  --text-hero: clamp(2.2rem,    1.8rem  + 2vw,    3.4rem);
+}
+
+/* ============================================================
+   BASE RESET
+   ============================================================ */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body {
   height: 100%;
-  background: #0f0f0f;
-  color: #e2e2e2;
+  background: var(--c-bg-base);
+  color: var(--c-text-primary);
+  font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+/* ============================================================
+   THEME A — amoled (default)
+   ============================================================ */
+[data-theme="amoled"] {
+  --c-bg-base:    #000000;
+  --c-bg-1:       #080808;
+  --c-bg-2:       #0d0d0d;
+  --c-bg-offset:  #141414;
+
+  --c-text-primary: #e8e8e8;
+  --c-text-muted:   #a0a0a0;
+  --c-text-faint:   #505050;
+  --c-text-inverse: #000000;
+
+  --c-accent-base:   #4f98a3;
+  --c-accent-hover:  #227f8b;
+  --c-accent-active: #0e2a2e;
+  --c-accent-subtle: #061618;
+
+  --c-ok-base:    #6daa45;
+  --c-ok-subtle:  #1a2e18;
+  --c-warn-base:  #fdab43;
+  --c-warn-subtle:#2e1a08;
+  --c-err-base:   #dd6974;
+  --c-err-subtle: #1a0808;
+
+  --c-border-hairline: #1a1a1a;
+  --c-border-default:  #242424;
+  --c-border-strong:   #2e2e2e;
+
+  --c-overlay: rgba(0,0,0,0.65);
+
+  --radius-sm:   4px;
+  --radius-md:   8px;
+  --radius-lg:   12px;
+  --radius-pill: 99px;
+
+  --dur-fast:   120ms;
+  --dur-normal: 200ms;
+  --dur-slow:   400ms;
+  --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ============================================================
+   THEME B — anthropic
+   ============================================================ */
+[data-theme="anthropic"] {
+  --c-bg-base:    #1a1915;
+  --c-bg-1:       #1f1e1a;
+  --c-bg-2:       #252320;
+  --c-bg-offset:  #2c2a26;
+
+  --c-text-primary: #f0ede6;
+  --c-text-muted:   #9e9b93;
+  --c-text-faint:   #5a5750;
+  --c-text-inverse: #1a1915;
+
+  --c-accent-base:   #d97757;
+  --c-accent-hover:  #c4623f;
+  --c-accent-active: #3a1c10;
+  --c-accent-subtle: #2a1508;
+
+  --c-ok-base:    #7cb87a;
+  --c-ok-subtle:  #1e2e1c;
+  --c-warn-base:  #e8a84e;
+  --c-warn-subtle:#2e2010;
+  --c-err-base:   #e0756f;
+  --c-err-subtle: #2e1010;
+
+  --c-border-hairline: #2a2822;
+  --c-border-default:  #343129;
+  --c-border-strong:   #403d34;
+
+  --c-overlay: rgba(10,9,7,0.70);
+  --radius-sm:   5px;
+  --radius-md:   10px;
+  --radius-lg:   14px;
+  --radius-pill: 99px;
+  --dur-fast:   120ms;
+  --dur-normal: 200ms;
+  --dur-slow:   400ms;
+  --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ============================================================
+   THEME C — apple
+   ============================================================ */
+[data-theme="apple"] {
+  --c-bg-base:    #161616;
+  --c-bg-1:       #1c1c1e;
+  --c-bg-2:       #2c2c2e;
+  --c-bg-offset:  #3a3a3c;
+
+  --c-text-primary: #f5f5f7;
+  --c-text-muted:   #aeaeb2;
+  --c-text-faint:   #636366;
+  --c-text-inverse: #000000;
+
+  --c-accent-base:   #0a84ff;
+  --c-accent-hover:  #0070df;
+  --c-accent-active: #00163a;
+  --c-accent-subtle: #001228;
+
+  --c-ok-base:    #30d158;
+  --c-ok-subtle:  #0c2e16;
+  --c-warn-base:  #ffd60a;
+  --c-warn-subtle:#2a2300;
+  --c-err-base:   #ff453a;
+  --c-err-subtle: #2a0a08;
+
+  --c-border-hairline: #2c2c2e;
+  --c-border-default:  #3a3a3c;
+  --c-border-strong:   #48484a;
+
+  --c-overlay: rgba(0,0,0,0.55);
+  --radius-sm:   6px;
+  --radius-md:   10px;
+  --radius-lg:   14px;
+  --radius-pill: 99px;
+  --dur-fast:   100ms;
+  --dur-normal: 180ms;
+  --dur-slow:   360ms;
+  --ease-spring: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* ============================================================
+   THEME D — arc
+   ============================================================ */
+[data-theme="arc"] {
+  --c-bg-base:    #0e0c1a;
+  --c-bg-1:       #13101f;
+  --c-bg-2:       #1a1628;
+  --c-bg-offset:  #221e30;
+
+  --c-text-primary: #e8e4f4;
+  --c-text-muted:   #9b94b8;
+  --c-text-faint:   #524e6a;
+  --c-text-inverse: #0e0c1a;
+
+  --c-accent-base:   #9b7ff4;
+  --c-accent-hover:  #7c5fe8;
+  --c-accent-active: #1e1440;
+  --c-accent-subtle: #140e2e;
+
+  --c-ok-base:    #74c99a;
+  --c-ok-subtle:  #102818;
+  --c-warn-base:  #f4c57f;
+  --c-warn-subtle:#2a1e08;
+  --c-err-base:   #f47f88;
+  --c-err-subtle: #2a1018;
+
+  --c-border-hairline: #1e1a2e;
+  --c-border-default:  #28223e;
+  --c-border-strong:   #342e4e;
+
+  --c-overlay: rgba(5,4,14,0.72);
+  --radius-sm:   5px;
+  --radius-md:   10px;
+  --radius-lg:   16px;
+  --radius-pill: 99px;
+  --dur-fast:   140ms;
+  --dur-normal: 220ms;
+  --dur-slow:   460ms;
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ============================================================
+   SCROLLBARS (themed)
+   ============================================================ */
+::-webkit-scrollbar         { width: 5px; height: 5px; }
+::-webkit-scrollbar-track   { background: transparent; }
+::-webkit-scrollbar-thumb   {
+  background: var(--c-border-strong);
+  border-radius: var(--radius-pill);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--c-text-faint); }
+* { scrollbar-width: thin; scrollbar-color: var(--c-border-strong) transparent; }
+
+/* ============================================================
+   FOCUS RINGS (standardised)
+   ============================================================ */
+:focus-visible {
+  outline: 2px solid var(--c-accent-base);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: var(--c-accent-base) !important;
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--c-accent-base) 20%, transparent);
+}
+
+/* ============================================================
+   LANDING PAGE — THEME-SPECIFIC OVERRIDES
+   ============================================================ */
+
+/* anthropic: warm radial behind hero */
+[data-theme="anthropic"] .landingHeroBg {
+  background: radial-gradient(ellipse 70% 50% at 50% 60%, #2a1508 0%, transparent 70%);
+}
+
+/* apple: blue radial glow */
+[data-theme="apple"] .landingHeroBg {
+  background: radial-gradient(ellipse 60% 40% at 50% 55%, rgba(10,132,255,0.06) 0%, transparent 70%);
+}
+
+/* apple: vibrancy on mode pills */
+[data-theme="apple"] .landingModePill {
+  backdrop-filter: blur(8px) saturate(150%);
+  -webkit-backdrop-filter: blur(8px) saturate(150%);
+}
+
+/* arc: purple radial glow */
+[data-theme="arc"] .landingHeroBg {
+  background: radial-gradient(ellipse 60% 40% at 50% 55%, rgba(155,127,244,0.08) 0%, transparent 70%);
+}
+
+/* arc: gradient wordmark — only on landing headline */
+[data-theme="arc"] .landingHeadline {
+  background: linear-gradient(135deg, #e8e4f4 0%, #9b7ff4 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* amoled: CTA glow on hover */
+[data-theme="amoled"] .landingCta:hover {
+  box-shadow: 0 0 18px color-mix(in oklch, #4f98a3 35%, transparent);
+}
+
+/* anthropic: terracotta CTA gradient */
+[data-theme="anthropic"] .landingCta {
+  background: linear-gradient(135deg, #d97757, #c4623f);
+}
+
+/* arc: gradient CTA pill */
+[data-theme="arc"] .landingCta {
+  background: linear-gradient(135deg, #9b7ff4, #7c5fe8);
+}

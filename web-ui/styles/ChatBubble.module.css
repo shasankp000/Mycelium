@@ -10,8 +10,8 @@
   display: flex;
   flex-direction: column;
   gap: 0;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: var(--c-bg-1);
+  border: 1px solid var(--c-border-hairline);
   border-radius: 12px;
   overflow: hidden;
   max-width: 100%;
@@ -22,8 +22,8 @@
 .answerZone {
   padding: 14px 16px 12px;
   font-size: 14px;
-  line-height: 1.65;
-  color: rgba(255, 255, 255, 0.88);
+  line-height: 1.7;
+  color: var(--c-text-primary);
 }
 
 /* Markdown resets inside the answer zone */
@@ -54,7 +54,7 @@
 }
 
 .answerZone code {
-  font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+  font-family: var(--font-mono);
   font-size: 0.88em;
   background: rgba(255, 255, 255, 0.08);
   padding: 1px 5px;
@@ -64,7 +64,7 @@
 
 .answerZone pre {
   background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--c-border-hairline);
   border-radius: 8px;
   padding: 12px 14px;
   overflow-x: auto;
@@ -102,7 +102,7 @@
 }
 .answerZone th,
 .answerZone td {
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--c-border-hairline);
   padding: 6px 10px;
   text-align: left;
 }
@@ -144,13 +144,13 @@
   gap: 4px;
   padding: 4px 10px;
   border-radius: 9999px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--c-border-hairline);
   background: transparent;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--c-text-faint);
   font-size: 11.5px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+  transition: background 140ms ease, color var(--dur-fast) var(--ease-spring), border-color 140ms ease;
   line-height: 1;
 }
 
@@ -175,7 +175,7 @@
 .chipElapsed {
   cursor: default;
   margin-left: auto;
-  color: rgba(255, 255, 255, 0.3);
+  color: var(--c-text-faint);
   border-color: transparent;
   background: transparent;
   font-size: 11px;
@@ -183,7 +183,7 @@
 }
 .chipElapsed:hover {
   background: transparent;
-  color: rgba(255, 255, 255, 0.3);
+  color: var(--c-text-faint);
   border-color: transparent;
 }
 
@@ -198,4 +198,19 @@
   background: rgba(217, 119, 6, 0.18);
   color: #f59e0b;
   border-color: rgba(245, 158, 11, 0.45);
+}
+
+/* Graph chip — disabled state */
+.graphChipBtn[disabled],
+.chip[disabled] {
+  cursor: not-allowed;
+  opacity: 0.38;
+  pointer-events: none;
+}
+
+/* Graph chip — focus ring */
+.graphChipBtn:focus-visible,
+.chip:focus-visible {
+  outline: 2px solid var(--c-accent-base);
+  outline-offset: 2px;
 }

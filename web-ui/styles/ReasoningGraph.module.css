@@ -17,7 +17,7 @@
   z-index: 200;
   display: flex;
   flex-direction: column;
-  background: #0d0d12;
+  background: var(--c-bg-base);
   animation: overlayFadeIn 180ms ease;
 }
 
@@ -33,7 +33,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 10px 16px;
-  border-bottom: 1px solid rgba(255,255,255,0.07);
+  border: 1px solid var(--c-border-hairline);
   flex-shrink: 0;
   gap: 12px;
   flex-wrap: wrap;
@@ -42,7 +42,7 @@
 .overlayTitle {
   font-size: 13px;
   font-weight: 600;
-  color: rgba(255,255,255,0.85);
+  color: var(--c-text-primary);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -51,7 +51,7 @@
 .liveBadge {
   font-size: 10px;
   font-weight: 700;
-  color: #4ade80;
+  color: var(--c-ok-base);
   background: rgba(74,222,128,0.12);
   border: 1px solid rgba(74,222,128,0.25);
   padding: 2px 6px;
@@ -82,8 +82,8 @@
   font-size: 10px;
   font-weight: 600;
   color: rgba(165,180,252,0.8);
-  background: rgba(99,102,241,0.12);
-  border: 1px solid rgba(99,102,241,0.25);
+  background: var(--c-accent-subtle);
+  border: 1px solid var(--c-accent-subtle);
   padding: 2px 6px;
   border-radius: 9999px;
 }
@@ -110,16 +110,16 @@
   width: 28px;
   height: 28px;
   border-radius: 6px;
-  border: 1px solid rgba(255,255,255,0.1);
+  border: 1px solid var(--c-border-default);
   background: transparent;
-  color: rgba(255,255,255,0.5);
+  color: var(--c-text-faint);
   cursor: pointer;
   transition: background 140ms ease, color 140ms ease;
   flex-shrink: 0;
 }
 .closeBtn:hover {
-  background: rgba(255,255,255,0.07);
-  color: rgba(255,255,255,0.9);
+  background: var(--c-bg-offset);
+  color: var(--c-text-primary);
 }
 
 /* ---- Phase 5: Keyboard hint bar ---- */
@@ -210,7 +210,7 @@
 .tabStrip {
   display: flex;
   gap: 0;
-  border-bottom: 1px solid rgba(255,255,255,0.07);
+  border: 1px solid var(--c-border-hairline);
   flex-shrink: 0;
   padding: 0 16px;
 }
@@ -235,7 +235,7 @@
 }
 .tabBtnActive {
   color: rgba(165,180,252,0.9);
-  border-bottom-color: #a5b4fc;
+  border-bottom-color: var(--c-accent-base);
 }
 
 .tabDiffDot {
@@ -252,7 +252,7 @@
   display: flex;
   gap: 2px;
   background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.07);
+  border: 1px solid var(--c-border-hairline);
   border-radius: 8px;
   padding: 2px;
 }
@@ -262,7 +262,7 @@
   border-radius: 6px;
   border: none;
   background: transparent;
-  color: rgba(255,255,255,0.4);
+  color: var(--c-text-faint);
   font-size: 11.5px;
   font-weight: 500;
   cursor: pointer;
@@ -270,12 +270,12 @@
   white-space: nowrap;
 }
 .subgraphBtn:hover {
-  color: rgba(255,255,255,0.75);
+  color: var(--c-text-muted);
   background: rgba(255,255,255,0.06);
 }
 .subgraphBtnActive {
-  background: rgba(99,102,241,0.2);
-  color: #a5b4fc;
+  background: var(--c-accent-subtle);
+  color: var(--c-accent-base);
 }
 
 /* ---- Layout toolbar ---- */
@@ -290,7 +290,7 @@
   width: 28px;
   height: 28px;
   border-radius: 6px;
-  border: 1px solid rgba(255,255,255,0.08);
+  border: 1px solid var(--c-border-hairline);
   background: transparent;
   color: rgba(255,255,255,0.45);
   font-size: 14px;
@@ -302,11 +302,11 @@
 }
 .layoutBtn:hover {
   background: rgba(255,255,255,0.07);
-  color: rgba(255,255,255,0.85);
+  color: var(--c-text-primary);
 }
 .layoutBtnActive {
-  background: rgba(99,102,241,0.2);
-  color: #a5b4fc;
+  background: var(--c-accent-subtle);
+  color: var(--c-accent-base);
   border-color: rgba(99,102,241,0.3);
 }
 
@@ -314,8 +314,8 @@
   padding: 4px 10px;
   border-radius: 6px;
   border: 1px solid rgba(99,102,241,0.3);
-  background: rgba(99,102,241,0.12);
-  color: #a5b4fc;
+  background: var(--c-accent-subtle);
+  color: var(--c-accent-base);
   font-size: 11.5px;
   font-weight: 500;
   cursor: pointer;
@@ -323,7 +323,7 @@
   white-space: nowrap;
 }
 .resumeBtn:hover {
-  background: rgba(99,102,241,0.2);
+  background: var(--c-accent-subtle);
 }
 
 /* ---- Canvas area ---- */
@@ -341,7 +341,7 @@
   align-items: center;
   justify-content: center;
   font-size: 12px;
-  color: rgba(255,255,255,0.3);
+  color: var(--c-text-faint);
 }
 
 .emptyState {
@@ -352,7 +352,7 @@
   align-items: center;
   justify-content: center;
   gap: 12px;
-  color: rgba(255,255,255,0.35);
+  color: var(--c-text-faint);
 }
 
 .emptyText {
@@ -368,7 +368,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px dashed rgba(99,102,241,0.2);
+  border: 1px dashed var(--c-accent-subtle);
   margin: 16px;
   border-radius: 12px;
 }
@@ -376,7 +376,7 @@
 .placeholderText {
   text-align: center;
   font-size: 13px;
-  color: rgba(255,255,255,0.4);
+  color: var(--c-text-faint);
   line-height: 1.7;
 }
 .placeholderSub {
@@ -389,8 +389,8 @@
 .nodeTooltip {
   position: absolute;
   transform: translate(-50%, -130%);
-  background: #1a1a24;
-  border: 1px solid rgba(255,255,255,0.1);
+  background: var(--c-bg-offset);
+  border: 1px solid var(--c-border-default);
   border-radius: 8px;
   padding: 7px 10px;
   display: flex;
@@ -412,14 +412,14 @@
 .tooltipKind {
   font-size: 9.5px;
   font-weight: 600;
-  color: rgba(255,255,255,0.3);
+  color: var(--c-text-faint);
   text-transform: uppercase;
   letter-spacing: 0.07em;
 }
 
 .tooltipLabel {
   font-size: 12px;
-  color: rgba(255,255,255,0.85);
+  color: var(--c-text-primary);
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -439,20 +439,20 @@
 }
 .tooltipState_done {
   background: rgba(74,222,128,0.1);
-  color: #4ade80;
+  color: var(--c-ok-base);
 }
 .tooltipState_error {
   background: rgba(239,68,68,0.12);
-  color: #ef4444;
+  color: var(--c-err-base);
 }
 .tooltipState_skipped {
   background: rgba(255,255,255,0.05);
-  color: rgba(255,255,255,0.35);
+  color: var(--c-text-faint);
 }
 
 .tooltipMeta {
   font-size: 10.5px;
-  color: rgba(255,255,255,0.4);
+  color: var(--c-text-faint);
 }
 
 /* ---- Node detail drawer ---- */
@@ -463,8 +463,8 @@
   right: 0;
   bottom: 0;
   width: 280px;
-  background: #111118;
-  border-left: 1px solid rgba(255,255,255,0.07);
+  background: var(--c-bg-1);
+  border: 1px solid var(--c-border-hairline);
   display: flex;
   flex-direction: column;
   animation: drawerSlideIn 160ms ease;
@@ -481,7 +481,7 @@
   align-items: center;
   gap: 8px;
   padding: 12px 14px;
-  border-bottom: 1px solid rgba(255,255,255,0.07);
+  border: 1px solid var(--c-border-hairline);
   flex-shrink: 0;
 }
 
@@ -496,7 +496,7 @@
   flex: 1;
   font-size: 12px;
   font-weight: 600;
-  color: rgba(255,255,255,0.85);
+  color: var(--c-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -505,14 +505,14 @@
 .nodeDrawerClose {
   background: transparent;
   border: none;
-  color: rgba(255,255,255,0.4);
+  color: var(--c-text-faint);
   font-size: 18px;
   cursor: pointer;
   line-height: 1;
   padding: 0 2px;
   transition: color 120ms;
 }
-.nodeDrawerClose:hover { color: rgba(255,255,255,0.85); }
+.nodeDrawerClose:hover { color: var(--c-text-primary); }
 
 .nodeDrawerBody {
   flex: 1;
@@ -526,7 +526,7 @@
 .nodeDrawerSection {
   font-size: 11px;
   font-weight: 600;
-  color: rgba(255,255,255,0.35);
+  color: var(--c-text-faint);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   margin: 0;
@@ -544,13 +544,13 @@
 }
 .nodeDrawerTable th {
   width: 42%;
-  color: rgba(255,255,255,0.35);
+  color: var(--c-text-faint);
   font-weight: 500;
   text-align: left;
   padding-right: 8px;
 }
 .nodeDrawerTable td {
-  color: rgba(255,255,255,0.75);
+  color: var(--c-text-muted);
   word-break: break-all;
 }
 .nodeDrawerTable code {
@@ -580,7 +580,7 @@
 .snapshotModeBtn {
   padding: 4px 10px;
   border-radius: 6px;
-  border: 1px solid rgba(255,255,255,0.1);
+  border: 1px solid var(--c-border-default);
   background: transparent;
   color: rgba(255,255,255,0.45);
   font-size: 11.5px;
@@ -590,11 +590,11 @@
 }
 .snapshotModeBtn:hover {
   background: rgba(255,255,255,0.06);
-  color: rgba(255,255,255,0.75);
+  color: var(--c-text-muted);
 }
 .snapshotModeBtnActive {
-  background: rgba(99,102,241,0.15);
-  color: #a5b4fc;
+  background: var(--c-accent-subtle);
+  color: var(--c-accent-base);
   border-color: rgba(99,102,241,0.3);
 }
 
@@ -603,7 +603,7 @@
   border-radius: 6px;
   border: 1px solid rgba(99,102,241,0.35);
   background: rgba(99,102,241,0.18);
-  color: #a5b4fc;
+  color: var(--c-accent-base);
   font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
@@ -615,7 +615,7 @@
 
 .snapshotCompareHint {
   font-size: 11px;
-  color: rgba(255,255,255,0.3);
+  color: var(--c-text-faint);
 }
 
 .snapshotList {
@@ -630,7 +630,7 @@
   gap: 2px;
   padding: 8px 10px;
   border-radius: 8px;
-  border: 1px solid rgba(255,255,255,0.07);
+  border: 1px solid var(--c-border-hairline);
   background: transparent;
   cursor: pointer;
   text-align: left;
@@ -641,7 +641,7 @@
 }
 .snapshotItemSelected {
   border-color: rgba(99,102,241,0.45);
-  background: rgba(99,102,241,0.1);
+  background: var(--c-accent-subtle);
 }
 
 .snapshotCheckbox {
@@ -657,13 +657,13 @@
   transition: background 120ms, border-color 120ms;
 }
 .snapshotCheckboxChecked {
-  background: #6366f1;
-  border-color: #6366f1;
+  background: var(--c-accent-base);
+  border-color: var(--c-accent-base);
 }
 
 .snapshotQuery {
   font-size: 12px;
-  color: rgba(255,255,255,0.75);
+  color: var(--c-text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -671,12 +671,12 @@
 
 .snapshotMeta {
   font-size: 11px;
-  color: rgba(255,255,255,0.35);
+  color: var(--c-text-faint);
 }
 
 .snapshotEmpty {
   font-size: 12px;
-  color: rgba(255,255,255,0.35);
+  color: var(--c-text-faint);
   line-height: 1.5;
 }
 
@@ -688,8 +688,8 @@
   bottom: 0;
   width: 100%;
   max-height: 50%;
-  background: #111118;
-  border-top: 1px solid rgba(255,255,255,0.08);
+  background: var(--c-bg-1);
+  border: 1px solid var(--c-border-hairline);
   display: flex;
   flex-direction: column;
   animation: diffSlideUp 180ms ease;
@@ -707,7 +707,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 8px 14px;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  border: 1px solid var(--c-border-hairline);
   flex-shrink: 0;
 }
 
@@ -720,7 +720,7 @@
 }
 
 .diffTitleA {
-  color: rgba(255,255,255,0.4);
+  color: var(--c-text-faint);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -738,7 +738,7 @@
 .diffCloseBtn {
   background: transparent;
   border: none;
-  color: rgba(255,255,255,0.35);
+  color: var(--c-text-faint);
   cursor: pointer;
   padding: 2px;
   display: flex;
@@ -761,17 +761,17 @@
   flex-wrap: wrap;
 }
 
-.diffSumAdded   { color: #4ade80; font-weight: 600; }
-.diffSumRemoved { color: #ef4444; font-weight: 600; }
+.diffSumAdded   { color: var(--c-ok-base); font-weight: 600; }
+.diffSumRemoved { color: var(--c-err-base); font-weight: 600; }
 .diffSumChanged { color: #f59e0b; font-weight: 600; }
 .diffSumUnchanged { color: rgba(255,255,255,0.25); }
 .diffSumZone    { color: rgba(165,180,252,0.7); font-style: italic; }
-.diffSumEdges   { color: rgba(255,255,255,0.3); }
+.diffSumEdges   { color: var(--c-text-faint); }
 
 .diffNoChanges {
   padding: 14px;
   font-size: 12px;
-  color: #4ade80;
+  color: var(--c-ok-base);
   opacity: 0.8;
 }
 
@@ -808,8 +808,8 @@
   border-left: 2px solid transparent;
 }
 
-.diffAdded    { background: rgba(74,222,128,0.06); border-left-color: #4ade80; }
-.diffRemoved  { background: rgba(239,68,68,0.06);  border-left-color: #ef4444; }
+.diffAdded    { background: rgba(74,222,128,0.06); border-left-color: var(--c-ok-base); }
+.diffRemoved  { background: rgba(239,68,68,0.06);  border-left-color: var(--c-err-base); }
 .diffChanged  { background: rgba(245,158,11,0.06); border-left-color: #f59e0b; }
 .diffUnchanged { opacity: 0.45; }
 
@@ -839,7 +839,7 @@
 
 .diffRowMeta {
   font-size: 10.5px;
-  color: rgba(255,255,255,0.35);
+  color: var(--c-text-faint);
 }
 
 .diffRowChange {
@@ -858,7 +858,7 @@
 /* ---- Responsive ---- */
 
 @media (max-width: 768px) {
-  .nodeDrawer        { width: 100%; top: auto; height: 50%; border-left: none; border-top: 1px solid rgba(255,255,255,0.07); }
+  .nodeDrawer        { width: 100%; top: auto; height: 50%; border-left: none; border: 1px solid var(--c-border-hairline); }
   .subgraphBtn       { font-size: 10.5px; padding: 3px 7px; }
   .nodeTooltip       { display: none; }
   .diffPanel         { max-height: 60%; }
