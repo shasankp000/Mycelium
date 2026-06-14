@@ -107,6 +107,7 @@ export default function LandingPage() {
         <span className={styles.navWordmark}>Mycelium</span>
         <div className={styles.navLinks}>
           <a href="/architecture" className={styles.navTextLink}>How it works</a>
+          <a href="/philosophy" className={styles.navTextLink}>Philosophy</a>
         </div>
         <div className={styles.navActions}>
           <ThemeSwitcher />
@@ -254,6 +255,7 @@ export default function LandingPage() {
             <blockquote className={styles.philosophyQuote}>
               &ldquo;I will find truth where it exists. I will admit when it doesn&apos;t. I will not pretend my preferences are your facts.&rdquo;
             </blockquote>
+            <a href="/philosophy" className={styles.philosophyReadMore}>Read more about our philosophy →</a>
           </div>
         </div>
       </section>
@@ -279,7 +281,7 @@ export default function LandingPage() {
         <span className={styles.footerDot}>·</span>
         <span>MIT</span>
         <span className={styles.footerDot}>·</span>
-        <a href="#philosophy" className={styles.footerLink}>Philosophy</a>
+        <a href="/philosophy" className={styles.footerLink}>Philosophy</a>
         <span className={styles.footerDot}>·</span>
         <a href="/architecture" className={styles.footerLink}>How it works</a>
         <span className={styles.footerDot}>·</span>
