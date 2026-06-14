@@ -1,0 +1,114 @@
+/* ── Page shell ── */
+.page {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--c-bg-base);
+  color: var(--c-text-primary);
+  font-family: var(--font-body, sans-serif);
+}
+
+/* ── Nav ── */
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  padding: 1rem 2rem;
+  background: color-mix(in oklab, var(--c-bg-base) 88%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--c-border-default);
+}
+.navWordmark {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--c-text-primary);
+  text-decoration: none;
+}
+
+/* ── Main ── */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 4rem 2rem;
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 400ms ease, transform 400ms ease;
+}
+.visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* ── Content ── */
+.code {
+  font-size: var(--text-hero);
+  font-weight: 800;
+  color: var(--c-text-faint);
+  line-height: 1;
+  letter-spacing: -0.04em;
+  margin-bottom: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+.title {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--c-text-primary);
+  margin-bottom: 1rem;
+  letter-spacing: -0.015em;
+}
+.body {
+  font-size: var(--text-md);
+  color: var(--c-text-muted);
+  line-height: 1.75;
+  max-width: 46ch;
+  margin-bottom: 2.5rem;
+}
+
+/* ── Actions ── */
+.actions {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.btnPrimary {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--c-text-inverse);
+  background: var(--c-accent-base);
+  padding: 0.625rem 1.25rem;
+  border-radius: var(--radius-pill);
+  text-decoration: none;
+  transition: background 150ms ease;
+}
+.btnPrimary:hover { background: var(--c-accent-hover, var(--c-accent-base)); }
+.btnSecondary {
+  font-size: var(--text-md);
+  color: var(--c-text-muted);
+  text-decoration: none;
+  transition: color 150ms ease;
+}
+.btnSecondary:hover { color: var(--c-text-primary); }
+
+/* ── Footer ── */
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  font-size: var(--text-sm);
+  color: var(--c-text-faint);
+  border-top: 1px solid var(--c-border-default);
+}
+
+/* ── Responsive ── */
+@media (max-width: 600px) {
+  .actions { flex-direction: column; }
+}
