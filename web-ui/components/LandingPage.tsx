@@ -2,6 +2,27 @@ import { useRouter } from 'next/router';
 import ThemeSwitcher from './ThemeSwitcher';
 import styles from '../styles/LandingPage.module.css';
 
+const DIFFERENTIATORS = [
+  {
+    eyebrow: 'The Gatekeeper',
+    heading: 'Before answering, Mycelium asks: can this question even have an objective answer?',
+    body: 'Objective questions enter a 6-layer evidence-grounded reasoning pipeline and receive a definitive answer. Value-laden questions receive multi-perspective evidence — no hidden opinion embedded as fact. Manipulation attempts are refused and explained.',
+    note: 'Most AI systems skip this step entirely. Mycelium makes it the foundation.',
+  },
+  {
+    eyebrow: 'Refutation-First Evidence',
+    heading: 'Evidence retrieval is designed to disprove the claim first, then confirm it.',
+    body: 'The system actively searches for counterevidence before supporting evidence. For universal claims, a single strong counterexample halts retrieval immediately. This structurally prevents confirmation bias at the retrieval layer — confidence scores reflect what evidence actually shows.',
+    note: 'Confidence scores mean something here.',
+  },
+  {
+    eyebrow: 'Semantic Reasoning',
+    heading: 'Mycelium reasons over structured semantic claims, not raw text.',
+    body: 'Every claim is decomposed into a PredicateFrame: subject, relation, object, negation, scope, falsifiability, and provenance. Reasoning propagates through a directed acyclic graph of structured predicates. The full reasoning chain is visible — what was concluded, what evidence was used, what was considered and rejected.',
+    note: 'Not text autocomplete. Actual reasoning.',
+  },
+];
+
 export default function LandingPage() {
   const router = useRouter();
   const version = process.env.NEXT_PUBLIC_APP_VERSION || 'dev';
@@ -34,7 +55,6 @@ export default function LandingPage() {
 
       {/* Hero */}
       <main className={styles.hero}>
-        {/* Theme-specific background — targeted by globals.css overrides */}
         <div className={`${styles.heroBg} landingHeroBg`} />
 
         <div className={styles.statusPill}>
@@ -45,7 +65,7 @@ export default function LandingPage() {
         <h1 className={`${styles.headline} landingHeadline`}>Mycelium</h1>
 
         <p className={styles.tagline}>
-          Multi-path reasoning for questions that matter.
+          Multi-path semantic reasoning. Built to find truth where it exists, and admit when it doesn&apos;t.
         </p>
 
         <button className={`${styles.cta} landingCta`} onClick={enter}>
@@ -61,6 +81,38 @@ export default function LandingPage() {
         </div>
       </main>
 
+      {/* Differentiators */}
+      <section className={styles.differentiators} aria-label="What makes Mycelium different">
+        <p className={styles.sectionLabel}>What makes this different</p>
+        <div className={styles.differentiatorGrid}>
+          {DIFFERENTIATORS.map((d) => (
+            <div key={d.eyebrow} className={styles.differentiatorItem}>
+              <span className={styles.differentiatorEyebrow}>{d.eyebrow}</span>
+              <h2 className={styles.differentiatorHeading}>{d.heading}</h2>
+              <p className={styles.differentiatorBody}>{d.body}</p>
+              <p className={styles.differentiatorNote}>{d.note}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Philosophy */}
+      <section id="philosophy" className={styles.philosophy} aria-label="Philosophy">
+        <div className={styles.philosophyInner}>
+          <span className={styles.philosophyLabel}>On epistemic honesty</span>
+          <p className={styles.philosophyText}>
+            David Hume observed in 1739 that you cannot derive <em>ought</em> from <em>is</em> — facts and values are fundamentally different categories.
+            Most AI systems blur this line constantly, presenting value judgments as factual outputs.
+          </p>
+          <p className={styles.philosophyText}>
+            Mycelium treats this boundary as an architectural constraint. Value-laden questions route to a multi-perspective evidence engine that presents the full option space. The system does not have opinions on questions that require value judgments. It has evidence, and it shows it to you.
+          </p>
+          <blockquote className={styles.philosophyQuote}>
+            &ldquo;I will find truth where it exists. I will admit when it doesn&apos;t. I will not pretend my preferences are your facts.&rdquo;
+          </blockquote>
+        </div>
+      </section>
+
       {/* Footer */}
       <footer className={styles.footer}>
         <span>v{version}</span>
@@ -68,6 +120,17 @@ export default function LandingPage() {
         <span>web-ui-prototype</span>
         <span className={styles.footerDot}>·</span>
         <span>MIT</span>
+        <span className={styles.footerDot}>·</span>
+        <a href="#philosophy" className={styles.footerLink}>Philosophy</a>
+        <span className={styles.footerDot}>·</span>
+        <a
+          href="https://github.com/shasankp000/Mycelium"
+          target="_blank"
+          rel="noopener noreferrer"
+          className={styles.footerLink}
+        >
+          GitHub
+        </a>
       </footer>
     </div>
   );
