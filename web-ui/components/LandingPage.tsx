@@ -105,6 +105,9 @@ export default function LandingPage() {
       {/* ── Navbar ── */}
       <nav className={styles.nav}>
         <span className={styles.navWordmark}>Mycelium</span>
+        <div className={styles.navLinks}>
+          <a href="/architecture" className={styles.navTextLink}>How it works</a>
+        </div>
         <div className={styles.navActions}>
           <ThemeSwitcher />
           <a
@@ -277,6 +280,8 @@ export default function LandingPage() {
         <span>MIT</span>
         <span className={styles.footerDot}>·</span>
         <a href="#philosophy" className={styles.footerLink}>Philosophy</a>
+        <span className={styles.footerDot}>·</span>
+        <a href="/architecture" className={styles.footerLink}>How it works</a>
         <span className={styles.footerDot}>·</span>
         <a
           href="https://github.com/shasankp000/Mycelium"
