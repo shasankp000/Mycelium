@@ -148,7 +148,7 @@ export default function LandingPage() {
           <button className={`${styles.cta} landingCta`} onClick={enter}>
             Start reasoning →
           </button>
-          <a href="#how-it-works" className={styles.ctaSecondary}>
+          <a href="/architecture" className={styles.ctaSecondary}>
             See how it works ↓
           </a>
         </div>
