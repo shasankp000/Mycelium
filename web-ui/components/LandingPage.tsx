@@ -3,7 +3,7 @@ import { useRouter } from 'next/router';
 import ThemeSwitcher from './ThemeSwitcher';
 import styles from '../styles/LandingPage.module.css';
 
-/* ── Scroll-reveal hook ──────────────────────────────────────── */
+/* ── Scroll-reveal hook (bidirectional) ──────────────────────── */
 function useReveal() {
   useEffect(() => {
     const els = document.querySelectorAll<HTMLElement>('.' + styles.reveal);
@@ -14,12 +14,14 @@ function useReveal() {
         entries.forEach((e) => {
           if (e.isIntersecting) {
             (e.target as HTMLElement).classList.add(styles.visible);
-            io.unobserve(e.target);
+          } else {
+            (e.target as HTMLElement).classList.remove(styles.visible);
           }
         });
       },
       { threshold: 0.12 }
     );
+
     els.forEach((el) => io.observe(el));
     return () => io.disconnect();
   }, []);
@@ -95,7 +97,7 @@ export default function LandingPage() {
     router.push('/app');
   }
 
-  const R = styles.reveal; // shorthand for reveal class
+  const R = styles.reveal;
 
   return (
     <div className={styles.page}>

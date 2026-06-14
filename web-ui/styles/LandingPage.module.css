@@ -207,25 +207,41 @@
 }
 
 /* ============================================================
-   SCROLL-REVEAL
-   .reveal      — hidden initial state (class applied in JSX)
-   .visible     — shown state (toggled by IntersectionObserver)
+   SCROLL-REVEAL  (bidirectional)
+
+   .reveal   — hidden initial state; always applied in JSX
+   .visible  — toggled on/off by IntersectionObserver
+
+   Fade-in  uses a slightly slower duration (0.55s) so content
+   eases in gracefully. Fade-out uses a shorter duration (0.3s)
+   so it snaps away cleanly without lagging behind the scroll.
+   Both share the same ease curve.
    ============================================================ */
 .reveal {
   opacity: 0;
   transform: translateY(24px);
+  /* exit transition — applied when .visible is removed */
+  transition:
+    opacity   0.3s var(--ease-spring),
+    transform 0.3s var(--ease-spring);
+}
+
+.reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+  /* entrance transition — applied when .visible is added */
   transition:
     opacity   0.55s var(--ease-spring),
     transform 0.55s var(--ease-spring);
 }
 
-.visible {
-  opacity: 1;
-  transform: translateY(0);
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .reveal { opacity: 1; transform: none; transition: none; }
+  .reveal,
+  .reveal.visible {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
 }
 
 /* ============================================================
