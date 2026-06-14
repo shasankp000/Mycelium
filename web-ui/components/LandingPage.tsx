@@ -1,31 +1,95 @@
+import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import ThemeSwitcher from './ThemeSwitcher';
 import styles from '../styles/LandingPage.module.css';
 
-const DIFFERENTIATORS = [
+/* ── Scroll-reveal hook ──────────────────────────────────────── */
+function useReveal() {
+  useEffect(() => {
+    const els = document.querySelectorAll('[data-reveal]');
+    if (!els.length) return;
+
+    const io = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((e) => {
+          if (e.isIntersecting) {
+            (e.target as HTMLElement).setAttribute('data-visible', '');
+            io.unobserve(e.target);
+          }
+        });
+      },
+      { threshold: 0.12 }
+    );
+    els.forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, []);
+}
+
+/* ── Data ────────────────────────────────────────────────────── */
+const HOW_IT_WORKS = [
   {
-    eyebrow: 'The Gatekeeper',
-    heading: 'Before answering, Mycelium asks: can this question even have an objective answer?',
-    body: 'Objective questions enter a 6-layer evidence-grounded reasoning pipeline and receive a definitive answer. Value-laden questions receive multi-perspective evidence — no hidden opinion embedded as fact. Manipulation attempts are refused and explained.',
-    note: 'Most AI systems skip this step entirely. Mycelium makes it the foundation.',
+    step: '01',
+    heading: 'You ask a question',
+    body: 'Any question — factual, complex, contested. Mycelium does not pre-judge what you are allowed to ask.',
   },
   {
-    eyebrow: 'Refutation-First Evidence',
-    heading: 'Evidence retrieval is designed to disprove the claim first, then confirm it.',
-    body: 'The system actively searches for counterevidence before supporting evidence. For universal claims, a single strong counterexample halts retrieval immediately. This structurally prevents confirmation bias at the retrieval layer — confidence scores reflect what evidence actually shows.',
-    note: 'Confidence scores mean something here.',
+    step: '02',
+    heading: 'Mycelium classifies it',
+    body: 'Before reasoning begins, the system determines whether your question has an objective answer, requires weighing values, or is attempting to manipulate the output. Each type gets a different, appropriate treatment.',
   },
   {
-    eyebrow: 'Semantic Reasoning',
-    heading: 'Mycelium reasons over structured semantic claims, not raw text.',
-    body: 'Every claim is decomposed into a PredicateFrame: subject, relation, object, negation, scope, falsifiability, and provenance. Reasoning propagates through a directed acyclic graph of structured predicates. The full reasoning chain is visible — what was concluded, what evidence was used, what was considered and rejected.',
-    note: 'Not text autocomplete. Actual reasoning.',
+    step: '03',
+    heading: 'Evidence is gathered — against the claim first',
+    body: 'Unlike most AI, Mycelium actively searches for counterevidence before looking for supporting evidence. This is not a setting. It is how the system is built.',
+  },
+  {
+    step: '04',
+    heading: 'You get an honest answer',
+    body: 'Objective questions get a direct answer with traceable evidence. Value-laden questions get the full picture — multiple perspectives, each with their evidence — and no hidden opinion dressed as fact.',
   },
 ];
 
+const DIFFERENTIATORS = [
+  {
+    eyebrow: 'The Gatekeeper',
+    heading: 'Every question is screened before reasoning starts',
+    body: 'Mycelium checks three things before it thinks: Can this question have a factual answer? Does it depend on values and priorities? Is it trying to manipulate the output? Most AI tools never ask these questions — they just respond.',
+    note: 'This alone prevents most of the subtle misinformation AI systems produce.',
+  },
+  {
+    eyebrow: 'Evidence that can say no',
+    heading: 'Counterevidence is retrieved before supporting evidence',
+    body: 'When you ask something, the system searches for reasons it might be wrong before reasons it might be right. Confidence scores reflect the actual balance of evidence — not how fluently the model can produce text about the topic.',
+    note: 'If the evidence is weak, Mycelium says so.',
+  },
+  {
+    eyebrow: 'Transparent reasoning',
+    heading: 'You can see how every conclusion was reached',
+    body: 'Each answer comes with a full reasoning trace — what claims were evaluated, what evidence was used, what was considered and rejected. You are never just trusting an output. You can follow the logic yourself.',
+    note: 'Every step is visible. Nothing is hidden.',
+  },
+];
+
+const MODES = [
+  {
+    name: 'Quick',
+    desc: 'Fast answers for straightforward factual questions. Lightweight reasoning with honest uncertainty flagging.',
+  },
+  {
+    name: 'Smart',
+    desc: 'Full multi-path reasoning for complex questions. Balances depth with speed. The default for most questions.',
+  },
+  {
+    name: 'Researcher',
+    desc: 'Maximum depth. Expanded evidence search, multiple source types, and the most detailed reasoning trace. For questions that really matter.',
+  },
+];
+
+/* ── Component ───────────────────────────────────────────────── */
 export default function LandingPage() {
   const router = useRouter();
   const version = process.env.NEXT_PUBLIC_APP_VERSION || 'dev';
+  useReveal();
 
   function enter() {
     localStorage.setItem('mycelium-visited', '1');
@@ -34,7 +98,8 @@ export default function LandingPage() {
 
   return (
     <div className={styles.page}>
-      {/* Navbar */}
+
+      {/* ── Navbar ── */}
       <nav className={styles.nav}>
         <span className={styles.navWordmark}>Mycelium</span>
         <div className={styles.navActions}>
@@ -44,35 +109,45 @@ export default function LandingPage() {
             target="_blank"
             rel="noopener noreferrer"
             aria-label="GitHub repository"
-            style={{ color: 'var(--c-text-faint)', display: 'flex', alignItems: 'center' }}
+            className={styles.navIcon}
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2z"/>
             </svg>
           </a>
         </div>
       </nav>
 
-      {/* Hero */}
+      {/* ── Hero ── */}
       <main className={styles.hero}>
         <div className={`${styles.heroBg} landingHeroBg`} />
 
-        <div className={styles.statusPill}>
+        <div className={`${styles.statusPill} ${styles.fadeUp}`} style={{ animationDelay: '0ms' }}>
           <span className={styles.statusDot} />
           Research Preview
         </div>
 
-        <h1 className={`${styles.headline} landingHeadline`}>Mycelium</h1>
+        <h1
+          className={`${styles.headline} ${styles.fadeUp} landingHeadline`}
+          style={{ animationDelay: '80ms' }}
+        >
+          Mycelium
+        </h1>
 
-        <p className={styles.tagline}>
-          Multi-path semantic reasoning. Built to find truth where it exists, and admit when it doesn&apos;t.
+        <p className={`${styles.tagline} ${styles.fadeUp}`} style={{ animationDelay: '160ms' }}>
+          An AI reasoning system that finds truth where it exists — and admits when it doesn&apos;t.
         </p>
 
-        <button className={`${styles.cta} landingCta`} onClick={enter}>
-          Start reasoning →
-        </button>
+        <div className={`${styles.heroActions} ${styles.fadeUp}`} style={{ animationDelay: '240ms' }}>
+          <button className={`${styles.cta} landingCta`} onClick={enter}>
+            Start reasoning →
+          </button>
+          <a href="#how-it-works" className={styles.ctaSecondary}>
+            See how it works ↓
+          </a>
+        </div>
 
-        <div className={styles.modePills}>
+        <div className={`${styles.modePills} ${styles.fadeUp}`} style={{ animationDelay: '320ms' }}>
           {['Quick', 'Smart', 'Researcher'].map(m => (
             <span key={m} className={`${styles.modePill} landingModePill`}>
               ○ {m}
@@ -81,39 +156,119 @@ export default function LandingPage() {
         </div>
       </main>
 
-      {/* Differentiators */}
-      <section className={styles.differentiators} aria-label="What makes Mycelium different">
-        <p className={styles.sectionLabel}>What makes this different</p>
-        <div className={styles.differentiatorGrid}>
-          {DIFFERENTIATORS.map((d) => (
-            <div key={d.eyebrow} className={styles.differentiatorItem}>
-              <span className={styles.differentiatorEyebrow}>{d.eyebrow}</span>
-              <h2 className={styles.differentiatorHeading}>{d.heading}</h2>
-              <p className={styles.differentiatorBody}>{d.body}</p>
-              <p className={styles.differentiatorNote}>{d.note}</p>
-            </div>
-          ))}
+      {/* ── How it works ── */}
+      <section id="how-it-works" className={styles.section} aria-label="How it works">
+        <div className={styles.sectionInner}>
+          <p className={styles.sectionEyebrow} data-reveal>How it works</p>
+          <h2 className={styles.sectionHeading} data-reveal>
+            Reasoning you can actually follow
+          </h2>
+          <p className={styles.sectionSubheading} data-reveal>
+            Most AI tools give you an answer. Mycelium shows you the work.
+          </p>
+
+          <div className={styles.stepsGrid}>
+            {HOW_IT_WORKS.map((s, i) => (
+              <div
+                key={s.step}
+                className={styles.stepItem}
+                data-reveal
+                style={{ transitionDelay: `${i * 80}ms` }}
+              >
+                <span className={styles.stepNumber}>{s.step}</span>
+                <h3 className={styles.stepHeading}>{s.heading}</h3>
+                <p className={styles.stepBody}>{s.body}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
-      {/* Philosophy */}
-      <section id="philosophy" className={styles.philosophy} aria-label="Philosophy">
-        <div className={styles.philosophyInner}>
-          <span className={styles.philosophyLabel}>On epistemic honesty</span>
-          <p className={styles.philosophyText}>
-            David Hume observed in 1739 that you cannot derive <em>ought</em> from <em>is</em> — facts and values are fundamentally different categories.
-            Most AI systems blur this line constantly, presenting value judgments as factual outputs.
+      {/* ── Differentiators ── */}
+      <section className={styles.section} aria-label="What makes Mycelium different">
+        <div className={styles.sectionInner}>
+          <p className={styles.sectionEyebrow} data-reveal>What makes this different</p>
+          <h2 className={styles.sectionHeading} data-reveal>
+            Built around honesty, not confidence
+          </h2>
+          <p className={styles.sectionSubheading} data-reveal>
+            Sounding certain is easy. Being correct requires a different kind of design.
           </p>
-          <p className={styles.philosophyText}>
-            Mycelium treats this boundary as an architectural constraint. Value-laden questions route to a multi-perspective evidence engine that presents the full option space. The system does not have opinions on questions that require value judgments. It has evidence, and it shows it to you.
-          </p>
-          <blockquote className={styles.philosophyQuote}>
-            &ldquo;I will find truth where it exists. I will admit when it doesn&apos;t. I will not pretend my preferences are your facts.&rdquo;
-          </blockquote>
+
+          <div className={styles.differentiatorGrid}>
+            {DIFFERENTIATORS.map((d, i) => (
+              <div
+                key={d.eyebrow}
+                className={styles.differentiatorItem}
+                data-reveal
+                style={{ transitionDelay: `${i * 100}ms` }}
+              >
+                <span className={styles.differentiatorEyebrow}>{d.eyebrow}</span>
+                <h3 className={styles.differentiatorHeading}>{d.heading}</h3>
+                <p className={styles.differentiatorBody}>{d.body}</p>
+                <p className={styles.differentiatorNote}>{d.note}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
-      {/* Footer */}
+      {/* ── Modes ── */}
+      <section className={styles.section} aria-label="Reasoning modes">
+        <div className={styles.sectionInner}>
+          <p className={styles.sectionEyebrow} data-reveal>Three modes</p>
+          <h2 className={styles.sectionHeading} data-reveal>
+            Match the depth to the question
+          </h2>
+
+          <div className={styles.modesGrid}>
+            {MODES.map((m, i) => (
+              <div
+                key={m.name}
+                className={styles.modeCard}
+                data-reveal
+                style={{ transitionDelay: `${i * 80}ms` }}
+              >
+                <span className={styles.modeName}>○ {m.name}</span>
+                <p className={styles.modeDesc}>{m.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Philosophy ── */}
+      <section id="philosophy" className={styles.section} aria-label="Philosophy">
+        <div className={styles.sectionInner}>
+          <div className={styles.philosophyInner} data-reveal>
+            <span className={styles.philosophyLabel}>On epistemic honesty</span>
+            <p className={styles.philosophyText}>
+              The philosopher David Hume pointed out in 1739 that facts and values are fundamentally different things. You cannot derive what <em>ought</em> to be from what <em>is</em>. Most AI systems constantly blur this line — presenting opinions, predictions, and value judgments with the same confident tone as verified facts.
+            </p>
+            <p className={styles.philosophyText}>
+              Mycelium treats this boundary as a hard architectural rule. Questions that depend on values — political, ethical, personal — are handled differently from questions that have factual answers. For value-laden questions, the system presents the full landscape of perspectives and evidence, and lets you decide. It does not have preferences it will sneak into your answer.
+            </p>
+            <blockquote className={styles.philosophyQuote}>
+              &ldquo;I will find truth where it exists. I will admit when it doesn&apos;t. I will not pretend my preferences are your facts.&rdquo;
+            </blockquote>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Final CTA ── */}
+      <section className={styles.ctaSection} aria-label="Get started">
+        <div className={styles.ctaSectionInner} data-reveal>
+          <h2 className={styles.ctaSectionHeading}>Ready to ask something that matters?</h2>
+          <p className={styles.ctaSectionSub}>
+            Mycelium is in active development. The reasoning engine is real. Expect rough edges.
+          </p>
+          <button className={`${styles.cta} ${styles.ctaLarge} landingCta`} onClick={enter}>
+            Start reasoning →
+          </button>
+        </div>
+      </section>
+
+      {/* ── Footer ── */}
       <footer className={styles.footer}>
         <span>v{version}</span>
         <span className={styles.footerDot}>·</span>
