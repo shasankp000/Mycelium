@@ -32,7 +32,7 @@
   text-decoration: none;
   transition: color 150ms ease;
 }
-.navLink[aria-current="page"],
+.navLinkActive,
 .navLink:hover { color: var(--c-accent-base); }
 .navActions { display: flex; align-items: center; gap: var(--space-4); }
 .navIcon {
@@ -135,12 +135,12 @@
 }
 
 /* ── Scroll reveal ───────────────────────────────────────────── */
-[data-reveal] {
+.reveal {
   opacity: 0;
   transform: translateY(14px);
   transition: opacity 480ms ease, transform 480ms ease;
 }
-[data-reveal][data-visible] {
+.reveal.visible {
   opacity: 1;
   transform: none;
 }
@@ -164,7 +164,7 @@
   color: var(--c-text-faint);
   margin-bottom: var(--space-2);
 }
-.comparisonLabel[data-accent] { color: var(--c-accent-base); }
+.comparisonLabelAccent { color: var(--c-accent-base); }
 .comparisonList {
   list-style: none;
   padding: 0;
@@ -255,9 +255,9 @@
   color: var(--c-text-muted);
   background: var(--c-bg-1);
 }
-.branchPill[data-type="objective"] { border-color: var(--c-accent-base); color: var(--c-accent-base); }
-.branchPill[data-type="normative"] { border-color: var(--c-warning, #bb653b); color: var(--c-warning, #bb653b); }
-.branchPill[data-type="manipulation"] { border-color: var(--c-error, #a12c7b); color: var(--c-error, #a12c7b); }
+.branchPillObjective { border-color: var(--c-accent-base); color: var(--c-accent-base); }
+.branchPillNormative { border-color: var(--c-warning, #bb653b); color: var(--c-warning, #bb653b); }
+.branchPillManipulation { border-color: var(--c-error, #a12c7b); color: var(--c-error, #a12c7b); }
 
 /* ── Gatekeeper grid ─────────────────────────────────────────── */
 .gateGrid {
@@ -324,9 +324,9 @@
   border: 1px solid var(--c-border);
   border-radius: var(--radius-md);
 }
-.evidenceCol[data-accent] { border-color: var(--c-accent-base); }
+.evidenceColAccent { border-color: var(--c-accent-base); }
 .evidenceColLabel { font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--c-text-faint); margin-bottom: var(--space-3); }
-.evidenceCol[data-accent] .evidenceColLabel { color: var(--c-accent-base); }
+.evidenceColAccent .evidenceColLabel { color: var(--c-accent-base); }
 .evidenceSteps { padding-left: var(--space-5); margin: 0 0 var(--space-3); }
 .evidenceSteps li { font-size: var(--text-sm); color: var(--c-text-muted); margin-bottom: var(--space-2); line-height: 1.6; }
 .evidenceNote { font-size: var(--text-xs); color: var(--c-text-faint); font-style: italic; }
