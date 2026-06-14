@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { useRouter } from 'next/router';
 import ThemeSwitcher from './ThemeSwitcher';
 import styles from '../styles/LandingPage.module.css';
@@ -6,14 +6,14 @@ import styles from '../styles/LandingPage.module.css';
 /* ── Scroll-reveal hook ──────────────────────────────────────── */
 function useReveal() {
   useEffect(() => {
-    const els = document.querySelectorAll('[data-reveal]');
+    const els = document.querySelectorAll<HTMLElement>('.' + styles.reveal);
     if (!els.length) return;
 
     const io = new IntersectionObserver(
       (entries) => {
         entries.forEach((e) => {
           if (e.isIntersecting) {
-            (e.target as HTMLElement).setAttribute('data-visible', '');
+            (e.target as HTMLElement).classList.add(styles.visible);
             io.unobserve(e.target);
           }
         });
@@ -92,9 +92,10 @@ export default function LandingPage() {
   useReveal();
 
   function enter() {
-    localStorage.setItem('mycelium-visited', '1');
     router.push('/app');
   }
+
+  const R = styles.reveal; // shorthand for reveal class
 
   return (
     <div className={styles.page}>
@@ -159,11 +160,11 @@ export default function LandingPage() {
       {/* ── How it works ── */}
       <section id="how-it-works" className={styles.section} aria-label="How it works">
         <div className={styles.sectionInner}>
-          <p className={styles.sectionEyebrow} data-reveal>How it works</p>
-          <h2 className={styles.sectionHeading} data-reveal>
+          <p className={`${styles.sectionEyebrow} ${R}`}>How it works</p>
+          <h2 className={`${styles.sectionHeading} ${R}`}>
             Reasoning you can actually follow
           </h2>
-          <p className={styles.sectionSubheading} data-reveal>
+          <p className={`${styles.sectionSubheading} ${R}`}>
             Most AI tools give you an answer. Mycelium shows you the work.
           </p>
 
@@ -171,8 +172,7 @@ export default function LandingPage() {
             {HOW_IT_WORKS.map((s, i) => (
               <div
                 key={s.step}
-                className={styles.stepItem}
-                data-reveal
+                className={`${styles.stepItem} ${R}`}
                 style={{ transitionDelay: `${i * 80}ms` }}
               >
                 <span className={styles.stepNumber}>{s.step}</span>
@@ -187,11 +187,11 @@ export default function LandingPage() {
       {/* ── Differentiators ── */}
       <section className={styles.section} aria-label="What makes Mycelium different">
         <div className={styles.sectionInner}>
-          <p className={styles.sectionEyebrow} data-reveal>What makes this different</p>
-          <h2 className={styles.sectionHeading} data-reveal>
+          <p className={`${styles.sectionEyebrow} ${R}`}>What makes this different</p>
+          <h2 className={`${styles.sectionHeading} ${R}`}>
             Built around honesty, not confidence
           </h2>
-          <p className={styles.sectionSubheading} data-reveal>
+          <p className={`${styles.sectionSubheading} ${R}`}>
             Sounding certain is easy. Being correct requires a different kind of design.
           </p>
 
@@ -199,8 +199,7 @@ export default function LandingPage() {
             {DIFFERENTIATORS.map((d, i) => (
               <div
                 key={d.eyebrow}
-                className={styles.differentiatorItem}
-                data-reveal
+                className={`${styles.differentiatorItem} ${R}`}
                 style={{ transitionDelay: `${i * 100}ms` }}
               >
                 <span className={styles.differentiatorEyebrow}>{d.eyebrow}</span>
@@ -216,8 +215,8 @@ export default function LandingPage() {
       {/* ── Modes ── */}
       <section className={styles.section} aria-label="Reasoning modes">
         <div className={styles.sectionInner}>
-          <p className={styles.sectionEyebrow} data-reveal>Three modes</p>
-          <h2 className={styles.sectionHeading} data-reveal>
+          <p className={`${styles.sectionEyebrow} ${R}`}>Three modes</p>
+          <h2 className={`${styles.sectionHeading} ${R}`}>
             Match the depth to the question
           </h2>
 
@@ -225,8 +224,7 @@ export default function LandingPage() {
             {MODES.map((m, i) => (
               <div
                 key={m.name}
-                className={styles.modeCard}
-                data-reveal
+                className={`${styles.modeCard} ${R}`}
                 style={{ transitionDelay: `${i * 80}ms` }}
               >
                 <span className={styles.modeName}>○ {m.name}</span>
@@ -240,7 +238,7 @@ export default function LandingPage() {
       {/* ── Philosophy ── */}
       <section id="philosophy" className={styles.section} aria-label="Philosophy">
         <div className={styles.sectionInner}>
-          <div className={styles.philosophyInner} data-reveal>
+          <div className={`${styles.philosophyInner} ${R}`}>
             <span className={styles.philosophyLabel}>On epistemic honesty</span>
             <p className={styles.philosophyText}>
               The philosopher David Hume pointed out in 1739 that facts and values are fundamentally different things. You cannot derive what <em>ought</em> to be from what <em>is</em>. Most AI systems constantly blur this line — presenting opinions, predictions, and value judgments with the same confident tone as verified facts.
@@ -257,7 +255,7 @@ export default function LandingPage() {
 
       {/* ── Final CTA ── */}
       <section className={styles.ctaSection} aria-label="Get started">
-        <div className={styles.ctaSectionInner} data-reveal>
+        <div className={`${styles.ctaSectionInner} ${R}`}>
           <h2 className={styles.ctaSectionHeading}>Ready to ask something that matters?</h2>
           <p className={styles.ctaSectionSub}>
             Mycelium is in active development. The reasoning engine is real. Expect rough edges.

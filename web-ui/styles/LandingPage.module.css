@@ -208,20 +208,24 @@
 
 /* ============================================================
    SCROLL-REVEAL
+   .reveal      — hidden initial state (class applied in JSX)
+   .visible     — shown state (toggled by IntersectionObserver)
    ============================================================ */
-[data-reveal] {
+.reveal {
   opacity: 0;
   transform: translateY(24px);
   transition:
-    opacity  0.55s var(--ease-spring),
+    opacity   0.55s var(--ease-spring),
     transform 0.55s var(--ease-spring);
 }
-[data-reveal][data-visible] {
+
+.visible {
   opacity: 1;
   transform: translateY(0);
 }
+
 @media (prefers-reduced-motion: reduce) {
-  [data-reveal] { opacity: 1; transform: none; transition: none; }
+  .reveal { opacity: 1; transform: none; transition: none; }
 }
 
 /* ============================================================
@@ -514,10 +518,10 @@
    MOBILE
    ============================================================ */
 @media (max-width: 480px) {
-  .hero      { gap: 1.25rem; min-height: 80dvh; }
-  .tagline   { font-size: var(--text-lg); }
-  .cta       { width: 100%; justify-content: center; }
-  .ctaLarge  { width: 100%; justify-content: center; }
+  .hero        { gap: 1.25rem; min-height: 80dvh; }
+  .tagline     { font-size: var(--text-lg); }
+  .cta         { width: 100%; justify-content: center; }
+  .ctaLarge    { width: 100%; justify-content: center; }
   .heroActions { flex-direction: column; width: 100%; }
   .ctaSectionInner { align-items: center; text-align: center; }
 }
