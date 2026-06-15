@@ -42,6 +42,25 @@ Model architecture:
                                 CalibratedClassifierCV(
                                   LogisticRegression, method='isotonic', cv=5))
 
+Artifact format:
+    Each .joblib file is saved as a dict so that probability_calibration.py
+    (and any other consumer) can load it uniformly via artifact["model"]:
+
+    manipulation_classifier.joblib / objectivity_classifier.joblib:
+        {
+            "model":         <fitted clf>,
+            "label_encoder": <fitted LabelEncoder>,
+            "classes":       list[str],   # le.classes_ as plain list
+            "version":       "1.0",
+        }
+
+    assumption_typer.joblib:
+        {
+            "model":            <fitted MultiOutputClassifier>,
+            "assumption_types": list[str],  # ASSUMPTION_TYPES constant
+            "version":          "1.0",
+        }
+
 Calibration notes:
     Isotonic regression is preferred over sigmoid (Platt) for:
       * LinearSVC: decision margins are not monotonically related to
@@ -825,7 +844,7 @@ def _build_feature_matrix(
     SentenceTransformer is initialised with ``local_files_only=True`` so it
     never attempts to reach huggingface.co and instead loads the model
     straight from the local HF cache.  This avoids spurious
-    "couldn't connect to huggingface.co" warnings during offline re-training.
+    \"couldn't connect to huggingface.co\" warnings during offline re-training.
     """
     from sentence_transformers import SentenceTransformer
     log.info(
@@ -998,8 +1017,13 @@ def main() -> None:
             X = _build_feature_matrix(list(texts), local_files_only=args.skip_download)
             y = np.array(labels)
             clf, le = train_manipulation_classifier(X, y)
-            _save_model(clf, _MODELS_DIR / "manipulation_classifier.joblib", "ManipulationClassifier")
-            _save_model(le,  _MODELS_DIR / "manipulation_label_encoder.joblib", "ManipulationLabelEncoder")
+            artifact = {
+                "model": clf,
+                "label_encoder": le,
+                "classes": list(le.classes_),
+                "version": "1.0",
+            }
+            _save_model(artifact, _MODELS_DIR / "manipulation_classifier.joblib", "ManipulationClassifier")
             log.info("[manip] classes: %s", list(le.classes_))
 
     if do_obj:
@@ -1012,8 +1036,13 @@ def main() -> None:
             X = _build_feature_matrix(list(texts), local_files_only=args.skip_download)
             y = np.array(labels)
             clf, le = train_objectivity_classifier(X, y)
-            _save_model(clf, _MODELS_DIR / "objectivity_classifier.joblib", "ObjectivityClassifier")
-            _save_model(le,  _MODELS_DIR / "objectivity_label_encoder.joblib", "ObjectivityLabelEncoder")
+            artifact = {
+                "model": clf,
+                "label_encoder": le,
+                "classes": list(le.classes_),
+                "version": "1.0",
+            }
+            _save_model(artifact, _MODELS_DIR / "objectivity_classifier.joblib", "ObjectivityClassifier")
             log.info("[obj] classes: %s", list(le.classes_))
 
     if do_assump:
@@ -1026,7 +1055,12 @@ def main() -> None:
             X = _build_feature_matrix(list(texts), local_files_only=args.skip_download)
             Y = np.array(label_vecs, dtype=int)
             clf = train_assumption_typer(X, Y)
-            _save_model(clf, _MODELS_DIR / "assumption_typer.joblib", "AssumptionTyper")
+            artifact = {
+                "model": clf,
+                "assumption_types": list(ASSUMPTION_TYPES),
+                "version": "1.0",
+            }
+            _save_model(artifact, _MODELS_DIR / "assumption_typer.joblib", "AssumptionTyper")
 
     log.info("=== Done ===")
 
