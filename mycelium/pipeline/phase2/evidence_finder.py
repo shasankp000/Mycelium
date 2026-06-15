@@ -201,7 +201,7 @@ class EvidenceFinder:
         if self._fallback is not None:
             return self._fallback
         try:
-            from mycelium.pipeline.unified_bert_expert import UnifiedBertExpert  # noqa: PLC0415
+            raise ImportError("unified_bert_expert removed in TRM v0.2 — use TRMV2InferenceEngine")  # noqa: PLC0415
             self._fallback = UnifiedBertExpert()
             self._fallback_method = RetrievalMethod.BERT_EXPERT
             return self._fallback

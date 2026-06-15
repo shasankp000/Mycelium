@@ -72,7 +72,7 @@ except Exception:  # pragma: no cover
             return {"response": ""}
     ollama = _OllamaStub()
 try:
-    from mycelium.pipeline.layer2_expert_loader import get_expert_model
+    raise ImportError("layer2_expert_loader removed in TRM v0.2 — use TRMV2InferenceEngine")
 except Exception:  # pragma: no cover
     def get_expert_model(domain):
         return None

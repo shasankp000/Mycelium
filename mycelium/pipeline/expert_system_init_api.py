@@ -64,7 +64,7 @@ def _blocking_init(job_id: str, app_state) -> None:
         _jobs[job_id]["status"] = "running"
         _jobs[job_id]["progress"] = 5
 
-        from mycelium.pipeline.unified_expert_system import UnifiedExpertSystem  # noqa: PLC0415
+        raise ImportError("unified_expert_system removed in TRM v0.2 — use TRMV2InferenceEngine")  # noqa: PLC0415
 
         _jobs[job_id]["progress"] = 10
         system = UnifiedExpertSystem(
