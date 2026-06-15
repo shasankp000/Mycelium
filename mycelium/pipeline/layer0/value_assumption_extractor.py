@@ -114,6 +114,15 @@ class ValueAssumptionExtractor:
             clf          = artifact["model"]
             active_types = artifact["active_types"]
             preds = clf.predict(X)[0].tolist()  # multi-hot list
+            try:
+                from mycelium.pipeline.layer0.train_layer0_models import assumption_signature_partial_override, ASSUMPTION_TYPES
+                mask = assumption_signature_partial_override(text)
+                if mask:
+                    for i, atype in enumerate(active_types):
+                        if atype in mask:
+                            preds[i] = mask[atype]
+            except Exception:
+                pass
 
             # --- Regex heuristic override ---
             # These three types were trained from regex-derived labels, so the

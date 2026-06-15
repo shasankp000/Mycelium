@@ -87,6 +87,13 @@ class ObjectivityClassifier:
         self, text: str, analysis: SentenceAnalysis
     ) -> Optional[Tuple[QuestionType, float]]:
         try:
+            from mycelium.pipeline.layer0.train_layer0_models import objectivity_signature_override
+            forced = objectivity_signature_override(text)
+            if forced is not None:
+                return forced, 0.99
+        except Exception:
+            pass
+        try:
             from mycelium.pipeline.model_registry import get_layer0_classifier, get_model
             from mycelium.pipeline.layer0.train_layer0_models import _rule_signal_vector
             artifact = get_layer0_classifier("objectivity_classifier")

@@ -172,6 +172,14 @@ class ManipulationDetector:
     ) -> Optional[tuple[str, float]]:
         """Return (label, confidence) from the trained model, or None."""
         try:
+            from mycelium.pipeline.layer0.train_layer0_models import manipulation_signature_override
+            forced = manipulation_signature_override(text)
+            if forced is not None:
+                conf = 0.99 if forced == "NOT_MANIPULATIVE" else 0.97
+                return forced, conf
+        except Exception:
+            pass
+        try:
             from mycelium.pipeline.model_registry import get_layer0_classifier, get_model
             from mycelium.pipeline.layer0.train_layer0_models import _rule_signal_vector
             artifact = get_layer0_classifier("manipulation_classifier")

@@ -93,7 +93,7 @@ from __future__ import annotations
 
 import os as _os
 import sys as _sys
-
+import re as _re
 
 def _set_hf_cache() -> None:
     try:
@@ -158,6 +158,15 @@ _ANTHROPIC_HH_JSONL_URL = (
 )
 
 _LIAR_PARQUET_COMMIT = "110b00c693ef1844bf3c59637a1b46e0d61389c2"
+
+_SUBJ_DATASET_URL = (
+    "https://www.cs.cornell.edu/people/pabo/movie-review-data/rotten_imdb.tar.gz"
+)
+
+_GAMMA_CORPUS_HF  = "rubenroy/GammaCorpus-Fact-QA-450k"
+_SIMPLE_QA_URL    = (
+    "https://openaipublic.blob.core.windows.net/simple-evals/simple_qa_test_set.csv"
+)
 _LIAR_TRAIN_PARQUET_URL = (
     f"https://huggingface.co/datasets/ucsbnlp/liar"
     f"/resolve/{_LIAR_PARQUET_COMMIT}/default/liar-train.parquet"
@@ -415,7 +424,95 @@ def _pull_hf_dataset(hf_name: str, config: str, split: str, dest: Path, **kwargs
     return dest
 
 
-def pull_all_datasets() -> None:
+
+
+def _pull_subj(force: bool = False) -> Path:
+    dest = _DATA_DIR / "subj_dataset.csv"
+    if dest.exists() and not force:
+        log.info("[download] subj_dataset.csv already present, skipping.")
+        return dest
+    import tarfile, requests
+    log.info("[download] Fetching SUBJ (rotten_imdb) ...")
+    try:
+        resp = requests.get(_SUBJ_DATASET_URL, timeout=120)
+        resp.raise_for_status()
+        with tarfile.open(fileobj=BytesIO(resp.content), mode="r:gz") as tar:
+            rows = []
+            for member in tar.getmembers():
+                name = member.name.split("/")[-1]
+                if name not in ("quote.tok.gt9.5000", "plot.tok.gt9.5000"):
+                    continue
+                label = "SUBJECTIVE" if name.startswith("quote") else "OBJECTIVE"
+                fobj = tar.extractfile(member)
+                if fobj is None:
+                    continue
+                for line in fobj.read().decode("latin-1").splitlines():
+                    line = line.strip()
+                    if line:
+                        rows.append({"text": line, "label": label})
+        with open(dest, "w", newline="", encoding="utf-8") as out:
+            writer = csv.DictWriter(out, fieldnames=["text", "label"])
+            writer.writeheader()
+            writer.writerows(rows)
+        log.info("[download] subj_dataset.csv: %d rows written.", len(rows))
+    except Exception as exc:
+        log.warning("[download] SUBJ fetch failed: %s", exc)
+    return dest
+
+
+def _pull_gamma_corpus(force: bool = False) -> Path:
+    dest = _DATA_DIR / "gamma_corpus_factqa.csv"
+    if dest.exists() and not force:
+        log.info("[download] gamma_corpus_factqa.csv already present, skipping.")
+        return dest
+    log.info("[download] Pulling GammaCorpus-Fact-QA-450k (streaming, 5000 rows) ...")
+    try:
+        from datasets import load_dataset
+        ds = load_dataset(_GAMMA_CORPUS_HF, split="train", streaming=True)
+        rows = []
+        for item in ds:
+            q = (item.get("question") or item.get("Question") or "").strip()
+            if q:
+                rows.append({"text": q, "label": "OBJECTIVE"})
+            if len(rows) >= 5000:
+                break
+        with open(dest, "w", newline="", encoding="utf-8") as out:
+            writer = csv.DictWriter(out, fieldnames=["text", "label"])
+            writer.writeheader()
+            writer.writerows(rows)
+        log.info("[download] gamma_corpus_factqa.csv: %d rows written.", len(rows))
+    except Exception as exc:
+        log.warning("[download] GammaCorpus fetch failed: %s", exc)
+    return dest
+
+
+def _pull_simple_qa(force: bool = False) -> Path:
+    dest = _DATA_DIR / "simple_qa.csv"
+    if dest.exists() and not force:
+        log.info("[download] simple_qa.csv already present, skipping.")
+        return dest
+    import requests
+    log.info("[download] Fetching SimpleQA test set ...")
+    try:
+        resp = requests.get(_SIMPLE_QA_URL, timeout=60)
+        resp.raise_for_status()
+        import io
+        reader = csv.DictReader(io.StringIO(resp.text))
+        rows = []
+        for row in reader:
+            q = (row.get("problem") or row.get("question") or "").strip()
+            if q:
+                rows.append({"text": q, "label": "OBJECTIVE"})
+        with open(dest, "w", newline="", encoding="utf-8") as out:
+            writer = csv.DictWriter(out, fieldnames=["text", "label"])
+            writer.writeheader()
+            writer.writerows(rows)
+        log.info("[download] simple_qa.csv: %d rows written.", len(rows))
+    except Exception as exc:
+        log.warning("[download] SimpleQA fetch failed: %s", exc)
+    return dest
+
+def pull_all_datasets(force: bool = False) -> None:
     _pull_jailbreakbench()
     _pull_liar()
     _pull_hf_dataset(
@@ -424,6 +521,9 @@ def pull_all_datasets() -> None:
     )
     _pull_ethics()
     _pull_anthropic_hh()
+    _pull_subj(force=force)
+    _pull_gamma_corpus(force=force)
+    _pull_simple_qa(force=force)
 
 
 # ---------------------------------------------------------------------------
@@ -602,6 +702,75 @@ def _load_objectivity_data() -> List[Tuple[str, str]]:
         log.warning("[obj] liar_train.csv not found — re-run without --skip-download")
     log.info("[obj] liar (SUBJECTIVE): %d samples", liar_count)
 
+    # --- OBJECTIVE + SUBJECTIVE: SUBJ dataset (Pang & Lee) ---
+    subj_path = _DATA_DIR / "subj_dataset.csv"
+    subj_obj_count = 0
+    subj_subj_count = 0
+    if subj_path.exists():
+        try:
+            with open(subj_path, newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    text  = row.get("text", "").strip()
+                    label = row.get("label", "").strip()
+                    if not text or label not in ("OBJECTIVE", "SUBJECTIVE"):
+                        continue
+                    samples.append((text, label))
+                    if label == "OBJECTIVE":
+                        objective_texts.append(text)
+                        subj_obj_count += 1
+                    else:
+                        subj_subj_count += 1
+        except Exception as exc:
+            log.warning("[obj] SUBJ load error: %s", exc)
+    else:
+        log.warning("[obj] subj_dataset.csv not found — re-run without --skip-download")
+    log.info("[obj] SUBJ (OBJECTIVE=%d, SUBJECTIVE=%d)", subj_obj_count, subj_subj_count)
+
+    # --- OBJECTIVE: GammaCorpus factual Q&A (capped at 3000 to avoid imbalance) ---
+    gamma_path = _DATA_DIR / "gamma_corpus_factqa.csv"
+    gamma_count = 0
+    if gamma_path.exists():
+        try:
+            with open(gamma_path, newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if gamma_count >= 3000:
+                        break
+                    text = row.get("text", "").strip()
+                    if text:
+                        samples.append((text, "OBJECTIVE"))
+                        objective_texts.append(text)
+                        gamma_count += 1
+        except Exception as exc:
+            log.warning("[obj] GammaCorpus load error: %s", exc)
+    else:
+        log.warning("[obj] gamma_corpus_factqa.csv not found — re-run without --skip-download")
+    log.info("[obj] GammaCorpus (OBJECTIVE): %d samples", gamma_count)
+
+    # --- OBJECTIVE: SimpleQA — short factual / numerical questions ---
+    simple_qa_path = _DATA_DIR / "simple_qa.csv"
+    simple_qa_count = 0
+    if simple_qa_path.exists():
+        try:
+            with open(simple_qa_path, newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    text = row.get("text", "").strip()
+                    if text:
+                        samples.append((text, "OBJECTIVE"))
+                        objective_texts.append(text)
+                        simple_qa_count += 1
+        except Exception as exc:
+            log.warning("[obj] SimpleQA load error: %s", exc)
+    else:
+        log.warning("[obj] simple_qa.csv not found — re-run without --skip-download")
+    log.info("[obj] SimpleQA (OBJECTIVE): %d samples", simple_qa_count)
+
+    # Recompute obj_count after all OBJECTIVE sources are loaded so the
+    # AMBIGUOUS hedge target stays proportional to the full OBJECTIVE pool.
+    obj_count = sum(1 for _, lbl in samples if lbl == "OBJECTIVE")
+
     # --- AMBIGUOUS: auto-generate hedged variants of TriviaQA stems ---
     # These are questions like "Could it be that X?", "Is it possible that X?"
     # which are the exact forms that were being misclassified.
@@ -616,7 +785,7 @@ def _load_objectivity_data() -> List[Tuple[str, str]]:
         "Is there any chance that {q}?",
         "Can we say for certain that {q}?",
     ]
-    ambig_target = min(400, obj_count // 5)  # ~20% of OBJECTIVE, up to 400
+    ambig_target = min(800, obj_count // 5)  # ~20% of OBJECTIVE, up to 800
     for i, q in enumerate(objective_texts):
         if ambiguous_count >= ambig_target:
             break
@@ -775,6 +944,344 @@ def _append_from_logger(
     if count:
         log.info("[%s] +%d samples from dataset_logger", component, count)
 
+# ---------------------------------------------------------------------------
+# Unified Semantic Signature Extractor + Per-Classifier Override Gates
+# ---------------------------------------------------------------------------
+
+# --- Entity/pattern recognisers ---
+
+_NUMERIC_TOKEN_RE = _re.compile(
+    r"""
+    \b(
+        \d+(?:[.,]\d+)*          # integers, decimals: 9, 9.9, 1,000
+      | \d+/\d+                  # fractions: 1/3, 2/5
+      | \d+[eE][-+]?\d+          # scientific: 1e3, 2.5e-4
+      | 0x[0-9a-fA-F]+           # hex: 0xff
+      | (?:sqrt|log|ln)\(\S+\)   # symbolic: sqrt(2), log(10)
+      | pi | tau | euler          # named constants
+    )\b
+    """,
+    _re.VERBOSE | _re.IGNORECASE,
+)
+
+_COMPARATOR_RE = _re.compile(
+    r"\b(less\s+than|greater\s+than|more\s+than|fewer\s+than"
+    r"|bigger\s+than|smaller\s+than|larger\s+than|equal\s+to"
+    r"|==|!=|<=|>=|<(?!=)|>(?!=)"
+    r"|(?:which|what)\s+is\s+(?:bigger|larger|smaller|greater|more|less)"
+    r"|compare[sd]?\s+to|vs\.?)\b",
+    _re.IGNORECASE,
+)
+
+_HEDGE_RE = _re.compile(
+    r"\b(could\s+it\s+be|is\s+it\s+possible|might\s+it"
+    r"|do\s+you\s+think|would\s+you\s+say"
+    r"|is\s+there\s+any\s+chance|some\s+people\s+(?:think|say|believe)"
+    r"|can\s+we\s+say\s+for\s+certain)\b",
+    _re.IGNORECASE,
+)
+
+_PERSONAL_OPINION_RE = _re.compile(
+    r"\b(I\s+(?:think|feel|believe|reckon|suppose|find|consider)"
+    r"|in\s+my\s+(?:opinion|view|experience)"
+    r"|(?:personally|subjectively)\b)",
+    _re.IGNORECASE,
+)
+
+_EVALUATIVE_RE = _re.compile(
+    r"\b(best|worst|better|worse|should|ought|must|need\s+to|have\s+to"
+    r"|beautiful|ugly|right|wrong|good|bad|great|terrible)\b",
+    _re.IGNORECASE,
+)
+
+_FORCED_AGREE_RE = _re.compile(
+    r"\b(right\?|isn't\s+it\?|don't\s+you\s+agree|you\s+(?:must|have\s+to)\s+admit"
+    r"|everyone\s+knows|clearly|obviously|it\s+goes\s+without\s+saying)\b",
+    _re.IGNORECASE,
+)
+
+_ABSOLUTIST_RE = _re.compile(
+    r"\b(always|never|every(?:one|body|thing)|no\s+one|nothing|all\s+\w+\s+are"
+    r"|none\s+of|without\s+exception|invariably|universally)\b",
+    _re.IGNORECASE,
+)
+
+_JAILBREAK_STRUCTURAL_RE = _re.compile(
+    r"(ignore\s+(?:all\s+)?(?:previous|prior|above)\s+instructions?"
+    r"|pretend\s+you\s+(?:are|have\s+no)\s+"
+    r"|you\s+are\s+now\s+(?:DAN|an?\s+AI\s+with\s+no)"
+    r"|hypothetically\s+speaking.*?how\s+(?:would|could|do)\s+you"
+    r"|for\s+(?:educational|research|fictional)\s+purposes.*?(?:explain|describe|tell)"
+    r"|as\s+a\s+character\s+who\s+(?:has\s+no\s+restrictions|ignores))",
+    _re.IGNORECASE | _re.DOTALL,
+)
+
+_CAUSAL_MARKER_RE = _re.compile(
+    r"\b(why\s+(?:did|does|do|has|have|would|will|is|are|was|were"
+    r"|can't|cannot|won't|wouldn't|didn't|doesn't|don't)"
+    r"|what\s+(?:caused|made|led\s+to|resulted\s+in)"
+    r"|because\s+of|due\s+to|as\s+a\s+result\s+of|owing\s+to)\b",
+    _re.IGNORECASE,
+)
+
+_FACTIVE_VERB_RE = _re.compile(
+    r"\b(know|knew|realize[sd]?|notice[sd]?|discover[ed]*|remember[s]?"
+    r"|forgot|regret[s]?|aware\s+that|understand[s]?)\b",
+    _re.IGNORECASE,
+)
+
+_CHANGE_OF_STATE_RE = _re.compile(
+    r"\b(stop(?:ped)?|start(?:ed)?|began?|quit|ceased?|resumed?|continue[sd]?"
+    r"|still\s+(?:is|are|does)|no\s+longer|used\s+to)\b",
+    _re.IGNORECASE,
+)
+
+_ADDITIVE_RE = _re.compile(
+    r"\b(also|too|as\s+well|furthermore|moreover|in\s+addition"
+    r"|besides|additionally|and\s+also)\b",
+    _re.IGNORECASE,
+)
+
+_CLEFT_RE = _re.compile(
+    r"\b(it\s+(?:is|was)\s+\w+\s+(?:who|that|which)"
+    r"|what\s+\w+\s+(?:is|was)\s+(?:that|the\s+fact))\b",
+    _re.IGNORECASE,
+)
+
+
+def extract_semantic_signature(text: str) -> dict:
+    """
+    Extract a unified structural/ontological signature from *text*.
+
+    This is classifier-agnostic — each classifier's override gate
+    queries the fields it cares about.
+
+    Fields:
+      -- Interrogative structure --
+      is_interrogative      bool    ends with '?' or polar/wh-opening
+      has_comparator        bool    relational operator present
+      numeric_token_count   int     how many numeric/symbolic quantity tokens
+      
+      -- Epistemic/evaluative register --
+      has_hedge             bool    epistemic uncertainty marker
+      has_evaluative        bool    subjective/normative language
+      
+      -- Manipulation signals --
+      has_forced_agreement  bool    "right?", "obviously", "you must admit"
+      has_absolutist        bool    "always/never/everyone/nothing"
+      has_jailbreak_struct  bool    structural jailbreak pattern
+      is_imperative         bool    command/directive sentence
+      
+      -- Presupposition signals --
+      has_causal_marker     bool    "why did X", "because of", "led to"
+      has_factive_verb      bool    "know/realize/notice/discover"
+      has_change_of_state   bool    "stopped/started/no longer/used to"
+      has_additive          bool    "also/furthermore/moreover"
+      has_cleft             bool    "It was X who...", "What X is..."
+      
+      -- High-level frame --
+      frame                 str     see values below
+    
+    Frame values (objectivity-oriented, most specific wins):
+      NUMERIC_COMPARISON    interrogative + comparator + ≥2 numeric tokens
+      HEDGED_QUESTION       interrogative + epistemic hedge
+      EVALUATIVE_QUESTION   interrogative + evaluative/normative language
+      FACTUAL_LOOKUP        interrogative, none of the above
+      NORMATIVE_STATEMENT   declarative + evaluative
+      NEUTRAL_STATEMENT     declarative, none of the above
+    """
+    t = text.strip()
+
+    is_interrogative = t.endswith("?") or bool(_re.match(
+        r"^(is|are|was|were|do|does|did|can|could|will|would|should"
+        r"|what|which|who|where|when|why|how)\b", t, _re.IGNORECASE))
+
+    is_imperative = (
+        not is_interrogative
+        and bool(_re.match(
+            r"^(ignore|pretend|act|assume|tell|explain|describe|give|show|do|never|always)\b",
+            t, _re.IGNORECASE))
+    )
+
+    has_comparator        = bool(_COMPARATOR_RE.search(t))
+    numeric_count         = len(_NUMERIC_TOKEN_RE.findall(t))
+    has_hedge             = bool(_HEDGE_RE.search(t))
+    has_evaluative        = bool(_EVALUATIVE_RE.search(t))
+    has_forced_agreement  = bool(_FORCED_AGREE_RE.search(t))
+    has_absolutist        = bool(_ABSOLUTIST_RE.search(t))
+    has_jailbreak_struct  = bool(_JAILBREAK_STRUCTURAL_RE.search(t))
+    has_causal_marker     = bool(_CAUSAL_MARKER_RE.search(t))
+    has_factive_verb      = bool(_FACTIVE_VERB_RE.search(t))
+    has_change_of_state   = bool(_CHANGE_OF_STATE_RE.search(t))
+    has_additive          = bool(_ADDITIVE_RE.search(t))
+    has_cleft             = bool(_CLEFT_RE.search(t))
+
+    # Frame: ordered by specificity (most specific first)
+    if is_interrogative and has_comparator and numeric_count >= 2:
+        frame = "NUMERIC_COMPARISON"
+    elif is_interrogative and has_hedge:
+        frame = "HEDGED_QUESTION"
+    elif is_interrogative and bool(_re.search(
+            r"\b(should|ought|must|shall)\b", t, _re.IGNORECASE)):
+        frame = "NORMATIVE_QUESTION"
+    elif is_interrogative and has_evaluative:
+        frame = "EVALUATIVE_QUESTION"
+    elif is_interrogative:
+        frame = "FACTUAL_LOOKUP"
+    elif has_evaluative and bool(_PERSONAL_OPINION_RE.search(t)):
+        frame = "PERSONAL_OPINION"
+    elif has_evaluative:
+        frame = "NORMATIVE_STATEMENT"
+    else:
+        frame = "NEUTRAL_STATEMENT"
+
+    return {
+        "is_interrogative":     is_interrogative,
+        "is_imperative":        is_imperative,
+        "has_comparator":       has_comparator,
+        "numeric_token_count":  numeric_count,
+        "has_hedge":            has_hedge,
+        "has_evaluative":       has_evaluative,
+        "has_forced_agreement": has_forced_agreement,
+        "has_absolutist":       has_absolutist,
+        "has_jailbreak_struct": has_jailbreak_struct,
+        "has_causal_marker":    has_causal_marker,
+        "has_factive_verb":     has_factive_verb,
+        "has_change_of_state":  has_change_of_state,
+        "has_additive":         has_additive,
+        "has_cleft":            has_cleft,
+        "frame":                frame,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Per-classifier override gates
+# ---------------------------------------------------------------------------
+
+# --- Objectivity ---
+_FRAME_OBJECTIVITY_OVERRIDES: dict[str, str | None] = {
+    "NUMERIC_COMPARISON":  "OBJECTIVE",   # "Is 9.9 < 9.11?" — ground-truth comparison
+    "HEDGED_QUESTION":     "AMBIGUOUS",   # "Could it be that X?" — epistemic uncertainty
+    "NORMATIVE_QUESTION":   "VALUE_LADEN",
+    "EVALUATIVE_QUESTION": None,          # classifier decides (VALUE_LADEN vs SUBJECTIVE)
+    "FACTUAL_LOOKUP":      "OBJECTIVE",          # classifier decides
+    "PERSONAL_OPINION":    "SUBJECTIVE",
+    "NORMATIVE_STATEMENT": "VALUE_LADEN", # "We must protect our values"
+    "NEUTRAL_STATEMENT":   None,
+}
+
+def objectivity_signature_override(text: str) -> str | None:
+    """
+    Deterministic objectivity label when the semantic signature uniquely
+    identifies the class. Returns None when the probabilistic classifier
+    should run normally.
+    """
+    sig = extract_semantic_signature(text)
+    return _FRAME_OBJECTIVITY_OVERRIDES.get(sig["frame"])
+
+
+# --- Manipulation ---
+# Returns a forced label or None.
+# High-confidence manipulation signals that the embedding often misses
+# (jailbreak structural patterns, blatant forced-agreement rhetoric).
+def manipulation_signature_override(text: str) -> str | None:
+    """
+    Short-circuit the manipulation classifier for inputs whose structure
+    unambiguously encodes a manipulation class:
+
+      JAILBREAK_ATTEMPT       — structural "ignore previous instructions" patterns
+      PRESUPPOSITION_INJECTION — loaded question: forced agreement + absolutist
+      COERCIVE                — absolutist + imperative (not a question)
+      NOT_MANIPULATIVE        — plain factual lookup with no coercive signals
+
+    For everything else returns None (let the classifier decide).
+    """
+    sig = extract_semantic_signature(text)
+
+    # Structural jailbreak is deterministic — no classifier needed
+    if sig["has_jailbreak_struct"]:
+        return "JAILBREAK_ATTEMPT"
+
+    # Loaded question: forced agreement phrasing inside an interrogative
+    if sig["is_interrogative"] and sig["has_forced_agreement"] and sig["has_absolutist"]:
+        return "PRESUPPOSITION_INJECTION"
+
+    # Coercive imperative: directive + absolutist + no normative-only frame
+    if (sig["is_imperative"] and sig["has_absolutist"]
+            and not sig["is_interrogative"]
+            and sig["frame"] not in ("NORMATIVE_STATEMENT", "NORMATIVE_QUESTION")):
+        return "COERCIVE"
+
+    # Normative declaration: "We must/should X" — value-laden, not coercive
+    if (sig["frame"] in ("NORMATIVE_STATEMENT", "NORMATIVE_QUESTION")
+            and not sig["has_forced_agreement"]
+            and not sig["has_jailbreak_struct"]):
+        return "NOT_MANIPULATIVE"
+
+    # Clean factual lookup: none of the coercive signals at all
+    if (sig["frame"] in ("NUMERIC_COMPARISON", "FACTUAL_LOOKUP")
+            and not sig["has_forced_agreement"]
+            and not sig["has_absolutist"]
+            and not sig["has_jailbreak_struct"]):
+        return "NOT_MANIPULATIVE"
+
+    return None
+
+
+# --- AssumptionTyper ---
+# Multi-label: returns a dict of {assumption_type: forced_value}
+# or None when nothing is deterministic.
+# Only the types present in the dict are overridden; the rest
+# come from the classifier as normal.
+def assumption_signature_partial_override(text: str) -> dict[str, int] | None:
+    """
+    Returns a partial label mask for AssumptionTyper dimensions that can be
+    deterministically identified from the semantic signature.
+
+    Example: {"CAUSAL_PRESUPPOSITION": 1, "FACTIVE_PRESUPPOSITION": 0}
+    means "force CAUSAL to 1, force FACTIVE to 0, let everything else
+    be decided by the classifier."
+
+    Returns None if no dimension can be determined from structure alone.
+
+    Usage in inference:
+        mask = assumption_signature_partial_override(text)
+        pred = classifier.predict(X)[0]   # list of 0/1 per type
+        if mask:
+            for i, atype in enumerate(ASSUMPTION_TYPES):
+                if atype in mask:
+                    pred[i] = mask[atype]
+    """
+    sig = extract_semantic_signature(text)
+    overrides: dict[str, int] = {}
+
+    # Causal presupposition: "why did X happen?" structurally embeds
+    # the assumption that X happened — deterministic.
+    if sig["has_causal_marker"]:
+        overrides["CAUSAL_PRESUPPOSITION"] = 1
+
+    # Factive verbs ("she knows that...", "he realized that...")
+    # structurally presuppose the embedded clause is true.
+    if sig["has_factive_verb"]:
+        overrides["FACTIVE_PRESUPPOSITION"] = 1
+
+    # Change-of-state verbs ("stopped smoking") presuppose
+    # the prior state held.
+    if sig["has_change_of_state"] and sig["frame"] != "FACTUAL_LOOKUP":
+        overrides["CHANGE_OF_STATE"] = 1
+
+    # Additive particles ("also", "furthermore") presuppose
+    # at least one prior item in the set.
+    if sig["has_additive"]:
+        overrides["ADDITIVE_PRESUPPOSITION"] = 1
+
+    # Cleft constructions ("It was John who left")
+    # always create a focus presupposition.
+    if sig["has_cleft"]:
+        overrides["CLEFT_FOCUS"] = 1
+
+    return overrides if overrides else None
+
 
 # ---------------------------------------------------------------------------
 # Feature engineering
@@ -807,9 +1314,9 @@ def _rule_signal_vector(text: str) -> np.ndarray:
     try:
         a = get_preprocessor().analyse(text)
     except Exception:
-        return np.zeros(17, dtype=np.float32)
+        return np.zeros(28, dtype=np.float32)
 
-    v = np.zeros(17, dtype=np.float32)
+    v = np.zeros(28, dtype=np.float32)
     sigs  = set(a.coercive_signals)
     preps = set(a.presupposition_triggers)
 
@@ -830,6 +1337,21 @@ def _rule_signal_vector(text: str) -> np.ndarray:
     v[14] = 1.0 if a.sentence_type == "DECLARATIVE"   else 0.0
     v[15] = 1.0 if a.sentence_type == "IMPERATIVE"    else 0.0
     v[16] = 1.0 if a.dep_triples else 0.0
+
+    # --- new dims 17-27: semantic signature frame ---
+    sig = extract_semantic_signature(text)
+    v[17] = 1.0 if sig["frame"] == "NUMERIC_COMPARISON"  else 0.0
+    v[18] = 1.0 if sig["frame"] == "HEDGED_QUESTION"     else 0.0
+    v[19] = 1.0 if sig["frame"] == "EVALUATIVE_QUESTION" else 0.0
+    v[20] = 1.0 if sig["frame"] == "FACTUAL_LOOKUP"      else 0.0
+    v[21] = 1.0 if sig["frame"] == "NORMATIVE_STATEMENT" else 0.0
+    v[22] = 1.0 if sig["has_jailbreak_struct"]           else 0.0
+    v[23] = 1.0 if sig["has_forced_agreement"]           else 0.0
+    v[24] = 1.0 if sig["has_absolutist"]                 else 0.0
+    v[25] = 1.0 if sig["has_causal_marker"]              else 0.0
+    v[26] = 1.0 if sig["has_factive_verb"]               else 0.0
+    v[27] = 1.0 if sig["has_change_of_state"]            else 0.0
+
     return v
 
 
@@ -994,6 +1516,15 @@ def main() -> None:
         action="store_true",
         help="Skip dataset downloads (use cached data only)",
     )
+    parser.add_argument(
+        "--force-redownload",
+        action="store_true",
+        help=(
+            "Re-download the three Tier-1 datasets (SUBJ, GammaCorpus, SimpleQA) "
+            "even if the local CSV files already exist. "
+            "Does nothing when --skip-download is also set."
+        ),
+    )
     args = parser.parse_args()
 
     train_all = "all" in args.models
@@ -1003,7 +1534,7 @@ def main() -> None:
 
     if not args.skip_download:
         log.info("=== Downloading datasets ===")
-        pull_all_datasets()
+        pull_all_datasets(force=args.force_redownload)
     else:
         log.info("=== Skipping dataset download (--skip-download) ===")
 
