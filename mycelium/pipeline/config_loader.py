@@ -172,6 +172,19 @@ def hf_max_new_tokens() -> int:
 def hf_temperature() -> float:
     return _get("huggingface", "temperature", 0.2, "HF_TEMPERATURE")
 
+def hf_cache_dir() -> str:
+    """Absolute path to the HuggingFace model cache directory.
+    Reads [huggingface].hf_cache_dir from config.toml.
+    If the value is relative, it is resolved against the project root.
+    Override via env: HF_CACHE_DIR
+    """
+    raw = _get("huggingface", "hf_cache_dir", "hf_cache", "HF_CACHE_DIR")
+    if os.path.isabs(raw):
+        return raw
+    # resolve relative to project root (two levels up from this file)
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.join(root, raw)
+
 
 # ---------------------------------------------------------------------------
 # LLM routing
@@ -489,6 +502,7 @@ class _Cfg:
     hf_api_key                     = staticmethod(hf_api_key)
     hf_max_new_tokens              = staticmethod(hf_max_new_tokens)
     hf_temperature                 = staticmethod(hf_temperature)
+    hf_cache_dir                   = staticmethod(hf_cache_dir)
     llm_primary                    = staticmethod(llm_primary)
     llm_secondary                  = staticmethod(llm_secondary)
     fusion_weights                 = staticmethod(fusion_weights)

@@ -35,6 +35,7 @@ api_url        = ""     # env: HF_API_URL
 api_key        = ""     # env: HF_API_KEY   (never commit real keys)
 max_new_tokens = 512    # env: HF_MAX_NEW_TOKENS
 temperature    = 0.2    # env: HF_TEMPERATURE
+hf_cache_dir   = "hf_cache"   # env: HF_CACHE_DIR — relative to project root
 
 # ---------------------------------------------------------------------------
 # LLM routing
