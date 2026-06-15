@@ -144,6 +144,13 @@ def ollama_keep_alive() -> str:
 def ollama_request_timeout() -> int:
     return _get("ollama", "request_timeout", 60, "OLLAMA_REQUEST_TIMEOUT")
 
+def ollama_no_think() -> bool:
+    """When True, pass think=False to Ollama to suppress extended chain-of-thought
+    on thinking models (qwen3, deepseek-r1, etc.).  Has no effect on non-thinking
+    models — Ollama silently ignores the key.  env: OLLAMA_NO_THINK
+    """
+    return _get("ollama", "no_think", True, "OLLAMA_NO_THINK")
+
 def ollama_extra_options() -> Dict[str, Any]:
     data = _load()
     return data.get("ollama", {}).get("extra_options", {})
@@ -476,6 +483,7 @@ class _Cfg:
     ollama_context_size            = staticmethod(ollama_context_size)
     ollama_keep_alive              = staticmethod(ollama_keep_alive)
     ollama_request_timeout         = staticmethod(ollama_request_timeout)
+    ollama_no_think                = staticmethod(ollama_no_think)
     ollama_extra_options           = staticmethod(ollama_extra_options)
     hf_api_url                     = staticmethod(hf_api_url)
     hf_api_key                     = staticmethod(hf_api_key)

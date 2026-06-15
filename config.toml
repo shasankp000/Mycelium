@@ -19,6 +19,8 @@ temperature     = 0.2             # env: OLLAMA_TEMPERATURE
 context_size    = 4096            # num_ctx passed in options  env: OLLAMA_CONTEXT_SIZE
 keep_alive      = "5m"            # "10m", "1h", "-1" (never), "0" (immediately)
 request_timeout = 300              # seconds  env: OLLAMA_REQUEST_TIMEOUT
+no_think        = true            # disable extended chain-of-thought for thinking
+                                  # models (qwen3, deepseek-r1, etc.)  env: OLLAMA_NO_THINK
 
 # Uncomment to pass extra raw options to /api/chat:
 # [ollama.extra_options]

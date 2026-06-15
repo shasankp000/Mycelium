@@ -25,6 +25,7 @@ class OllamaConfig:
     num_ctx: int = field(default_factory=cfg.ollama_context_size)
     keep_alive: str = field(default_factory=cfg.ollama_keep_alive)
     request_timeout: float = field(default_factory=cfg.ollama_request_timeout)
+    no_think: bool = field(default_factory=cfg.ollama_no_think)
     extra_options: Dict[str, Any] = field(default_factory=cfg.ollama_extra_options)
 
 
@@ -57,7 +58,13 @@ class OllamaClient:
         self.config = config or OllamaConfig()
 
     def generate(self, prompt: str, *, system: Optional[str] = None) -> str:
-        """Call the local Ollama server using the chat API."""
+        """Call the local Ollama server using the chat API.
+
+        When ``config.no_think`` is True, ``think=False`` is included in the
+        request body.  This suppresses extended chain-of-thought on thinking
+        models (qwen3, deepseek-r1, etc.) and is silently ignored by all
+        non-thinking models, so it is safe to leave on at all times.
+        """
 
         url = self.config.base_url.rstrip("/") + "/api/chat"
         messages = []
@@ -72,12 +79,17 @@ class OllamaClient:
         }
         options.update(self.config.extra_options)
 
-        payload = {
+        payload: Dict[str, Any] = {
             "model": self.config.model,
             "messages": messages,
             "stream": False,
             "options": options,
         }
+
+        # Disable chain-of-thought thinking for thinking models.
+        # Ollama ignores this key for non-thinking models, so it is always safe.
+        if self.config.no_think:
+            payload["think"] = False
 
         try:
             resp = requests.post(
