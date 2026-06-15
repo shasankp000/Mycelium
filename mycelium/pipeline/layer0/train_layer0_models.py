@@ -69,6 +69,16 @@ Usage:
     python -m mycelium.pipeline.layer0.train_layer0_models --skip-download
 """
 
+import os as _os, sys as _sys
+def _set_hf_cache() -> None:
+    try:
+        from mycelium.pipeline.config_loader import hf_cache_dir
+        _os.environ.setdefault("HF_HOME", hf_cache_dir())
+    except Exception:
+        _root = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))))
+        _os.environ.setdefault("HF_HOME", _os.path.join(_root, "hf_cache"))
+_set_hf_cache()
+
 from __future__ import annotations
 
 import argparse

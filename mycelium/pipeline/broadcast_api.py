@@ -42,7 +42,8 @@ import mycelium.pipeline.config_loader as cfg
 
 logger = logging.getLogger(__name__)
 
-os.environ.setdefault("HF_HOME", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "hf_cache"))
+import mycelium.pipeline.config_loader as _cfg
+os.environ.setdefault("HF_HOME", _cfg.hf_cache_dir())
 
 app = FastAPI(title="Mycelium Broadcast API", version="0.7.0")
 
