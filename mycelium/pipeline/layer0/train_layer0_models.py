@@ -919,7 +919,9 @@ def train_objectivity_classifier(X: np.ndarray, y: np.ndarray):
     le = LabelEncoder()
     y_enc = le.fit_transform(y)
 
-    base = LogisticRegression(C=1.0, class_weight="balanced", max_iter=1000, solver="lbfgs", multi_class="multinomial")
+    # multi_class was removed in scikit-learn 1.5; lbfgs is inherently
+    # multinomial for multi-class problems so the argument was always a no-op.
+    base = LogisticRegression(C=1.0, class_weight="balanced", max_iter=1000, solver="lbfgs")
     clf = _safe_calibrated_clf(base, y_enc, cv_folds=5)
     clf.fit(X, y_enc)
 
