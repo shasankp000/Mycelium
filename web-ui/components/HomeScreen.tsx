@@ -1,11 +1,12 @@
 // ---------------------------------------------------------------------------
-// HomeScreen — extracted from pages/index.tsx (Phase 1 refactor)
-// Phase 5: mode + onModeChange props added so ModeSelector is available
-//           before the first message is sent (Gap 1 fix).
+// HomeScreen — pre-chat landing screen shown before first message
+// Phase 5: mode + onModeChange props added (Gap 1 fix)
+// Navbar refactor: uses shared <Navbar> component
 // ---------------------------------------------------------------------------
 
 import styles from '../styles/Home.module.css';
 import { ModeSelector } from './ModeSelector';
+import Navbar from './Navbar';
 import type { ReasoningMode } from '../types/pipeline';
 
 const MAX_INPUT_CHARS = 2000;
@@ -29,7 +30,7 @@ export const PROMPT_SUGGESTIONS: readonly string[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// useTypewriter hook (lives here; only HomeScreen uses it)
+// useTypewriter hook
 // ---------------------------------------------------------------------------
 
 import { useState, useEffect } from 'react';
@@ -105,6 +106,9 @@ export function HomeScreen({
 
   return (
     <div className={styles.homeScreen}>
+      {/* Shared navbar — no nav links, no graph button, no sidebar toggle */}
+      <Navbar />
+
       <div className={styles.homeContent}>
         <div className={styles.homeLogo} aria-hidden="true">
           <svg width="52" height="52" viewBox="0 0 28 28" fill="none">
