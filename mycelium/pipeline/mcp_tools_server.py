@@ -40,6 +40,9 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp import types as mcp_types
 
+import os as _os
+sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))))
+
 from mycelium.pipeline.tool_registry import TOOL_REGISTRY, TOOL_BY_NAME
 
 logger = logging.getLogger(__name__)

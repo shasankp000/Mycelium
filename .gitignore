@@ -77,3 +77,6 @@ traces/
 patch_batches/
 __pycache__/
 *.pyc
+
+# Huggingface cache
+hf_cache/

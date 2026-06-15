@@ -1,3 +1,4 @@
+import os
 import json
 from pathlib import Path
 import logging
@@ -40,6 +41,8 @@ from mycelium.pipeline.pipeline_event import ReplayJournal
 import mycelium.pipeline.config_loader as cfg
 
 logger = logging.getLogger(__name__)
+
+os.environ.setdefault("HF_HOME", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "hf_cache"))
 
 app = FastAPI(title="Mycelium Broadcast API", version="0.7.0")
 
