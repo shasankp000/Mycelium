@@ -817,14 +817,27 @@ def _rule_signal_vector(text: str) -> np.ndarray:
 def _build_feature_matrix(
     texts: List[str],
     embed_model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
+    local_files_only: bool = False,
 ) -> np.ndarray:
-    """Return (N, 401) feature matrix: 384-dim embedding + 17 rule signals."""
+    """Return (N, 401) feature matrix: 384-dim embedding + 17 rule signals.
+
+    When *local_files_only* is True (i.e. ``--skip-download`` was passed),
+    SentenceTransformer is initialised with ``local_files_only=True`` so it
+    never attempts to reach huggingface.co and instead loads the model
+    straight from the local HF cache.  This avoids spurious
+    "couldn't connect to huggingface.co" warnings during offline re-training.
+    """
     from sentence_transformers import SentenceTransformer
     log.info(
-        "[features] encoding %d texts with %s on device=%s ...",
+        "[features] encoding %d texts with %s on device=%s%s ...",
         len(texts), embed_model_name, _DEVICE,
+        " (local_files_only)" if local_files_only else "",
     )
-    encoder = SentenceTransformer(embed_model_name, device=_DEVICE)
+    encoder = SentenceTransformer(
+        embed_model_name,
+        device=_DEVICE,
+        local_files_only=local_files_only,
+    )
     embeddings = encoder.encode(
         texts,
         batch_size=64,
@@ -980,7 +993,7 @@ def main() -> None:
             log.error("[manip] Not enough training data (%d samples). Aborting.", len(manip_data))
         else:
             texts, labels = zip(*manip_data)
-            X = _build_feature_matrix(list(texts))
+            X = _build_feature_matrix(list(texts), local_files_only=args.skip_download)
             y = np.array(labels)
             clf, le = train_manipulation_classifier(X, y)
             _save_model(clf, _MODELS_DIR / "manipulation_classifier.joblib", "ManipulationClassifier")
@@ -994,7 +1007,7 @@ def main() -> None:
             log.error("[obj] Not enough training data (%d samples). Aborting.", len(obj_data))
         else:
             texts, labels = zip(*obj_data)
-            X = _build_feature_matrix(list(texts))
+            X = _build_feature_matrix(list(texts), local_files_only=args.skip_download)
             y = np.array(labels)
             clf, le = train_objectivity_classifier(X, y)
             _save_model(clf, _MODELS_DIR / "objectivity_classifier.joblib", "ObjectivityClassifier")
@@ -1008,7 +1021,7 @@ def main() -> None:
             log.error("[assumption] Not enough training data (%d samples). Aborting.", len(assump_data))
         else:
             texts, label_vecs = zip(*assump_data)
-            X = _build_feature_matrix(list(texts))
+            X = _build_feature_matrix(list(texts), local_files_only=args.skip_download)
             Y = np.array(label_vecs, dtype=int)
             clf = train_assumption_typer(X, Y)
             _save_model(clf, _MODELS_DIR / "assumption_typer.joblib", "AssumptionTyper")
