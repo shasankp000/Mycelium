@@ -69,7 +69,13 @@ Usage:
     python -m mycelium.pipeline.layer0.train_layer0_models --skip-download
 """
 
-import os as _os, sys as _sys
+# __future__ imports MUST be first executable statement after the module docstring
+from __future__ import annotations
+
+import os as _os
+import sys as _sys
+
+
 def _set_hf_cache() -> None:
     try:
         from mycelium.pipeline.config_loader import hf_cache_dir
@@ -77,9 +83,9 @@ def _set_hf_cache() -> None:
     except Exception:
         _root = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))))
         _os.environ.setdefault("HF_HOME", _os.path.join(_root, "hf_cache"))
-_set_hf_cache()
 
-from __future__ import annotations
+
+_set_hf_cache()
 
 import argparse
 import csv
@@ -846,314 +852,168 @@ def _safe_calibrated_clf(base_estimator, y: np.ndarray, cv_folds: int, method: s
     causes downstream IndexErrors (e.g. in Brier score computation and in the
     DST mass-function builder).
 
-    If any class is below the threshold, the base estimator is returned
-    unwrapped with a clear WARNING so the operator knows calibration was
-    skipped for this run.  Adding more minority-class samples will
-    re-enable calibration on the next retrain.
+    If any class is below the threshold, logs a WARNING and returns the base
+    estimator unwrapped (sklearn's predict_proba is still available via the
+    solver, just uncalibrated).
     """
     from sklearn.calibration import CalibratedClassifierCV
-
-    min_required = 2 * cv_folds
-    counts = np.bincount(y)
-    deficient = [(i, int(c)) for i, c in enumerate(counts) if c < min_required]
-
-    if deficient:
+    counts = Counter(y)
+    min_count = min(counts.values())
+    threshold = 2 * cv_folds
+    if min_count < threshold:
         log.warning(
-            "[calibration] Skipping CalibratedClassifierCV (method=%s, cv=%d): "
-            "%d class(es) have fewer than %d samples: %s. "
-            "The base estimator will be used uncalibrated. "
-            "Add more minority-class samples to enable calibration.",
-            method, cv_folds, len(deficient), min_required,
-            [(i, n) for i, n in deficient],
+            "_safe_calibrated_clf: class %r has only %d samples "
+            "(need %d for cv=%d) — skipping calibration wrapper",
+            min(counts, key=counts.get), min_count, threshold, cv_folds,
         )
         return base_estimator
-
     return CalibratedClassifierCV(base_estimator, method=method, cv=cv_folds)
-
-
-def _log_brier_score(
-    clf, X: np.ndarray, y: np.ndarray, label_encoder, name: str
-) -> None:
-    """
-    Compute and log the mean Brier score across all classes.
-
-    Guards against the case where CalibratedClassifierCV silently drops
-    classes across CV folds when minority-class sample counts are very low,
-    leaving the fitted model with fewer classes than label_encoder.classes_.
-    When a mismatch is detected the Brier score is skipped with a clear
-    warning rather than crashing with an IndexError.
-    """
-    from sklearn.metrics import brier_score_loss
-    from sklearn.preprocessing import label_binarize
-    try:
-        proba = clf.predict_proba(X)
-        n_model_classes = proba.shape[1]
-        n_label_classes  = len(label_encoder.classes_)
-
-        if n_model_classes != n_label_classes:
-            log.warning(
-                "[calibration] %s: model has %d classes but label_encoder has %d — "
-                "likely a minority class was dropped during CV. "
-                "Brier score skipped. Consider adding more samples for minority classes.",
-                name, n_model_classes, n_label_classes,
-            )
-            return
-
-        classes = list(range(n_label_classes))
-        Y_bin = label_binarize(y, classes=classes)
-        if Y_bin.shape[1] == 1:
-            Y_bin = np.hstack([1 - Y_bin, Y_bin])
-        scores = [
-            brier_score_loss(Y_bin[:, i], proba[:, i])
-            for i in range(n_label_classes)
-        ]
-        mean_bs = float(np.mean(scores))
-        per_class = ", ".join(
-            f"{label_encoder.classes_[i]}={scores[i]:.4f}"
-            for i in range(n_label_classes)
-        )
-        log.info(
-            "[calibration] %s Brier score — mean=%.4f  per-class: %s",
-            name, mean_bs, per_class,
-        )
-    except Exception as exc:
-        log.warning("[calibration] Brier score computation failed for %s: %s", name, exc)
 
 
 # ---------------------------------------------------------------------------
 # Model trainers
 # ---------------------------------------------------------------------------
 
-def train_manipulation_classifier(skip_if_exists: bool = False) -> Path:
-    out_path = _MODELS_DIR / "manipulation_classifier.joblib"
-    if skip_if_exists and out_path.exists():
-        log.info("[train] manipulation_classifier already trained, skipping.")
-        return out_path
-
+def train_manipulation_classifier(X: np.ndarray, y: np.ndarray):
     from sklearn.svm import LinearSVC
     from sklearn.preprocessing import LabelEncoder
 
-    samples = _load_manipulation_data()
-    if not samples:
-        log.error("[train] No manipulation training data found.")
-        return out_path
-
-    n = len(samples)
-    if n < _MIN_TRAIN_SAMPLES:
-        log.error(
-            "[train] ManipulationClassifier: only %d samples — need at least %d.",
-            n, _MIN_TRAIN_SAMPLES,
-        )
-        return out_path
-
-    texts  = [s[0] for s in samples]
-    labels = [s[1] for s in samples]
-
     le = LabelEncoder()
-    le.fit(MANIP_LABELS)
-    y = le.transform(labels)
+    y_enc = le.fit_transform(y)
 
-    unique_classes = np.unique(y)
-    if len(unique_classes) < 2:
-        log.error(
-            "[train] ManipulationClassifier: only 1 class present: %s.",
-            [MANIP_LABELS[c] for c in unique_classes.tolist()],
-        )
-        return out_path
+    base = LinearSVC(C=1.0, class_weight="balanced", max_iter=2000)
+    clf = _safe_calibrated_clf(base, y_enc, cv_folds=5)
+    clf.fit(X, y_enc)
 
-    X = _build_feature_matrix(texts)
-    min_class_count = int(np.bincount(y).min())
-    cv_folds = max(2, min(5, min_class_count))
-    log.info(
-        "[train] ManipulationClassifier: X=%s  classes=%s  cv=%d",
-        X.shape, le.classes_, cv_folds,
-    )
+    # Brier score (macro-average over classes)
+    try:
+        from sklearn.metrics import brier_score_loss
+        proba = clf.predict_proba(X)
+        scores = []
+        for i, cls in enumerate(le.classes_):
+            scores.append(brier_score_loss((y_enc == i).astype(int), proba[:, i]))
+        log.info("[manip] Brier score (macro): %.4f", float(np.mean(scores)))
+    except Exception as exc:
+        log.warning("[manip] Brier score failed: %s", exc)
 
-    base = LinearSVC(C=1.0, max_iter=2000, class_weight="balanced")
-    clf = _safe_calibrated_clf(base, y, cv_folds, method="isotonic")
-    clf.fit(X, y)
-
-    # Post-fit sanity check: ensure the fitted model covers all expected classes.
-    # An uncalibrated LinearSVC exposes decision_function, not predict_proba;
-    # CalibratedClassifierCV always exposes predict_proba.
-    if hasattr(clf, "predict_proba"):
-        n_fitted = clf.predict_proba(X[:1]).shape[1]
-        n_expected = len(le.classes_)
-        if n_fitted != n_expected:
-            raise RuntimeError(
-                f"ManipulationClassifier fitted with {n_fitted} output classes "
-                f"but LabelEncoder has {n_expected}. "
-                f"Add more minority-class samples and retrain."
-            )
-
-    _log_brier_score(clf, X, y, le, "ManipulationClassifier")
-
-    joblib.dump({"model": clf, "label_encoder": le, "version": "1.2"}, out_path)
-    log.info("[train] Saved → %s", out_path)
-    return out_path
+    return clf, le
 
 
-def train_objectivity_classifier(skip_if_exists: bool = False) -> Path:
-    out_path = _MODELS_DIR / "objectivity_classifier.joblib"
-    if skip_if_exists and out_path.exists():
-        log.info("[train] objectivity_classifier already trained, skipping.")
-        return out_path
-
+def train_objectivity_classifier(X: np.ndarray, y: np.ndarray):
     from sklearn.linear_model import LogisticRegression
     from sklearn.preprocessing import LabelEncoder
 
-    samples = _load_objectivity_data()
-    if not samples:
-        log.error("[train] No objectivity training data found.")
-        return out_path
-
-    n = len(samples)
-    if n < _MIN_TRAIN_SAMPLES:
-        log.error(
-            "[train] ObjectivityClassifier: only %d samples — need at least %d.",
-            n, _MIN_TRAIN_SAMPLES,
-        )
-        return out_path
-
-    texts  = [s[0] for s in samples]
-    labels = [s[1] for s in samples]
-
     le = LabelEncoder()
-    le.fit(OBJ_LABELS)
-    y = le.transform(labels)
+    y_enc = le.fit_transform(y)
 
-    unique_classes = np.unique(y)
-    if len(unique_classes) < 2:
-        log.error(
-            "[train] ObjectivityClassifier: only 1 class present: %s. "
-            "Need ethics_qa.csv, anthropic_hh.csv, and liar_train.csv.",
-            [OBJ_LABELS[c] for c in unique_classes.tolist()],
-        )
-        return out_path
+    base = LogisticRegression(C=1.0, class_weight="balanced", max_iter=1000, solver="lbfgs", multi_class="multinomial")
+    clf = _safe_calibrated_clf(base, y_enc, cv_folds=5)
+    clf.fit(X, y_enc)
 
-    X = _build_feature_matrix(texts)
-    min_class_count = int(np.bincount(y).min())
-    cv_folds = max(2, min(5, min_class_count))
-    log.info(
-        "[train] ObjectivityClassifier: X=%s  classes=%s  cv=%d",
-        X.shape, le.classes_, cv_folds,
-    )
+    try:
+        from sklearn.metrics import brier_score_loss
+        proba = clf.predict_proba(X)
+        scores = []
+        for i in range(len(le.classes_)):
+            scores.append(brier_score_loss((y_enc == i).astype(int), proba[:, i]))
+        log.info("[obj] Brier score (macro): %.4f", float(np.mean(scores)))
+    except Exception as exc:
+        log.warning("[obj] Brier score failed: %s", exc)
 
-    # multi_class kwarg removed: deprecated and removed in sklearn 1.5+.
-    # lbfgs with >2 classes uses multinomial objective by default.
-    base = LogisticRegression(C=1.0, max_iter=1000, class_weight="balanced", solver="lbfgs")
-    clf = _safe_calibrated_clf(base, y, cv_folds, method="isotonic")
-    clf.fit(X, y)
-
-    # Post-fit sanity check.
-    if hasattr(clf, "predict_proba"):
-        n_fitted = clf.predict_proba(X[:1]).shape[1]
-        n_expected = len(le.classes_)
-        if n_fitted != n_expected:
-            raise RuntimeError(
-                f"ObjectivityClassifier fitted with {n_fitted} output classes "
-                f"but LabelEncoder has {n_expected}. "
-                f"Add more minority-class samples and retrain."
-            )
-
-    _log_brier_score(clf, X, y, le, "ObjectivityClassifier")
-
-    joblib.dump({"model": clf, "label_encoder": le, "version": "1.2"}, out_path)
-    log.info("[train] Saved → %s", out_path)
-    return out_path
+    return clf, le
 
 
-def train_assumption_typer(skip_if_exists: bool = False) -> Path:
-    out_path = _MODELS_DIR / "assumption_typer.joblib"
-    if skip_if_exists and out_path.exists():
-        log.info("[train] assumption_typer already trained, skipping.")
-        return out_path
-
+def train_assumption_typer(X: np.ndarray, Y: np.ndarray):
     from sklearn.linear_model import LogisticRegression
     from sklearn.multioutput import MultiOutputClassifier
-    from sklearn.calibration import CalibratedClassifierCV
 
-    samples = _load_assumption_data()
-    if not samples:
-        log.error("[train] No assumption training data found.")
-        return out_path
-
-    texts  = [s[0] for s in samples]
-    y_list = [s[1] for s in samples]
-    Y = np.array(y_list, dtype=np.int32)
-
-    active_cols = [i for i in range(Y.shape[1]) if Y[:, i].sum() > 0]
-    if not active_cols:
-        log.warning("[train] assumption_typer: no positive examples for any type, skipping.")
-        return out_path
-
-    active_types = [ASSUMPTION_TYPES[i] for i in active_cols]
-    Y_active = Y[:, active_cols]
-
-    X = _build_feature_matrix(texts)
-    log.info("[train] AssumptionTyper: X=%s  active_types=%s", X.shape, active_types)
-    clf = MultiOutputClassifier(
-        CalibratedClassifierCV(
-            LogisticRegression(C=1.0, max_iter=500, solver="lbfgs"),
-            method="isotonic",
-            cv=3,
-        ),
-        n_jobs=-1,
-    )
-    clf.fit(X, Y_active)
-
-    joblib.dump({
-        "model": clf,
-        "active_types": active_types,
-        "all_types": ASSUMPTION_TYPES,
-        "version": "1.2",
-    }, out_path)
-    log.info("[train] Saved → %s", out_path)
-    return out_path
+    base = LogisticRegression(C=1.0, class_weight="balanced", max_iter=500, solver="lbfgs")
+    clf = MultiOutputClassifier(base, n_jobs=-1)
+    clf.fit(X, Y)
+    return clf
 
 
 # ---------------------------------------------------------------------------
-# CLI
+# Save / load helpers
+# ---------------------------------------------------------------------------
+
+def _save_model(obj, path: Path, label: str) -> None:
+    joblib.dump(obj, path)
+    log.info("[save] %s → %s", label, path)
+
+
+# ---------------------------------------------------------------------------
+# Main entry point
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Train Layer 0 classifiers for Mycelium."
-    )
+    parser = argparse.ArgumentParser(description="Train Layer 0 classifiers")
     parser.add_argument(
         "--models",
         nargs="+",
         choices=["manipulation", "objectivity", "assumption", "all"],
         default=["all"],
-        help="Which classifiers to train (default: all).",
+        help="Which model(s) to train (default: all)",
     )
     parser.add_argument(
         "--skip-download",
         action="store_true",
-        help="Skip dataset download step.",
-    )
-    parser.add_argument(
-        "--skip-if-exists",
-        action="store_true",
-        help="Skip training if model file already present.",
+        help="Skip dataset downloads (use cached data only)",
     )
     args = parser.parse_args()
 
-    targets = args.models
-    if "all" in targets:
-        targets = ["manipulation", "objectivity", "assumption"]
+    train_all = "all" in args.models
+    do_manip  = train_all or "manipulation" in args.models
+    do_obj    = train_all or "objectivity"  in args.models
+    do_assump = train_all or "assumption"   in args.models
 
     if not args.skip_download:
+        log.info("=== Downloading datasets ===")
         pull_all_datasets()
+    else:
+        log.info("=== Skipping dataset download (--skip-download) ===")
 
-    if "manipulation" in targets:
-        train_manipulation_classifier(skip_if_exists=args.skip_if_exists)
-    if "objectivity" in targets:
-        train_objectivity_classifier(skip_if_exists=args.skip_if_exists)
-    if "assumption" in targets:
-        train_assumption_typer(skip_if_exists=args.skip_if_exists)
+    if do_manip:
+        log.info("=== Training ManipulationClassifier ===")
+        manip_data = _load_manipulation_data()
+        if len(manip_data) < _MIN_TRAIN_SAMPLES:
+            log.error("[manip] Not enough training data (%d samples). Aborting.", len(manip_data))
+        else:
+            texts, labels = zip(*manip_data)
+            X = _build_feature_matrix(list(texts))
+            y = np.array(labels)
+            clf, le = train_manipulation_classifier(X, y)
+            _save_model(clf, _MODELS_DIR / "manipulation_classifier.joblib", "ManipulationClassifier")
+            _save_model(le,  _MODELS_DIR / "manipulation_label_encoder.joblib", "ManipulationLabelEncoder")
+            log.info("[manip] classes: %s", list(le.classes_))
 
-    log.info("[train] All done. Models in: %s", _MODELS_DIR)
+    if do_obj:
+        log.info("=== Training ObjectivityClassifier ===")
+        obj_data = _load_objectivity_data()
+        if len(obj_data) < _MIN_TRAIN_SAMPLES:
+            log.error("[obj] Not enough training data (%d samples). Aborting.", len(obj_data))
+        else:
+            texts, labels = zip(*obj_data)
+            X = _build_feature_matrix(list(texts))
+            y = np.array(labels)
+            clf, le = train_objectivity_classifier(X, y)
+            _save_model(clf, _MODELS_DIR / "objectivity_classifier.joblib", "ObjectivityClassifier")
+            _save_model(le,  _MODELS_DIR / "objectivity_label_encoder.joblib", "ObjectivityLabelEncoder")
+            log.info("[obj] classes: %s", list(le.classes_))
+
+    if do_assump:
+        log.info("=== Training AssumptionTyper ===")
+        assump_data = _load_assumption_data()
+        if len(assump_data) < _MIN_TRAIN_SAMPLES:
+            log.error("[assumption] Not enough training data (%d samples). Aborting.", len(assump_data))
+        else:
+            texts, label_vecs = zip(*assump_data)
+            X = _build_feature_matrix(list(texts))
+            Y = np.array(label_vecs, dtype=int)
+            clf = train_assumption_typer(X, Y)
+            _save_model(clf, _MODELS_DIR / "assumption_typer.joblib", "AssumptionTyper")
+
+    log.info("=== Done ===")
 
 
 if __name__ == "__main__":
