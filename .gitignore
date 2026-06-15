@@ -33,6 +33,7 @@ training_data/jailbreakbench
 
 # --- Expert model directories ------
 mycelium/pipeline/experts/*
+mycelium/trm/trm_checkpoints/*.pt
 
 # Runtime trace logs
 traces/*.jsonl
