@@ -16,6 +16,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:8000';
 const SSE_RETRY_ATTEMPTS = 3;
 const SSE_RETRY_DELAY_MS = 1500;
 const SSE_TIMEOUT_MS     = 3 * 60 * 1000;
+const SSE_CONNECT_GRACE_MS = 30_000;
 
 function isSandboxPhase(phase: string): boolean {
   return phase === 'sandbox_plan' || phase.startsWith('sandbox_tool/');
@@ -72,6 +73,8 @@ export function useSseStream({
     const es = new EventSource(sseUrl);
     esRef.current = es;
     let gotDone = false;
+    let activeTraceId: string | null = null;
+    const connectedAt = Date.now();
 
     clearSseTimeout();
     sseTimeoutRef.current = setTimeout(() => {
@@ -88,6 +91,7 @@ export function useSseStream({
       try {
         const event: SseEvent = JSON.parse(ev.data);
         const phaseName = event.phase_name ?? event.phase;
+        if (!activeTraceId && (event as any).trace_id) activeTraceId = (event as any).trace_id;
 
         onPhaseUpdate(phaseName, event.detail, event.elapsed_ms);
 
@@ -124,6 +128,7 @@ export function useSseStream({
       if (gotDone) return;
       const silentForMs   = Date.now() - lastEventAtRef.current;
       const neverReceived = lastEventAtRef.current === 0;
+      if (neverReceived && Date.now() - connectedAt < SSE_CONNECT_GRACE_MS) return;
       if (!neverReceived && silentForMs < 20_000) return;
 
       es.close();
@@ -136,6 +141,10 @@ export function useSseStream({
           `SSE disconnected — retrying (${sseRetryCount.current}/${SSE_RETRY_ATTEMPTS})…`,
           0,
         );
+        if (activeTraceId) {
+          fetch(`${API_BASE}/api/v1/chat/${activeTraceId}`, { method: 'DELETE' }).catch(() => {});
+          activeTraceId = null;
+        }
         setTimeout(() => openSseStream(text), SSE_RETRY_DELAY_MS * sseRetryCount.current);
       } else {
         clearSseTimeout();

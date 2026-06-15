@@ -75,7 +75,7 @@ _VALID_MODES: frozenset[str] = frozenset(
 @app.on_event("startup")
 async def preload_models() -> None:
     import asyncio
-    from mycelium.pipeline.model_registry import warmup
+    from mycelium.pipeline.model_registry import warmup, warmup_layer0
     _write_calibration_state("running", progress=5)
 
     specs = [
@@ -94,6 +94,7 @@ async def preload_models() -> None:
     loop = asyncio.get_running_loop()
     with ThreadPoolExecutor(max_workers=1) as pool:
         await loop.run_in_executor(pool, warmup, specs)
+        await loop.run_in_executor(pool, warmup_layer0)
 
     _warmup_done.set()
     _write_calibration_state("complete", progress=100)
@@ -605,6 +606,8 @@ async def get_trace(trace_id: str) -> ReasoningTrace:
 
 _replay_journals: Dict[str, ReplayJournal] = {}
 _replay_journals_lock = threading.Lock()
+_active_cancels: Dict[str, threading.Event] = {}
+_active_cancels_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -707,6 +710,8 @@ async def _make_sse_response(
     queue: asyncio.Queue = asyncio.Queue()
     _sentinel = object()
     _cancel = threading.Event()
+    with _active_cancels_lock:
+        _active_cancels[trace_id] = _cancel
 
     def _producer(cancel: threading.Event) -> None:
         try:
@@ -737,6 +742,8 @@ async def _make_sse_response(
                 pass
             with _replay_journals_lock:
                 _replay_journals.pop(trace_id, None)
+            with _active_cancels_lock:
+                _active_cancels.pop(trace_id, None)
 
     executor = ThreadPoolExecutor(max_workers=1)
     executor.submit(_producer, _cancel)
@@ -776,6 +783,18 @@ async def _make_sse_response(
 # ---------------------------------------------------------------------------
 # Phase 6: /api/v1/chat now threads reasoning_mode through the full pipeline
 # ---------------------------------------------------------------------------
+
+@app.delete("/api/v1/chat/{trace_id}")
+async def cancel_stream(trace_id: str) -> Dict[str, Any]:
+    """Signal an active SSE stream to stop delivering chunks. Best-effort."""
+    with _active_cancels_lock:
+        cancel_event = _active_cancels.get(trace_id)
+    if cancel_event is not None:
+        cancel_event.set()
+        logger.info("[SSE %s] DELETE — cancel signal sent", trace_id)
+        return {"trace_id": trace_id, "cancelled": True}
+    return {"trace_id": trace_id, "cancelled": False}
+
 
 @app.post("/api/v1/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest) -> ChatResponse:
