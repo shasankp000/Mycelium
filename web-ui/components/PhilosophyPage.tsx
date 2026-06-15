@@ -1,26 +1,14 @@
 import React, { useEffect } from 'react';
 import Link from 'next/link';
+import Navbar from './Navbar';
 import styles from '../styles/PhilosophyPage.module.css';
 
-const THEME_KEY = 'mycelium-theme';
-
 export default function PhilosophyPage() {
-  // inherit theme from localStorage/sessionStorage mirror on data-theme
-  useEffect(() => {
-    const saved = sessionStorage.getItem(THEME_KEY);
-    if (saved) document.documentElement.setAttribute('data-theme', saved);
-  }, []);
-
   return (
     <div className={styles.page}>
-      {/* ── Nav ── */}
-      <nav className={styles.nav} aria-label="Site navigation">
-        <Link href="/" className={styles.navWordmark}>Mycelium</Link>
-        <div className={styles.navLinks}>
-          <Link href="/architecture" className={styles.navLink}>How it works</Link>
-          <Link href="/philosophy" className={`${styles.navLink} ${styles.navLinkActive}`}>Philosophy</Link>
-        </div>
-      </nav>
+
+      {/* ── Shared navbar ── */}
+      <Navbar showNavLinks />
 
       {/* ── Hero ── */}
       <header className={styles.hero}>
@@ -46,7 +34,7 @@ export default function PhilosophyPage() {
             This is not a philosophical technicality. It is the source of most bias in AI
             systems. When a model presents a value judgment — a preference, a political
             leaning, a moral conclusion — as if it were a factual output, it has committed
-            Hume's error at scale. The user receives an opinion dressed as a finding.
+            Hume&apos;s error at scale. The user receives an opinion dressed as a finding.
           </p>
         </section>
 
