@@ -210,6 +210,21 @@ def _get_device() -> str:
 
 _DEVICE: str = _get_device()
 
+# -- _ENCODER singleton --
+# Instantiated once at module import time; reused by _build_feature_matrix()
+# and by any consumer (test, router, calibration) that imports this module.
+_ENCODER_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+_ENCODER = None  # lazy — set on first call to _get_encoder()
+
+def _get_encoder(model_name: str = _ENCODER_MODEL_NAME):
+    global _ENCODER, _ENCODER_MODEL_NAME
+    if _ENCODER is None or model_name != _ENCODER_MODEL_NAME:
+        from sentence_transformers import SentenceTransformer
+        _ENCODER = SentenceTransformer(model_name, device=_DEVICE)
+        _ENCODER_MODEL_NAME = model_name
+    return _ENCODER
+
+
 # ---------------------------------------------------------------------------
 # Labels
 # ---------------------------------------------------------------------------
@@ -990,7 +1005,10 @@ _PERSONAL_OPINION_RE = _re.compile(
 
 _EVALUATIVE_RE = _re.compile(
     r"\b(best|worst|better|worse|should|ought|must|need\s+to|have\s+to"
-    r"|beautiful|ugly|right|wrong|good|bad|great|terrible)\b",
+    r"|beautiful|ugly|right|wrong|good|bad|great|terrible"
+    r"|failed|fail|failing|passed|succeed|succeeded"
+    r"|won|lost|winning|losing|winner|loser"
+    r"|guilty|innocent|blame|fault|credit|deserves?)\b",
     _re.IGNORECASE,
 )
 
@@ -1025,8 +1043,9 @@ _CAUSAL_MARKER_RE = _re.compile(
 )
 
 _FACTIVE_VERB_RE = _re.compile(
-    r"\b(know|knew|realize[sd]?|notice[sd]?|discover[ed]*|remember[s]?"
-    r"|forgot|regret[s]?|aware\s+that|understand[s]?)\b",
+    r"\b(know|knew|knows|realize[sd]?|realizes?|noticed?|notices?"
+    r"|discover(?:ed|s)?|remember[s]?|forgot|regret[s]?"
+    r"|aware\s+that|understand[s]?)\b",
     _re.IGNORECASE,
 )
 
@@ -1175,15 +1194,39 @@ def objectivity_signature_override(text: str) -> str | None:
     Deterministic objectivity label when the semantic signature uniquely
     identifies the class. Returns None when the probabilistic classifier
     should run normally.
+
+    Priority order (most specific first):
+      1. Factive-verb declaratives  -> SUBJECTIVE
+         "She knows that X" frames X through a subject's belief state.
+      2. Cleft declaratives         -> SUBJECTIVE
+         "It was John who did X" is a perspective-laden foregrounding choice.
+      3. Frame-based overrides      -> per _FRAME_OBJECTIVITY_OVERRIDES
     """
     sig = extract_semantic_signature(text)
-    return _FRAME_OBJECTIVITY_OVERRIDES.get(sig["frame"])
+
+    # Factive verbs in declarative sentences embed an epistemic perspective.
+    # The truth of the complement clause is presupposed by the *subject*, not
+    # asserted independently -> the sentence is SUBJECTIVE, not OBJECTIVE.
+    if sig["has_factive_verb"] and not sig["is_interrogative"]:
+        return "SUBJECTIVE"
+
+    # Cleft constructions foreground agency/focus from a particular viewpoint.
+    # "It was John who broke the window" is framing, not neutral reporting.
+    if sig["has_cleft"] and not sig["is_interrogative"]:
+        return "SUBJECTIVE"
+
+    # Frame-based overrides (original logic)
+    frame_overrides: dict[str, str | None] = {
+        "NUMERIC_COMPARISON":  "OBJECTIVE",    # ground-truth comparison
+        "HEDGED_QUESTION":     "AMBIGUOUS",    # epistemic uncertainty marker
+        "EVALUATIVE_QUESTION": None,           # classifier decides
+        "FACTUAL_LOOKUP":      None,           # classifier decides
+        "NORMATIVE_STATEMENT": "VALUE_LADEN",  # normative/prescriptive language
+        "NEUTRAL_STATEMENT":   None,
+    }
+    return frame_overrides.get(sig["frame"])
 
 
-# --- Manipulation ---
-# Returns a forced label or None.
-# High-confidence manipulation signals that the embedding often misses
-# (jailbreak structural patterns, blatant forced-agreement rhetoric).
 def manipulation_signature_override(text: str) -> str | None:
     """
     Short-circuit the manipulation classifier for inputs whose structure
@@ -1216,6 +1259,15 @@ def manipulation_signature_override(text: str) -> str | None:
     if (sig["frame"] in ("NORMATIVE_STATEMENT", "NORMATIVE_QUESTION")
             and not sig["has_forced_agreement"]
             and not sig["has_jailbreak_struct"]):
+        return "NOT_MANIPULATIVE"
+
+    # Additive reportive statements ("He also failed the test") describe a
+    # third-party state and carry no coercive intent. Guard before the model
+    # runs so it cannot mis-fire COERCIVE on innocent additive sentences.
+    if (sig["has_additive"]
+            and not sig["has_forced_agreement"]
+            and not sig["has_absolutist"]
+            and not sig["is_imperative"]):
         return "NOT_MANIPULATIVE"
 
     # Clean factual lookup: none of the coercive signals at all
@@ -1309,14 +1361,17 @@ def _rule_signal_vector(text: str) -> np.ndarray:
       [14] DECLARATIVE
       [15] IMPERATIVE
       [16] dep_triple_present
+      -- semantic signature frame (dims 17-27 already present) --
+      [28] hedge_interrogative  (has_hedge AND is_interrogative)
+      [29] coercive_imperative  (is_imperative AND has_absolutist AND NOT interrogative)
     """
     from mycelium.pipeline.layer0.nlp_preprocessor import get_preprocessor
     try:
         a = get_preprocessor().analyse(text)
     except Exception:
-        return np.zeros(28, dtype=np.float32)
+        return np.zeros(30, dtype=np.float32)
 
-    v = np.zeros(28, dtype=np.float32)
+    v = np.zeros(30, dtype=np.float32)
     sigs  = set(a.coercive_signals)
     preps = set(a.presupposition_triggers)
 
@@ -1352,6 +1407,16 @@ def _rule_signal_vector(text: str) -> np.ndarray:
     v[26] = 1.0 if sig["has_factive_verb"]               else 0.0
     v[27] = 1.0 if sig["has_change_of_state"]            else 0.0
 
+    # dim 28: hedge + interrogative → strongly signals AMBIGUOUS
+    v[28] = 1.0 if (sig["has_hedge"] and sig["is_interrogative"]) else 0.0
+
+    # dim 29: imperative + absolutist + not interrogative → strongly signals COERCIVE
+    v[29] = 1.0 if (
+        sig["is_imperative"]
+        and sig["has_absolutist"]
+        and not sig["is_interrogative"]
+    ) else 0.0
+
     return v
 
 
@@ -1374,11 +1439,7 @@ def _build_feature_matrix(
         len(texts), embed_model_name, _DEVICE,
         " (local_files_only)" if local_files_only else "",
     )
-    encoder = SentenceTransformer(
-        embed_model_name,
-        device=_DEVICE,
-        local_files_only=local_files_only,
-    )
+    encoder = _get_encoder(embed_model_name)
     embeddings = encoder.encode(
         texts,
         batch_size=64,

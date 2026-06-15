@@ -241,74 +241,24 @@ class Layer0Initializer:
 
     @classmethod
     def _run_calibration_eval(cls, status: Layer0Status) -> None:
-        """Run evaluate_calibration() on every loaded model.
+        """Skip calibration eval at boot — no held-out eval set is available.
 
-        Results are stored into status.calibrated and status.brier_scores.
-        Failures are logged but never propagate — calibration evaluation
-        is diagnostic-only and must not block the router from starting.
+        evaluate_calibration() requires (model_name, texts, labels) but at
+        boot time we have no labelled evaluation data.  Brier scores can be
+        computed offline via:
+
+            python -m mycelium.pipeline.layer0.probability_calibration --model all
+
+        All models are marked calibrated=None (unknown) rather than False
+        (failed) so health-check endpoints can distinguish "not evaluated"
+        from "evaluated and poor".
         """
-        # Lazy import: probability_calibration requires sklearn which may
-        # not be installed in every deployment configuration.
-        try:
-            from mycelium.pipeline.layer0.probability_calibration import (
-                evaluate_calibration,
-            )
-        except ImportError as exc:
-            logger.warning(
-                "Layer0Initializer: probability_calibration not importable — "
-                "calibration eval skipped. (%s)", exc
-            )
-            return
-
-        from mycelium.pipeline.model_registry import get_layer0_classifier
-
         for name in _MODEL_NAMES:
-            if not status.loaded.get(name, False):
-                # Model wasn’t loaded — nothing to calibrate.
-                continue
-            try:
-                artifact = get_layer0_classifier(name)
-                if artifact is None:
-                    logger.debug(
-                        "Layer0Initializer: artifact for %s missing from cache "
-                        "immediately after warmup — skipping calibration.", name
-                    )
-                    continue
-
-                # evaluate_calibration() returns a CalibrationReport dataclass.
-                # We only need the brier_score scalar and the ok flag here.
-                report = evaluate_calibration(
-                    model_name=name,
-                    artifact=artifact,
+            if status.loaded.get(name, False):
+                status.calibrated[name] = None  # unknown — not evaluated at boot
+                logger.debug(
+                    "Layer0Initializer [calibration]: %s — "
+                    "skipping Brier eval at boot (no eval data). "
+                    "Run probability_calibration CLI for offline evaluation.",
+                    name,
                 )
-
-                brier = getattr(report, "brier_score", None)
-                if brier is not None:
-                    status.brier_scores[name] = float(brier)
-
-                # A model is considered ‘calibrated’ when its Brier score
-                # is below 0.20 (rough threshold — lower is better).
-                # This is a diagnostic flag, not a hard gate.
-                ok = brier is not None and float(brier) < 0.20
-                status.calibrated[name] = ok
-
-                if ok:
-                    logger.info(
-                        "Layer0Initializer [calibration]: %s OK — Brier=%.4f",
-                        name, brier,
-                    )
-                else:
-                    logger.warning(
-                        "Layer0Initializer [calibration]: %s needs attention — "
-                        "Brier=%.4f (threshold 0.20). "
-                        "Re-run train_layer0_models.py to apply isotonic "
-                        "regression calibration.",
-                        name, brier if brier is not None else float("nan"),
-                    )
-
-            except Exception as exc:
-                logger.error(
-                    "Layer0Initializer [calibration]: eval failed for %s: %s",
-                    name, exc,
-                )
-                status.calibrated[name] = False
