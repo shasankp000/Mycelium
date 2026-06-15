@@ -30,6 +30,7 @@ models/layer0/*.joblib
 training_data/*.csv
 training_data/jailbreakbench/*
 training_data/jailbreakbench
+hf_cache/*
 
 # --- Expert model directories ------
 mycelium/pipeline/experts/*
