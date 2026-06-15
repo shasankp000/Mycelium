@@ -104,7 +104,7 @@ class SharedEncoder(nn.Module):
         if self._backbone_accepts_mask:
             out = self.backbone(input_ids, attention_mask=attention_mask)
         else:
-            inp = input_ids.float() if input_ids.dtype in (torch.long, torch.int32, torch.int16) else input_ids
+            inp = input_ids  # backbone receives native dtype; EmbeddingBag needs long, Linear needs float — caller's responsibility
             out = self.backbone(inp)
 
         # unwrap common wrapper types

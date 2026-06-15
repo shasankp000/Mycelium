@@ -32,6 +32,9 @@ class DomainGraphRegistry:
     # ------------------------------------------------------------------
 
     def _load(self) -> None:
+        import os
+        if not os.path.exists(self._path) or os.path.getsize(self._path) == 0:
+            return
         nodes, edges, schema = load_graph(self._path)
         with self._lock:
             self._nodes = nodes
