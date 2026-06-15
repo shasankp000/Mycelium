@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import threading
 from collections import OrderedDict
 from pathlib import Path
@@ -35,6 +36,41 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Wire hf_cache_dir from config.toml into every HuggingFace / ST loader.
+#
+# We do this at import time so that the env-vars are visible to all HF
+# libraries (transformers, sentence-transformers, huggingface_hub) before
+# they touch their own cache logic.
+# ---------------------------------------------------------------------------
+
+def _resolve_hf_cache() -> str:
+    """Return the absolute hf_cache path from config_loader, with fallback."""
+    try:
+        from mycelium.pipeline import config_loader as _cfg
+        return _cfg.hf_cache_dir()
+    except Exception:
+        # If config_loader itself fails (e.g. during unit-test bootstrap),
+        # fall back to the standard HF default so nothing breaks.
+        return os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            "hf_cache",
+        )
+
+
+_HF_CACHE_DIR: str = _resolve_hf_cache()
+
+# Set env-vars *before* any HF library import so the cache is honoured
+# globally (transformers, sentence-transformers, huggingface_hub all read
+# HF_HOME; older versions of transformers also read TRANSFORMERS_CACHE).
+os.environ.setdefault("HF_HOME", _HF_CACHE_DIR)
+os.environ.setdefault("TRANSFORMERS_CACHE", _HF_CACHE_DIR)
+os.environ.setdefault("SENTENCE_TRANSFORMERS_HOME", _HF_CACHE_DIR)
+
+logger.debug("ModelRegistry: HF cache directory → %s", _HF_CACHE_DIR)
+
+# ---------------------------------------------------------------------------
 
 _lock: threading.Lock = threading.Lock()
 _cache: Dict[str, Any] = {}
@@ -187,17 +223,35 @@ def get_model(
 def _load(model_name: str, model_type: str, device: str) -> Any:
     if model_type == "sentence_transformer":
         from sentence_transformers import SentenceTransformer
-        return SentenceTransformer(model_name, device=device)
+        return SentenceTransformer(
+            model_name,
+            device=device,
+            cache_folder=_HF_CACHE_DIR,
+        )
     elif model_type == "hf_pipeline":
         from transformers import pipeline
-        return pipeline(model_name, device=0 if device == "cuda" else -1)
+        return pipeline(
+            model_name,
+            device=0 if device == "cuda" else -1,
+            model_kwargs={"cache_dir": _HF_CACHE_DIR},
+        )
     elif model_type == "hf_pipeline_cpu":
         from transformers import pipeline
-        return pipeline(model=model_name, device=-1)
+        return pipeline(
+            model=model_name,
+            device=-1,
+            model_kwargs={"cache_dir": _HF_CACHE_DIR},
+        )
     elif model_type == "hf_automodel":
         from transformers import AutoModel, AutoTokenizer
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model = AutoModel.from_pretrained(model_name).to(device)
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_name,
+            cache_dir=_HF_CACHE_DIR,
+        )
+        model = AutoModel.from_pretrained(
+            model_name,
+            cache_dir=_HF_CACHE_DIR,
+        ).to(device)
         return {"model": model, "tokenizer": tokenizer}
     elif model_type == "sklearn_joblib":
         # model_name is the full path to the .joblib file
