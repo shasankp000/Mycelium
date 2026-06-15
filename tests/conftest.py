@@ -1,7 +1,25 @@
 """
 Shared pytest fixtures for Phase 2 tests.
 """
+# ── HF cache bootstrap ── must be the very first lines ──────────────────
+import os, sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root → sys.path
 
+_repo_root = Path(__file__).resolve().parents[1]
+try:
+    from mycelium.pipeline import config_loader as _cfg
+    _hf_cache = _cfg.hf_cache_dir()
+except Exception:
+    _hf_cache = str(_repo_root / "hf_cache")
+
+os.environ["HF_HOME"]                    = _hf_cache
+os.environ["TRANSFORMERS_CACHE"]         = _hf_cache
+os.environ["SENTENCE_TRANSFORMERS_HOME"] = _hf_cache
+os.environ["HF_DATASETS_CACHE"]          = _hf_cache
+# ── end bootstrap ────────────────────────────────────────────────────────
+
+# all your normal imports go here
 import pytest
 
 
