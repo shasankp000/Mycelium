@@ -178,3 +178,103 @@ ood_rejection_threshold    = 0.6
 # ---------------------------------------------------------------------------
 [workflow]
 traces_dir = "traces"
+
+# ===========================================================================
+# TRM v2 — Feature-flagged sections
+# All flags default to false so existing production paths are never affected
+# until explicitly opted in.  Flip enabled = true one section at a time while
+# running the parity suite between each change.
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# [trm_v2]  TRM v2 neural architecture flags
+# ---------------------------------------------------------------------------
+# enabled              : master switch — set true to activate TRM v2 path
+#                        in run_workflow.py and multi_lens_router.py.
+#                        env: MYCELIUM_TRM_V2_ENABLED
+# encoder_checkpoint   : path to the frozen SharedEncoder base checkpoint.
+#                        Leave empty to initialise from the legacy TRM weights.
+#                        env: MYCELIUM_TRM_V2_ENCODER_CHECKPOINT
+# gate_checkpoint      : path to the DomainGate checkpoint.
+#                        env: MYCELIUM_TRM_V2_GATE_CHECKPOINT
+# gate_top_k           : how many domain heads the gate activates per query.
+#                        env: MYCELIUM_TRM_V2_GATE_TOP_K
+# gate_mode            : bootstrap | expansion | frozen
+#                        Controls requires_grad on gate parameters at startup.
+#                        env: MYCELIUM_TRM_V2_GATE_MODE
+# ---------------------------------------------------------------------------
+[trm_v2]
+enabled             = false                              # env: MYCELIUM_TRM_V2_ENABLED
+encoder_checkpoint  = "artifacts/trm_v2/encoder/base.pt" # env: MYCELIUM_TRM_V2_ENCODER_CHECKPOINT
+gate_checkpoint     = "artifacts/trm_v2/gate/gate.pt"    # env: MYCELIUM_TRM_V2_GATE_CHECKPOINT
+gate_top_k          = 3                                  # env: MYCELIUM_TRM_V2_GATE_TOP_K
+gate_mode           = "frozen"                           # env: MYCELIUM_TRM_V2_GATE_MODE
+
+# ---------------------------------------------------------------------------
+# [domain_graph]  DomainGraphRegistry persistence + behaviour
+# ---------------------------------------------------------------------------
+# enabled              : activates the DomainGraphRegistry at startup.
+#                        Requires [trm_v2] enabled = true to have any effect
+#                        on inference routing.
+#                        env: MYCELIUM_DOMAIN_GRAPH_ENABLED
+# graph_path           : JSON file where the graph is persisted between runs.
+#                        The directory is created automatically if absent.
+#                        env: MYCELIUM_DOMAIN_GRAPH_PATH
+# graph_schema_version : bumped on breaking schema changes; checked on load.
+#                        env: MYCELIUM_DOMAIN_GRAPH_SCHEMA_VERSION
+# ---------------------------------------------------------------------------
+[domain_graph]
+enabled              = false                                      # env: MYCELIUM_DOMAIN_GRAPH_ENABLED
+graph_path           = "artifacts/domain_graph/graph.json"        # env: MYCELIUM_DOMAIN_GRAPH_PATH
+graph_schema_version = "1.0"                                      # env: MYCELIUM_DOMAIN_GRAPH_SCHEMA_VERSION
+
+# ---------------------------------------------------------------------------
+# [sqlite_experts]  SQLite-sharded domain store
+# ---------------------------------------------------------------------------
+# enabled          : activates the SQLiteDomainStore retrieval path.
+#                    When false the legacy UnifiedBERTExpert path is used.
+#                    env: MYCELIUM_SQLITE_EXPERTS_ENABLED
+# root_dir         : directory that contains one <domain_id>.sqlite file per domain.
+#                    Created automatically on first onboarding run.
+#                    env: MYCELIUM_SQLITE_EXPERTS_ROOT_DIR
+# use_fts5         : enable the FTS5 virtual table for full-text pre-filtering.
+#                    Set false only on very constrained SQLite builds that lack
+#                    the FTS5 extension.
+#                    env: MYCELIUM_SQLITE_EXPERTS_USE_FTS5
+# vector_extension : "auto"            — probe for sqlite-vec, fall back to Python
+#                    "sqlite-vec"      — require the extension (error if absent)
+#                    "python-fallback" — always use Python-side cosine similarity
+#                    env: MYCELIUM_SQLITE_EXPERTS_VECTOR_EXTENSION
+# ---------------------------------------------------------------------------
+[sqlite_experts]
+enabled          = false                   # env: MYCELIUM_SQLITE_EXPERTS_ENABLED
+root_dir         = "artifacts/sqlite_experts" # env: MYCELIUM_SQLITE_EXPERTS_ROOT_DIR
+use_fts5         = true                    # env: MYCELIUM_SQLITE_EXPERTS_USE_FTS5
+vector_extension = "auto"                  # env: MYCELIUM_SQLITE_EXPERTS_VECTOR_EXTENSION
+
+# ---------------------------------------------------------------------------
+# [cold_storage]  Domain cold-store and reactivation settings
+# ---------------------------------------------------------------------------
+# enabled                : activates the ColdStorageManager lifecycle.
+#                          env: MYCELIUM_COLD_STORAGE_ENABLED
+# quantize_on_store      : if true, head checkpoints are quantized (INT8/FP16)
+#                          when a domain is cold-stored to reduce disk footprint.
+#                          env: MYCELIUM_COLD_STORAGE_QUANTIZE_ON_STORE
+# replay_min_samples     : minimum replay-buffer samples required before a
+#                          domain may be cold-stored.  Prevents premature eviction
+#                          of under-trained domains.
+#                          env: MYCELIUM_COLD_STORAGE_REPLAY_MIN_SAMPLES
+# replay_max_samples     : hard cap on samples kept in the replay buffer.
+#                          Older samples are evicted FIFO once this limit is hit.
+#                          env: MYCELIUM_COLD_STORAGE_REPLAY_MAX_SAMPLES
+# reactivation_queue     : if true, cold-domain reactivation requests are queued
+#                          and processed asynchronously (non-blocking inference).
+#                          If false, reactivation is synchronous (blocking).
+#                          env: MYCELIUM_COLD_STORAGE_REACTIVATION_QUEUE
+# ---------------------------------------------------------------------------
+[cold_storage]
+enabled                = false   # env: MYCELIUM_COLD_STORAGE_ENABLED
+quantize_on_store      = true    # env: MYCELIUM_COLD_STORAGE_QUANTIZE_ON_STORE
+replay_min_samples     = 500     # env: MYCELIUM_COLD_STORAGE_REPLAY_MIN_SAMPLES
+replay_max_samples     = 1000    # env: MYCELIUM_COLD_STORAGE_REPLAY_MAX_SAMPLES
+reactivation_queue     = true    # env: MYCELIUM_COLD_STORAGE_REACTIVATION_QUEUE
