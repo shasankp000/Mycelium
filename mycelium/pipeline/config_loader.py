@@ -15,6 +15,11 @@ Usage
     weight  = cfg.get_float("layer1", "lens1_embedding_weight")  # -> 0.8
     domains = cfg.get_list("layer1.domain_list", "domains")      # -> [...]
 
+    # TRM v2 typed config bundle
+    trm_cfg = cfg.load_trm_v2_config()
+    if trm_cfg.enabled:
+        print(trm_cfg.gate_top_k)
+
 The module-level ``cfg`` singleton re-reads ``config.toml`` on every call
 (TOML parsing is fast; a stat+read of a small file is negligible vs. any
 LLM call). This means you never need to restart the server after editing
@@ -26,6 +31,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -460,6 +466,192 @@ def workflow_traces_dir() -> str:
     return get("workflow", "traces_dir", "traces")
 
 
+# ===========================================================================
+# TRM v2 — typed config dataclasses + load_trm_v2_config()
+# ===========================================================================
+
+@dataclass
+class TRMV2Config:
+    """Typed mirror of the [trm_v2] TOML table."""
+    enabled:            bool  = False
+    encoder_checkpoint: str   = "artifacts/trm_v2/encoder/base.pt"
+    gate_checkpoint:    str   = "artifacts/trm_v2/gate/gate.pt"
+    gate_top_k:         int   = 3
+    gate_mode:          str   = "frozen"  # bootstrap | expansion | frozen
+
+
+@dataclass
+class DomainGraphConfig:
+    """Typed mirror of the [domain_graph] TOML table."""
+    enabled:              bool = False
+    graph_path:           str  = "artifacts/domain_graph/graph.json"
+    graph_schema_version: str  = "1.0"
+
+
+@dataclass
+class SQLiteExpertsConfig:
+    """Typed mirror of the [sqlite_experts] TOML table."""
+    enabled:          bool = False
+    root_dir:         str  = "artifacts/sqlite_experts"
+    use_fts5:         bool = True
+    vector_extension: str  = "auto"  # auto | sqlite-vec | python-fallback
+
+
+@dataclass
+class ColdStorageConfig:
+    """Typed mirror of the [cold_storage] TOML table."""
+    enabled:            bool = False
+    quantize_on_store:  bool = True
+    replay_min_samples: int  = 500
+    replay_max_samples: int  = 1000
+    reactivation_queue: bool = True
+
+
+@dataclass
+class TRMv2FullConfig:
+    """Aggregated bundle returned by load_trm_v2_config().
+
+    Holds all four TRM v2 sub-configs so callers only need a single import::
+
+        from mycelium.pipeline.config_loader import load_trm_v2_config
+        cfg = load_trm_v2_config()
+        if cfg.trm_v2.enabled:
+            ...
+    """
+    trm_v2:         TRMV2Config        = field(default_factory=TRMV2Config)
+    domain_graph:   DomainGraphConfig  = field(default_factory=DomainGraphConfig)
+    sqlite_experts: SQLiteExpertsConfig = field(default_factory=SQLiteExpertsConfig)
+    cold_storage:   ColdStorageConfig  = field(default_factory=ColdStorageConfig)
+
+
+def load_trm_v2_config() -> TRMv2FullConfig:
+    """Read all four TRM v2 TOML tables and return a typed TRMv2FullConfig.
+
+    Re-reads ``config.toml`` on every call (consistent with the rest of
+    config_loader — cheap, no caching needed).
+    All values fall back gracefully to their dataclass defaults if the
+    corresponding table or key is absent from config.toml, so calling this
+    function is always safe even before the tables are added.
+
+    Environment variable overrides follow the same MYCELIUM_<SECTION>_<KEY>
+    convention as the rest of the loader.
+    """
+    return TRMv2FullConfig(
+        trm_v2=TRMV2Config(
+            enabled=get_bool("trm_v2", "enabled", False),
+            encoder_checkpoint=get(
+                "trm_v2", "encoder_checkpoint",
+                "artifacts/trm_v2/encoder/base.pt",
+            ),
+            gate_checkpoint=get(
+                "trm_v2", "gate_checkpoint",
+                "artifacts/trm_v2/gate/gate.pt",
+            ),
+            gate_top_k=get_int("trm_v2", "gate_top_k", 3),
+            gate_mode=get("trm_v2", "gate_mode", "frozen"),
+        ),
+        domain_graph=DomainGraphConfig(
+            enabled=get_bool("domain_graph", "enabled", False),
+            graph_path=get(
+                "domain_graph", "graph_path",
+                "artifacts/domain_graph/graph.json",
+            ),
+            graph_schema_version=get(
+                "domain_graph", "graph_schema_version", "1.0",
+            ),
+        ),
+        sqlite_experts=SQLiteExpertsConfig(
+            enabled=get_bool("sqlite_experts", "enabled", False),
+            root_dir=get(
+                "sqlite_experts", "root_dir",
+                "artifacts/sqlite_experts",
+            ),
+            use_fts5=get_bool("sqlite_experts", "use_fts5", True),
+            vector_extension=get(
+                "sqlite_experts", "vector_extension", "auto",
+            ),
+        ),
+        cold_storage=ColdStorageConfig(
+            enabled=get_bool("cold_storage", "enabled", False),
+            quantize_on_store=get_bool("cold_storage", "quantize_on_store", True),
+            replay_min_samples=get_int("cold_storage", "replay_min_samples", 500),
+            replay_max_samples=get_int("cold_storage", "replay_max_samples", 1000),
+            reactivation_queue=get_bool("cold_storage", "reactivation_queue", True),
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Flat accessors — [trm_v2]
+# ---------------------------------------------------------------------------
+
+def trm_v2_enabled() -> bool:
+    return get_bool("trm_v2", "enabled", False)
+
+def trm_v2_encoder_checkpoint() -> str:
+    return get("trm_v2", "encoder_checkpoint", "artifacts/trm_v2/encoder/base.pt")
+
+def trm_v2_gate_checkpoint() -> str:
+    return get("trm_v2", "gate_checkpoint", "artifacts/trm_v2/gate/gate.pt")
+
+def trm_v2_gate_top_k() -> int:
+    return get_int("trm_v2", "gate_top_k", 3)
+
+def trm_v2_gate_mode() -> str:
+    return get("trm_v2", "gate_mode", "frozen")
+
+
+# ---------------------------------------------------------------------------
+# Flat accessors — [domain_graph]
+# ---------------------------------------------------------------------------
+
+def domain_graph_enabled() -> bool:
+    return get_bool("domain_graph", "enabled", False)
+
+def domain_graph_path() -> str:
+    return get("domain_graph", "graph_path", "artifacts/domain_graph/graph.json")
+
+def domain_graph_schema_version() -> str:
+    return get("domain_graph", "graph_schema_version", "1.0")
+
+
+# ---------------------------------------------------------------------------
+# Flat accessors — [sqlite_experts]
+# ---------------------------------------------------------------------------
+
+def sqlite_experts_enabled() -> bool:
+    return get_bool("sqlite_experts", "enabled", False)
+
+def sqlite_experts_root_dir() -> str:
+    return get("sqlite_experts", "root_dir", "artifacts/sqlite_experts")
+
+def sqlite_experts_use_fts5() -> bool:
+    return get_bool("sqlite_experts", "use_fts5", True)
+
+def sqlite_experts_vector_extension() -> str:
+    return get("sqlite_experts", "vector_extension", "auto")
+
+
+# ---------------------------------------------------------------------------
+# Flat accessors — [cold_storage]
+# ---------------------------------------------------------------------------
+
+def cold_storage_enabled() -> bool:
+    return get_bool("cold_storage", "enabled", False)
+
+def cold_storage_quantize_on_store() -> bool:
+    return get_bool("cold_storage", "quantize_on_store", True)
+
+def cold_storage_replay_min_samples() -> int:
+    return get_int("cold_storage", "replay_min_samples", 500)
+
+def cold_storage_replay_max_samples() -> int:
+    return get_int("cold_storage", "replay_max_samples", 1000)
+
+def cold_storage_reactivation_queue() -> bool:
+    return get_bool("cold_storage", "reactivation_queue", True)
+
+
 # ---------------------------------------------------------------------------
 # Convenience singleton
 # ---------------------------------------------------------------------------
@@ -533,6 +725,25 @@ class _Cfg:
     ue_ood_tolerance_use_existing  = staticmethod(ue_ood_tolerance_use_existing)
     ue_ood_rejection_threshold     = staticmethod(ue_ood_rejection_threshold)
     workflow_traces_dir            = staticmethod(workflow_traces_dir)
+    # TRM v2
+    load_trm_v2_config             = staticmethod(load_trm_v2_config)
+    trm_v2_enabled                 = staticmethod(trm_v2_enabled)
+    trm_v2_encoder_checkpoint      = staticmethod(trm_v2_encoder_checkpoint)
+    trm_v2_gate_checkpoint         = staticmethod(trm_v2_gate_checkpoint)
+    trm_v2_gate_top_k              = staticmethod(trm_v2_gate_top_k)
+    trm_v2_gate_mode               = staticmethod(trm_v2_gate_mode)
+    domain_graph_enabled           = staticmethod(domain_graph_enabled)
+    domain_graph_path              = staticmethod(domain_graph_path)
+    domain_graph_schema_version    = staticmethod(domain_graph_schema_version)
+    sqlite_experts_enabled         = staticmethod(sqlite_experts_enabled)
+    sqlite_experts_root_dir        = staticmethod(sqlite_experts_root_dir)
+    sqlite_experts_use_fts5        = staticmethod(sqlite_experts_use_fts5)
+    sqlite_experts_vector_extension = staticmethod(sqlite_experts_vector_extension)
+    cold_storage_enabled           = staticmethod(cold_storage_enabled)
+    cold_storage_quantize_on_store = staticmethod(cold_storage_quantize_on_store)
+    cold_storage_replay_min_samples = staticmethod(cold_storage_replay_min_samples)
+    cold_storage_replay_max_samples = staticmethod(cold_storage_replay_max_samples)
+    cold_storage_reactivation_queue = staticmethod(cold_storage_reactivation_queue)
 
 
 cfg = _Cfg()
