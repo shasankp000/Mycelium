@@ -1,7 +1,6 @@
 # Mycelium — TRM v0.2 Rebuild Notes
 
-> **Branch target:** `feature/trm-v02-clean-rebuild` → PR into `trm-v2-dev`  
-> **Authored:** 2026-06-15  
+> **Authored:** 2026-06-16  
 > **Status:** Pre-implementation planning document
 
 ---
