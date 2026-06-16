@@ -1,3 +1,8 @@
+import warnings
+warnings.warn(
+    "run_workflow is deprecated. Use the updated version on the project root instead instead.",
+    DeprecationWarning, stacklevel=2
+)
 import json
 import os as _os
 import datetime
