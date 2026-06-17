@@ -1,0 +1,70 @@
+{
+  "physics": {
+    "csv": "dummy_models/Physics/physics_data.csv",
+    "column": "Comment",
+    "sample_size": 50,
+    "fallback_texts": [
+      "Quantum entanglement occurs when particles remain correlated.",
+      "String theory posits that fundamental particles are tiny vibrating strings.",
+      "The Higgs boson gives other particles their mass via the Higgs field.",
+      "Einstein's general relativity describes gravity as spacetime curvature.",
+      "Wave-particle duality means electrons exhibit both wave and particle behaviour.",
+      "The standard model unifies the electromagnetic, weak, and strong forces.",
+      "Thermodynamics governs energy transfer and entropy in physical systems.",
+      "Nuclear fusion releases energy by combining light atomic nuclei.",
+      "Superconductivity is the zero-resistance flow of electrons at low temperatures.",
+      "Photoelectric effect demonstrates that light is quantised into photons."
+    ]
+  },
+  "medical": {
+    "csv": "dummy_models/Medical/medical_dataset.csv",
+    "column": "sentence",
+    "sample_size": 50,
+    "fallback_texts": [
+      "Metastatic carcinoma requires systemic chemotherapy.",
+      "The blood-brain barrier restricts passage of large molecules.",
+      "Insulin resistance is a hallmark of type 2 diabetes mellitus.",
+      "MRI imaging provides high-resolution soft-tissue contrast.",
+      "Antibiotic resistance arises from selective evolutionary pressure.",
+      "The immune system deploys T-cells to target infected cells.",
+      "Hypertension increases the risk of stroke and myocardial infarction.",
+      "Synaptic plasticity underlies learning and memory formation.",
+      "CRISPR-Cas9 enables precise editing of genomic sequences.",
+      "Vaccines stimulate adaptive immunity without causing disease."
+    ]
+  },
+  "music": {
+    "csv": "dummy_models/Music/music_classification_dataset.csv",
+    "column": "sentence",
+    "sample_size": 50,
+    "fallback_texts": [
+      "A major chord consists of a root, major third, and perfect fifth.",
+      "Counterpoint involves the interplay of independent melodic lines.",
+      "The tempo marking allegro indicates a fast and lively pace.",
+      "Jazz harmony relies heavily on extended chords and modal scales.",
+      "Polyphony describes music with two or more independent melodic voices.",
+      "The circle of fifths illustrates harmonic relationships between keys.",
+      "Synthesisers generate sound electronically by modulating waveforms.",
+      "Rhythm is the pattern of sounds and silences in time.",
+      "Dynamic markings such as forte and piano indicate volume levels.",
+      "Timbre distinguishes the sound quality of different instruments."
+    ]
+  },
+  "chemistry": {
+    "csv": null,
+    "column": null,
+    "sample_size": 0,
+    "fallback_texts": [
+      "Covalent bonds form when atoms share electrons.",
+      "Ionic compounds dissolve readily in polar solvents.",
+      "The periodic table organises elements by atomic number.",
+      "Exothermic reactions release energy to the surroundings.",
+      "Acids donate protons while bases accept them in Bronsted-Lowry theory.",
+      "Catalysts lower activation energy without being consumed.",
+      "Organic chemistry focuses on carbon-containing compounds.",
+      "Redox reactions involve the transfer of electrons between species.",
+      "Polymers are large molecules built from repeating monomer units.",
+      "Electronegativity measures an atom tendency to attract electrons."
+    ]
+  }
+}

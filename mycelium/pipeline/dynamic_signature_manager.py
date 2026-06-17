@@ -27,112 +27,62 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 # ---------------------------------------------------------------------------
-# Domain -> corpus source mapping
+# Domain -> corpus source mapping — loaded from domain_corpora.json
 # ---------------------------------------------------------------------------
-DOMAIN_CORPUS_SOURCES: Dict[str, Dict] = {
-    "physics": {
-        "csv": str(_PROJECT_ROOT / "dummy_models" / "Physics" / "physics_data.csv"),
-        "column": "Comment",
-        "sample_size": 50,
-        "fallback_texts": [
-            "Quantum entanglement occurs when particles remain correlated.",
-            "String theory posits that fundamental particles are tiny vibrating strings.",
-            "The Higgs boson gives other particles their mass via the Higgs field.",
-            "Einstein's general relativity describes gravity as spacetime curvature.",
-            "Wave-particle duality means electrons exhibit both wave and particle behaviour.",
-            "The standard model unifies the electromagnetic, weak, and strong forces.",
-            "Thermodynamics governs energy transfer and entropy in physical systems.",
-            "Nuclear fusion releases energy by combining light atomic nuclei.",
-            "Superconductivity is the zero-resistance flow of electrons at low temperatures.",
-            "Photoelectric effect demonstrates that light is quantised into photons.",
-        ],
-    },
-    "medical": {
-        "csv": str(_PROJECT_ROOT / "dummy_models" / "Medical" / "medical_dataset.csv"),
-        "column": "sentence",
-        "sample_size": 50,
-        "fallback_texts": [
-            "Metastatic carcinoma requires systemic chemotherapy.",
-            "The blood-brain barrier restricts passage of large molecules.",
-            "Insulin resistance is a hallmark of type 2 diabetes mellitus.",
-            "MRI imaging provides high-resolution soft-tissue contrast.",
-            "Antibiotic resistance arises from selective evolutionary pressure.",
-            "The immune system deploys T-cells to target infected cells.",
-            "Hypertension increases the risk of stroke and myocardial infarction.",
-            "Synaptic plasticity underlies learning and memory formation.",
-            "CRISPR-Cas9 enables precise editing of genomic sequences.",
-            "Vaccines stimulate adaptive immunity without causing disease.",
-        ],
-    },
-    "music": {
-        "csv": str(_PROJECT_ROOT / "dummy_models" / "Music" / "music_classification_dataset.csv"),
-        "column": "sentence",
-        "sample_size": 50,
-        "fallback_texts": [
-            "A major chord consists of a root, major third, and perfect fifth.",
-            "Counterpoint involves the interplay of independent melodic lines.",
-            "The tempo marking allegro indicates a fast and lively pace.",
-            "Jazz harmony relies heavily on extended chords and modal scales.",
-            "Polyphony describes music with two or more independent melodic voices.",
-            "The circle of fifths illustrates harmonic relationships between keys.",
-            "Synthesisers generate sound electronically by modulating waveforms.",
-            "Rhythm is the pattern of sounds and silences in time.",
-            "Dynamic markings such as forte and piano indicate volume levels.",
-            "Timbre distinguishes the sound quality of different instruments.",
-        ],
-    },
-    "chemistry": {
-        "csv": None,
-        "column": None,
-        "sample_size": 0,
-        "fallback_texts": [
-            "Covalent bonds form when atoms share electrons.",
-            "Ionic compounds dissolve readily in polar solvents.",
-            "The periodic table organises elements by atomic number.",
-            "Exothermic reactions release energy to the surroundings.",
-            "Acids donate protons while bases accept them in Bronsted-Lowry theory.",
-            "Catalysts lower activation energy without being consumed.",
-            "Organic chemistry focuses on carbon-containing compounds.",
-            "Redox reactions involve the transfer of electrons between species.",
-            "Polymers are large molecules built from repeating monomer units.",
-            "Electronegativity measures an atom's tendency to attract electrons.",
-        ],
-    },
-    "astronomy": {
-        "csv": None,
-        "column": None,
-        "sample_size": 0,
-        "fallback_texts": [
-            "Earth orbits the Sun at a distance of 150 million kilometres.",
-            "Neutron stars are the remnants of supernova explosions.",
-            "Black holes have gravitational fields from which light cannot escape.",
-            "The Milky Way galaxy contains over 200 billion stars.",
-            "Dark matter does not interact with the electromagnetic force.",
-            "Stellar nucleosynthesis forges heavy elements inside dying stars.",
-            "The cosmic microwave background is relic radiation from the Big Bang.",
-            "Exoplanets orbit stars outside our solar system.",
-            "Gravitational waves are ripples in spacetime caused by massive events.",
-            "Quasars are extremely luminous active galactic nuclei.",
-        ],
-    },
-    "automobile": {
-        "csv": None,
-        "column": None,
-        "sample_size": 0,
-        "fallback_texts": [
-            "A car with a 700cc engine has a tubeless tyre system.",
-            "Manual transmission provides direct control over gear selection.",
-            "Modern motorcycles feature advanced suspension systems.",
-            "Turbochargers force more air into the combustion chamber.",
-            "ABS prevents wheel lockup during emergency braking.",
-            "Electric vehicles use regenerative braking to recover energy.",
-            "The catalytic converter reduces harmful exhaust emissions.",
-            "Torque vectoring distributes power between wheels for better handling.",
-            "Hybrid powertrains combine an internal combustion engine with an electric motor.",
-            "Chassis rigidity directly affects vehicle handling and safety.",
-        ],
-    },
-}
+# domain_corpora.json lives in the same directory as this file.
+# To add a new domain or update corpus paths, edit that file — no source
+# changes required.
+# ---------------------------------------------------------------------------
+
+_DOMAIN_CORPORA_CONFIG = Path(__file__).resolve().parent / "domain_corpora.json"
+
+
+def active_domains() -> List[str]:
+    """
+    Return the currently live domain list from config_loader.discover_live_domains().
+    This is the single source of truth for which domains need signatures.
+    Falls back to domain_corpora.json keys if config_loader is unavailable.
+    """
+    try:
+        from mycelium.pipeline import config_loader as _cfg
+        return _cfg.discover_live_domains()
+    except Exception:
+        pass
+    # secondary fallback: keys from domain_corpora.json
+    src = _load_domain_corpus_sources()
+    return sorted(src.keys())
+
+
+def _load_domain_corpus_sources() -> Dict[str, Dict]:
+    """Load domain corpus configuration from domain_corpora.json.
+    Falls back to an empty dict if the file is missing — unknown domains
+    will receive generic placeholder sentences from build_corpus_for_domain.
+    """
+    if not _DOMAIN_CORPORA_CONFIG.exists():
+        import logging as _log
+        _log.getLogger(__name__).warning(
+            "domain_corpora.json not found at %s — all domains will use generic fallback texts.",
+            _DOMAIN_CORPORA_CONFIG,
+        )
+        return {}
+    try:
+        import json as _json
+        data = _json.loads(_DOMAIN_CORPORA_CONFIG.read_text(encoding="utf-8"))
+        # Resolve relative CSV paths to absolute using _PROJECT_ROOT
+        for domain, cfg in data.items():
+            csv_path = cfg.get("csv")
+            if csv_path and not Path(csv_path).is_absolute():
+                cfg["csv"] = str(_PROJECT_ROOT / csv_path)
+        return data
+    except Exception as exc:
+        import logging as _log
+        _log.getLogger(__name__).error(
+            "Failed to load domain_corpora.json: %s", exc
+        )
+        return {}
+
+
+DOMAIN_CORPUS_SOURCES: Dict[str, Dict] = _load_domain_corpus_sources()
 
 
 # ---------------------------------------------------------------------------

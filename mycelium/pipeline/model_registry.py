@@ -163,33 +163,37 @@ def clear_embed_cache() -> None:
 # HuggingFace / SentenceTransformer startup specs (unchanged)
 # ---------------------------------------------------------------------------
 
-STARTUP_SPECS: List[Dict[str, str]] = [
-    {
-        "model_name": "sentence-transformers/all-mpnet-base-v2",
-        "model_type": "sentence_transformer",
-        "device": "cpu",
-    },
-    {
-        "model_name": "sentence-transformers/all-MiniLM-L6-v2",
-        "model_type": "sentence_transformer",
-        "device": "cpu",
-    },
-    {
-        "model_name": "typeform/distilbert-base-uncased-mnli",
-        "model_type": "hf_pipeline_cpu",
-        "device": "cpu",
-    },
-    {
-        "model_name": "dslim/bert-base-NER",
-        "model_type": "hf_pipeline_cpu",
-        "device": "cpu",
-    },
-    {
-        "model_name": "vblagoje/bert-english-uncased-finetuned-pos",
-        "model_type": "hf_pipeline_cpu",
-        "device": "cpu",
-    },
-]
+def _load_startup_specs() -> List[Dict[str, str]]:
+    """
+    Load startup model specs from config_loader if available.
+    Falls back to the built-in defaults so the system always starts.
+    """
+    _defaults: List[Dict[str, str]] = [
+        {"model_name": "sentence-transformers/all-mpnet-base-v2",
+         "model_type": "sentence_transformer", "device": "cpu"},
+        {"model_name": "sentence-transformers/all-MiniLM-L6-v2",
+         "model_type": "sentence_transformer", "device": "cpu"},
+        {"model_name": "typeform/distilbert-base-uncased-mnli",
+         "model_type": "hf_pipeline_cpu", "device": "cpu"},
+        {"model_name": "dslim/bert-base-NER",
+         "model_type": "hf_pipeline_cpu", "device": "cpu"},
+        {"model_name": "vblagoje/bert-english-uncased-finetuned-pos",
+         "model_type": "hf_pipeline_cpu", "device": "cpu"},
+    ]
+    try:
+        from mycelium.pipeline import config_loader as _cfg
+        specs = getattr(_cfg, "startup_model_specs", None)
+        if callable(specs):
+            loaded = specs()
+            if loaded and isinstance(loaded, list):
+                logger.debug("ModelRegistry: startup specs loaded from config (%d models)", len(loaded))
+                return loaded
+    except Exception as exc:
+        logger.debug("ModelRegistry: could not load startup specs from config: %s", exc)
+    return _defaults
+
+
+STARTUP_SPECS: List[Dict[str, str]] = _load_startup_specs()
 
 
 # ---------------------------------------------------------------------------
