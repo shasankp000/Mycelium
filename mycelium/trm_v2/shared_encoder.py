@@ -48,6 +48,10 @@ from torch import Tensor
 
 # Re-use the battle-tested primitives from the v1 TRMCell
 from mycelium.trm.network import RMSNorm, TRMCell
+from mycelium.trm.config import TRMConfig as _TRMConfig
+
+def _default_cfg() -> _TRMConfig:
+    return _TRMConfig()
 
 
 # ---------------------------------------------------------------------------
@@ -100,16 +104,24 @@ class SharedEncoder(nn.Module):
 
     def __init__(
         self,
-        vocab_size:   int = 32_000,
-        hidden_size:  int = 256,
-        n_layers:     int = 2,
-        n_heads:      int = 4,
+        vocab_size:   Optional[int] = None,
+        hidden_size:  Optional[int] = None,
+        n_layers:     Optional[int] = None,
+        n_heads:      Optional[int] = None,
         max_seq_len:  int = 512,
         pad_token_id: int = 0,
-        ffn_expansion: int = 4,
+        ffn_expansion: Optional[int] = None,
         frozen:       bool = True,
+        cfg: Optional[_TRMConfig] = None,
     ) -> None:
         super().__init__()
+        _cfg = cfg or _default_cfg()
+        vocab_size    = vocab_size if vocab_size is not None else 32_000
+        hidden_size   = hidden_size if hidden_size is not None else _cfg.hidden_size
+        n_layers      = n_layers if n_layers is not None else _cfg.n_layers
+        n_heads       = n_heads if n_heads is not None else _cfg.n_heads
+        ffn_expansion = ffn_expansion if ffn_expansion is not None else _cfg.ffn_expansion
+
         self.hidden_size  = hidden_size
         self.pad_token_id = pad_token_id
 

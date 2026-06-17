@@ -49,6 +49,12 @@ from mycelium.trm_v2.types import (
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Filename constants — single source of truth for shard and checkpoint names
+# ---------------------------------------------------------------------------
+SHARD_FILENAME = "shard.db"
+HEAD_CKPT_FILENAME = "head.pt"
+
 
 # ---------------------------------------------------------------------------
 # Internal tracking record
@@ -114,10 +120,10 @@ class ColdStorageManager:
     # ---- Path helpers ------------------------------------------------------
 
     def _shard_path(self, domain_id: str) -> Path:
-        return self.root / domain_id / "shard.db"
+        return self.root / domain_id / SHARD_FILENAME
 
     def _head_ckpt_path(self, domain_id: str) -> Path:
-        return self.root / domain_id / "head.pt"
+        return self.root / domain_id / HEAD_CKPT_FILENAME
 
     # ---- Domain registration -----------------------------------------------
 

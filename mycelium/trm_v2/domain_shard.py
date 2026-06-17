@@ -151,7 +151,7 @@ class DomainShard:
     """SQLite-backed knowledge store for a single domain.
 
     Lifecycle:
-        shard = DomainShard("/path/to/domain.db")
+        shard = DomainShard(storage_root / domain_id / "shard.db")
         shard.open()          # creates schema if new
         shard.insert_chunk(text, embedding, source)
         shard.close()

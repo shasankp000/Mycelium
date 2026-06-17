@@ -29,6 +29,9 @@ from mycelium.trm_v2.types import (
     EVT_GATE_RECALIBRATION,
     EVT_DRIFT_DETECTED,
 )
+from mycelium.trm_v2.drift import DriftMonitor, DriftAction
+from mycelium.trm_v2.graph_snapshot import GraphSnapshotWriter
+
 
 __all__ = [
     "DomainState",
@@ -46,4 +49,7 @@ __all__ = [
     "EVT_DOMAIN_DEPRECATE",
     "EVT_GATE_RECALIBRATION",
     "EVT_DRIFT_DETECTED",
+    "DriftMonitor",
+    "DriftAction",
+    "GraphSnapshotWriter",
 ]
