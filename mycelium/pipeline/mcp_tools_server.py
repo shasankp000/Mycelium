@@ -44,6 +44,8 @@ import os as _os
 sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))))
 
 from mycelium.pipeline.tool_registry import TOOL_REGISTRY, TOOL_BY_NAME
+from mycelium.pipeline.tools.value_compare import _tool_handler as _value_compare
+
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
@@ -695,6 +697,7 @@ _TOOL_FN: Dict[str, Any] = {
     "temporal_search":     _temporal_search,
     "causal_search":       _causal_search,
     "statistical_search":  _statistical_search,
+    "value_compare":        _value_compare,
     "domain_store_search": _domain_store_search,
 }
 

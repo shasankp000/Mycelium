@@ -106,6 +106,20 @@ TOOL_REGISTRY: List[ToolSpec] = [
         tags=["math", "numeric"],
     ),
     ToolSpec(
+        name="value_compare",
+        description=(
+            "Deterministic comparison of two values of the same type. "
+            "Supports int, float (Decimal-exact), and str (literal, fuzzy, "
+            "and semantic-embedding similarity). "
+            "Use for COMPARATIVE predicates involving direct value comparison. "
+            "No LLM is invoked -- result is always deterministic for numeric types."
+        ),
+        input_arg="expression",
+        predicate_types=["COMPARATIVE"],
+        external=False,
+        tags=["math", "numeric", "string", "comparison", "deterministic"],
+    ),
+    ToolSpec(
         name="temporal_search",
         description=(
             "Date-scoped fact retrieval combining Wikidata date properties and "
