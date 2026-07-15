@@ -94,7 +94,7 @@ export default function LandingPage() {
   useReveal();
 
   function enter() {
-    router.push('/app');
+    router.push('/chat');
   }
 
   const R = styles.reveal;
