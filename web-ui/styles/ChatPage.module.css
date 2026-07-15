@@ -154,7 +154,7 @@
   padding: 10px 10px 10px 20px;
   background: var(--c-bg-1);
   border: 1px solid var(--c-border-default);
-  border-radius: var(--radius-lg);
+ border-radius: 26px;
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.3);
   transition: border-color var(--dur-fast) var(--ease-spring), box-shadow var(--dur-fast) var(--ease-spring);
 }
